@@ -6,6 +6,7 @@
 <title>Админка меню</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#f6f6f8; --panel:#fff; --line:#e5e5ea; --text:#1c1c1e; --muted:#8a8a8f;
@@ -85,6 +86,9 @@ a{color:inherit;}
 .uploader input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
 .uploader .clear{margin-left:auto;font-size:13px;color:var(--danger);flex:none;position:relative;z-index:2;}
 .uploader-err{color:var(--danger);font-size:13px;margin-top:6px;}
+.url-fallback{margin-top:8px;}
+.url-fallback label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;}
+.url-fallback input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;}
 
 /* ---------- variants editor ---------- */
 .variant-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
@@ -123,6 +127,7 @@ a{color:inherit;}
     <select id="restaurantSelect" class="rselect" hidden></select>
     <span id="restaurantName" class="email" hidden></span>
     <div class="spacer"></div>
+    <button class="btn btn-outline" id="importBtn">📥 Импорт из Excel</button>
     <button class="btn btn-outline" id="addRestaurantBtn" hidden>+ Новый ресторан</button>
     <span class="email" id="meEmail"></span>
   </header>
@@ -630,6 +635,7 @@ const SETTINGS_FIELDS = [
 
 function renderSettingsTab(container) {
   const s = state.settings;
+  const isOwner = state.me.role === 'owner';
   container.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h2>Настройки — ${esc(s.name)}</h2></div>
@@ -637,7 +643,23 @@ function renderSettingsTab(container) {
         ${SETTINGS_FIELDS.map((f) => fieldHTML(f, s[f.key])).join('')}
         <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
       </form>
-    </div>`;
+    </div>
+    ${isOwner ? `
+    <div class="panel">
+      <div class="panel-head"><h2>Кто ведёт этот ресторан</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+        Email человека, который должен видеть и редактировать именно этот ресторан в /admin.
+        Не забудь дополнительно добавить этот же email в Cloudflare Access (Zero Trust → Access →
+        приложение /admin → Policies → Include) — без этого шага человек не пройдёт через вход.
+      </p>
+      <form id="editorForm">
+        <div class="field">
+          <label>Email редактора</label>
+          <input type="text" id="editorEmailInput" placeholder="client@example.com" value="${esc((s.editorEmails && s.editorEmails[0]) || '')}">
+        </div>
+        <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить доступ</button></div>
+      </form>
+    </div>` : ''}`;
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
   SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
 
@@ -650,22 +672,40 @@ function renderSettingsTab(container) {
       toast('Сохранено');
     } catch (err) { toast('Ошибка: ' + err.message); }
   };
+
+  if (isOwner) {
+    document.getElementById('editorForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('editorEmailInput').value.trim();
+      if (!email) return;
+      try {
+        await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmail: email } });
+        state.settings.editorEmails = [email];
+        toast('Доступ сохранён — не забудь добавить email в Cloudflare Access');
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  }
 }
 
 /* =========================================================
-   ЗАГРУЗКА ФОТО / ВИДЕО (drag&drop)
+   ЗАГРУЗКА ФОТО / ВИДЕО (drag&drop) + вставка готовой ссылки
    ========================================================= */
 function uploaderHTML(key, url, kind) {
   const isVideo = kind === 'video';
   const preview = url
     ? (isVideo ? `<video src="${esc(url)}" muted></video>` : `<img src="${esc(url)}">`)
     : `<div class="ph">${isVideo ? 'видео' : 'фото'}</div>`;
+  const sizeHint = isVideo ? 'до 60 МБ' : 'до 20 МБ';
   return `
     <div class="uploader" id="u_${key}">
       ${preview}
-      <span class="txt">Перетащи файл сюда или нажми, чтобы выбрать</span>
+      <span class="txt">Перетащи файл сюда или нажми, чтобы выбрать (${sizeHint})</span>
       ${url ? `<button type="button" class="clear" data-clear>Убрать</button>` : ''}
       <input type="file" accept="${isVideo ? 'video/*' : 'image/*'}" id="f_${key}" data-url="${esc(url || '')}">
+    </div>
+    <div class="url-fallback">
+      <label>Или вставь готовую ссылку${isVideo ? ' на видео (.mp4)' : ' на фото'}</label>
+      <input type="text" id="url_${key}" placeholder="https://..." value="${esc(url || '')}">
     </div>
     <p class="uploader-err" id="err_${key}" hidden></p>`;
 }
@@ -673,11 +713,36 @@ function uploaderHTML(key, url, kind) {
 function attachUploader(rawKey, kind) {
   const wrap = document.getElementById('u_' + rawKey);
   const input = document.getElementById('f_' + rawKey);
+  const urlInput = document.getElementById('url_' + rawKey);
   const errEl = document.getElementById('err_' + rawKey);
   if (!wrap || !input) return;
 
   const showError = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
   const clearError = () => { if (errEl) errEl.hidden = true; };
+
+  /** Показать/убрать превью и кнопку «Убрать» — используется и после загрузки файла, и после вставки ссылки */
+  function setPreview(url) {
+    input.dataset.url = url || '';
+    if (urlInput) urlInput.value = url || '';
+    wrap.querySelector('img,video')?.remove();
+    wrap.querySelector('.ph')?.remove();
+    wrap.querySelector('[data-clear]')?.remove();
+
+    if (url) {
+      const el = document.createElement(kind === 'video' ? 'video' : 'img');
+      el.src = url;
+      if (kind === 'video') el.muted = true;
+      wrap.insertBefore(el, wrap.firstChild);
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'clear'; btn.textContent = 'Убрать'; btn.dataset.clear = '1';
+      btn.onclick = (e) => { e.preventDefault(); setPreview(''); };
+      wrap.appendChild(btn);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'ph'; ph.textContent = kind === 'video' ? 'видео' : 'фото';
+      wrap.insertBefore(ph, wrap.firstChild);
+    }
+  }
 
   const doUpload = async (file) => {
     if (!file) return;
@@ -687,21 +752,8 @@ function attachUploader(rawKey, kind) {
       const form = new FormData();
       form.append('file', file);
       const res = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });
-      input.dataset.url = res.url;
-      const old = wrap.querySelector('img,video');
-      if (old) old.remove();
-      const el = document.createElement(kind === 'video' ? 'video' : 'img');
-      el.src = res.url;
-      if (kind === 'video') el.muted = true;
-      wrap.insertBefore(el, wrap.firstChild);
-      wrap.querySelector('.ph')?.remove();
+      setPreview(res.url);
       wrap.querySelector('.txt').textContent = 'Готово — перетащи новый файл, чтобы заменить';
-      if (!wrap.querySelector('[data-clear]')) {
-        const btn = document.createElement('button');
-        btn.type = 'button'; btn.className = 'clear'; btn.textContent = 'Убрать'; btn.dataset.clear = '1';
-        btn.onclick = (e) => { e.preventDefault(); input.dataset.url = ''; wrap.querySelector('img,video')?.remove(); btn.remove(); wrap.insertBefore(Object.assign(document.createElement('div'), { className: 'ph', textContent: kind === 'video' ? 'видео' : 'фото' }), wrap.firstChild); wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать'; };
-        wrap.appendChild(btn);
-      }
     } catch (err) {
       showError('Не загрузилось: ' + err.message);
       toast('Не загрузилось: ' + err.message);
@@ -713,7 +765,11 @@ function attachUploader(rawKey, kind) {
   wrap.ondragover = (e) => { e.preventDefault(); wrap.classList.add('drag'); };
   wrap.ondragleave = () => wrap.classList.remove('drag');
   wrap.ondrop = (e) => { e.preventDefault(); wrap.classList.remove('drag'); doUpload(e.dataTransfer.files[0]); };
-  wrap.querySelector('[data-clear]')?.addEventListener('click', (e) => { e.preventDefault(); input.dataset.url = ''; });
+  wrap.querySelector('[data-clear]')?.addEventListener('click', (e) => { e.preventDefault(); setPreview(''); });
+
+  if (urlInput) {
+    urlInput.addEventListener('change', () => { clearError(); setPreview(urlInput.value.trim()); });
+  }
 }
 
 /* =========================================================
@@ -764,6 +820,131 @@ function openCreateRestaurantModal() {
     };
   });
 }
+
+/* =========================================================
+   ИМПОРТ МЕНЮ ИЗ EXCEL (разовая загрузка категорий/разделов/блюд)
+   Формат файла — один лист, колонки:
+   Категория | Раздел | Блюдо (рус) | Блюдо (қаз) | Блюдо (англ) |
+   Описание (рус) | Описание (қаз) | Описание (англ) | Цена | Варианты | Фото (ссылка)
+   Варианты — как в остальном проекте: "30 мл:850 | 60 мл:950"
+   ========================================================= */
+const IMPORT_TEMPLATE_ROWS = [
+  { 'Категория': 'Барное меню', 'Раздел': 'Классический кофе', 'Блюдо (рус)': 'Эспрессо', 'Блюдо (қаз)': '', 'Блюдо (англ)': 'Espresso',
+    'Описание (рус)': 'Крепкий кофе с балансом кислинки и сладости', 'Описание (қаз)': '', 'Описание (англ)': '',
+    'Цена': '', 'Варианты': '30 мл:850 | 60 мл:950', 'Фото (ссылка)': '' },
+  { 'Категория': 'Основное меню', 'Раздел': 'Горячие блюда', 'Блюдо (рус)': 'Стейк рибай', 'Блюдо (қаз)': '', 'Блюдо (англ)': 'Ribeye steak',
+    'Описание (рус)': 'Мраморная говядина, 300 г', 'Описание (қаз)': '', 'Описание (англ)': '',
+    'Цена': 7900, 'Варианты': '', 'Фото (ссылка)': '' }
+];
+
+function downloadImportTemplate() {
+  const ws = XLSX.utils.json_to_sheet(IMPORT_TEMPLATE_ROWS);
+  ws['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 8 }, { wch: 22 }, { wch: 20 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Меню');
+  XLSX.writeFile(wb, 'шаблон-меню.xlsx');
+}
+
+/** "30 мл:850 | 60 мл:950" → [{label,price}] — тот же формат, что везде в проекте */
+function parseVariantsStr(s) {
+  return String(s || '').split('|').map((x) => x.trim()).filter(Boolean).map((x) => {
+    const i = x.lastIndexOf(':');
+    return i < 0 ? { label: '', price: Number(x) || 0 } : { label: x.slice(0, i).trim(), price: Number(x.slice(i + 1)) || 0 };
+  });
+}
+
+function openImportModal() {
+  openModal('Импорт меню из Excel', `
+    <p style="font-size:14px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
+      Один лист, строка — одно блюдо. Колонки: Категория, Раздел, Блюдо (рус/қаз/англ),
+      Описание (рус/қаз/англ), Цена, Варианты, Фото (ссылка). Категории и разделы создадутся сами
+      по названиям — если раздел с таким именем уже есть, блюдо добавится в него, а не задвоится.
+    </p>
+    <button type="button" class="btn btn-outline btn-sm" id="dlTemplate" style="margin-bottom:16px;">Скачать пустой шаблон</button>
+    <div class="field"><input type="file" id="importFile" accept=".xlsx,.xls"></div>
+    <p id="importStatus" style="font-size:14px;color:var(--muted);white-space:pre-line;"></p>
+    <div class="form-actions">
+      <button type="button" class="btn btn-outline" id="cancelBtn">Закрыть</button>
+      <button type="button" class="btn btn-dark" id="runImportBtn">Импортировать</button>
+    </div>`, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('dlTemplate').onclick = downloadImportTemplate;
+    document.getElementById('runImportBtn').onclick = runImport;
+  });
+}
+
+async function runImport() {
+  const fileInput = document.getElementById('importFile');
+  const statusEl = document.getElementById('importStatus');
+  const file = fileInput.files[0];
+  if (!file) { statusEl.textContent = 'Сначала выбери файл.'; return; }
+
+  statusEl.textContent = 'Читаю файл…';
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  } catch (err) {
+    statusEl.textContent = 'Не получилось прочитать файл: ' + err.message;
+    return;
+  }
+  if (!rows.length) { statusEl.textContent = 'В файле нет строк с данными.'; return; }
+
+  const catCache = new Map(state.categories.map((c) => [c.title_ru.trim().toLowerCase(), c.id]));
+  const secCache = new Map(state.sections.map((s) => [`${s.categoryId}|${s.title_ru.trim().toLowerCase()}`, s.id]));
+  let nCat = 0, nSec = 0, nItem = 0, sort = state.menuItems.length;
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const catName = String(row['Категория'] || '').trim();
+    const secName = String(row['Раздел'] || '').trim();
+    const title = String(row['Блюдо (рус)'] || '').trim();
+    if (!catName && !secName && !title) continue; // пустая строка — пропускаем молча
+    if (!catName || !secName || !title) { errors.push(`Строка ${i + 2}: не заполнены Категория / Раздел / Блюдо (рус)`); continue; }
+
+    statusEl.textContent = `Импортирую… блюдо ${i + 1} из ${rows.length}`;
+    try {
+      let catId = catCache.get(catName.toLowerCase());
+      if (!catId) {
+        const r = await api(`/categories?restaurant=${state.slug}`, { method: 'POST', body: { title_ru: catName, sort: catCache.size } });
+        catId = r.id; catCache.set(catName.toLowerCase(), catId); nCat++;
+      }
+      const secKey = `${catId}|${secName.toLowerCase()}`;
+      let secId = secCache.get(secKey);
+      if (!secId) {
+        const r = await api(`/sections?restaurant=${state.slug}`, { method: 'POST', body: { category_id: catId, title_ru: secName, sort: secCache.size } });
+        secId = r.id; secCache.set(secKey, secId); nSec++;
+      }
+
+      const variants = parseVariantsStr(row['Варианты']);
+      const payload = {
+        section_id: secId, sort: sort++,
+        title_ru: title, title_kk: String(row['Блюдо (қаз)'] || ''), title_en: String(row['Блюдо (англ)'] || ''),
+        description_ru: String(row['Описание (рус)'] || ''), description_kk: String(row['Описание (қаз)'] || ''), description_en: String(row['Описание (англ)'] || ''),
+        image: String(row['Фото (ссылка)'] || ''),
+        variants: variants.length ? JSON.stringify(variants) : '',
+        price: variants.length ? 0 : (Number(row['Цена']) || 0)
+      };
+      await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: payload });
+      nItem++;
+    } catch (err) {
+      errors.push(`Строка ${i + 2} («${title}»): ${err.message}`);
+    }
+  }
+
+  await reloadTable('categories', 'categories');
+  await reloadTable('sections', 'sections');
+  await reloadTable('menuItems', 'menu-items');
+  renderTab();
+
+  statusEl.textContent = `Готово: ${nCat} новых категорий, ${nSec} новых разделов, ${nItem} блюд добавлено.`
+    + (errors.length ? `\n\nНе удалось (${errors.length}):\n` + errors.join('\n') : '');
+}
+
+document.getElementById('importBtn').onclick = openImportModal;
 
 init();
 </script>
