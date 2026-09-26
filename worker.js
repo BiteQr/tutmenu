@@ -200,6 +200,10 @@ async function handleAdminApi(request, env, segments) {
         if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
         const row = await env.DB.prepare('SELECT * FROM restaurants WHERE slug = ?').bind(qSlug).first();
         if (!row) return json({ error: 'not_found' }, { status: 404 });
+        if (me.role === 'owner') {
+          const editors = await env.DB.prepare("SELECT email FROM admin_users WHERE restaurant_id = ? AND role = 'editor'").bind(qSlug).all();
+          row.editorEmails = editors.results.map((r) => r.email);
+        }
         return json({ restaurant: row });
       }
       if (me.role !== 'owner') return json({ error: 'owner_only' }, { status: 403 });
@@ -232,9 +236,15 @@ async function handleAdminApi(request, env, segments) {
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video']
         .filter((c) => c in b);
-      if (!cols.length) return json({ ok: true });
-      const set = cols.map((c) => `${c} = ?`).join(', ');
-      await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), qSlug).run();
+      if (cols.length) {
+        const set = cols.map((c) => `${c} = ?`).join(', ');
+        await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), qSlug).run();
+      }
+      // Назначить/сменить редактора может только владелец, даже если остальные поля правит сам ресторан
+      if (me.role === 'owner' && typeof b.editorEmail === 'string' && b.editorEmail.trim()) {
+        await env.DB.prepare('INSERT OR REPLACE INTO admin_users (email, restaurant_id, role) VALUES (?, ?, ?)')
+          .bind(b.editorEmail.trim().toLowerCase(), qSlug, 'editor').run();
+      }
       return json({ ok: true });
     }
     return json({ error: 'method_not_allowed' }, { status: 405 });
@@ -293,7 +303,8 @@ async function handleAdminApi(request, env, segments) {
 }
 
 /* ---------- POST /admin/api/upload — фото/видео в R2 ---------- */
-const MAX_BYTES = 15 * 1024 * 1024;
+const MAX_BYTES_IMAGE = 20 * 1024 * 1024;
+const MAX_BYTES_VIDEO = 60 * 1024 * 1024;
 
 async function handleUpload(request, env) {
   const url = new URL(request.url);
@@ -306,10 +317,13 @@ async function handleUpload(request, env) {
   const form = await request.formData();
   const file = form.get('file');
   if (!file || typeof file === 'string') return json({ error: 'no_file' }, { status: 400 });
-  if (file.size > MAX_BYTES) return json({ error: 'too_large', message: 'Файл больше 15 МБ' }, { status: 413 });
 
-  const okType = /^image\/(jpeg|png|webp|gif|svg\+xml)$|^video\/mp4$/.test(file.type);
-  if (!okType) return json({ error: 'bad_type', message: 'Разрешены JPG, PNG, WEBP, GIF, SVG, MP4' }, { status: 415 });
+  const isVideo = /^video\//.test(file.type);
+  const isImage = /^image\//.test(file.type);
+  if (!isVideo && !isImage) return json({ error: 'bad_type', message: 'Можно загружать только фото или видео' }, { status: 415 });
+
+  const limit = isVideo ? MAX_BYTES_VIDEO : MAX_BYTES_IMAGE;
+  if (file.size > limit) return json({ error: 'too_large', message: `Файл больше ${Math.round(limit / 1024 / 1024)} МБ` }, { status: 413 });
 
   const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const key = `${slug}/${crypto.randomUUID()}.${ext}`;
