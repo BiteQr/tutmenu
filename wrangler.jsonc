@@ -1,0 +1,21 @@
+{
+  "name": "tutmenu",
+  "compatibility_date": "2026-09-25",
+  "main": "worker.js",
+
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+
+  // ЗАМЕНИ database_id на настоящий: Cloudflare Dashboard → D1 → база tutmenu →
+  // вкладка Overview → поле "Database ID".
+  "d1_databases": [
+    { "binding": "DB", "database_name": "tutmenu", "database_id": "ЗАМЕНИ-НА-СВОЙ-DATABASE-ID" }
+  ],
+
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "tutmenu-files" }
+  ]
+}
