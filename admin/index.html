@@ -84,6 +84,7 @@ a{color:inherit;}
 .uploader .txt{font-size:13px;color:var(--muted);}
 .uploader input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
 .uploader .clear{margin-left:auto;font-size:13px;color:var(--danger);flex:none;position:relative;z-index:2;}
+.uploader-err{color:var(--danger);font-size:13px;margin-top:6px;}
 
 /* ---------- variants editor ---------- */
 .variant-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
@@ -379,6 +380,9 @@ function fieldHTML(field, value) {
   if (field.type === 'image') {
     return `<div class="field"><label>${esc(field.label)}</label>${uploaderHTML(field.key, v, 'image')}</div>`;
   }
+  if (field.type === 'video') {
+    return `<div class="field"><label>${esc(field.label)}</label>${uploaderHTML(field.key, v, 'video')}</div>`;
+  }
   if (field.type === 'number') {
     return `<div class="field"><label>${esc(field.label)}</label><input type="number" id="f_${field.key}" value="${esc(v)}"></div>`;
   }
@@ -389,7 +393,7 @@ function readField(field) {
   const el = document.getElementById('f_' + field.key);
   if (field.type === 'check') return el.checked;
   if (field.type === 'number') return Number(el.value) || 0;
-  if (field.type === 'image') return el.dataset.url || '';
+  if (field.type === 'image' || field.type === 'video') return el.dataset.url || '';
   return el.value;
 }
 
@@ -433,7 +437,7 @@ function openEntityModal(tabKey, schema, row) {
         <button type="submit" class="btn btn-dark">Сохранить</button>
       </div>
     </form>`, () => {
-    schema.fields.filter((f) => f.type === 'image').forEach((f) => attachUploader('f_' + f.key, 'image'));
+    schema.fields.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
     document.getElementById('cancelBtn').onclick = closeModal;
     document.getElementById('entityForm').onsubmit = async (e) => {
       e.preventDefault();
@@ -545,7 +549,7 @@ function openMenuItemModal(row) {
     </form>`;
 
   openModal(row ? 'Изменить блюдо' : 'Новое блюдо', body, () => {
-    attachUploader('f_image', 'image');
+    attachUploader('image', 'image');
 
     const variantRows = document.getElementById('variantRows');
     const addRow = (label = '', price = '') => {
@@ -634,13 +638,13 @@ function renderSettingsTab(container) {
         <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
       </form>
     </div>`;
-  SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader('f_' + f.key, 'image'));
-  SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader('f_' + f.key, 'video'));
+  SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
+  SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
 
   document.getElementById('settingsForm').onsubmit = async (e) => {
     e.preventDefault();
     const payload = {};
-    SETTINGS_FIELDS.forEach((f) => { payload[f.key] = readField({ ...f, type: f.type === 'video' ? 'image' : f.type }); });
+    SETTINGS_FIELDS.forEach((f) => { payload[f.key] = readField(f); });
     try {
       await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: payload });
       toast('Сохранено');
@@ -661,17 +665,23 @@ function uploaderHTML(key, url, kind) {
       ${preview}
       <span class="txt">Перетащи файл сюда или нажми, чтобы выбрать</span>
       ${url ? `<button type="button" class="clear" data-clear>Убрать</button>` : ''}
-      <input type="file" accept="${isVideo ? 'video/mp4' : 'image/*'}" id="f_${key}" data-url="${esc(url || '')}">
-    </div>`;
+      <input type="file" accept="${isVideo ? 'video/*' : 'image/*'}" id="f_${key}" data-url="${esc(url || '')}">
+    </div>
+    <p class="uploader-err" id="err_${key}" hidden></p>`;
 }
 
-function attachUploader(key, kind) {
-  const wrap = document.getElementById('u_' + key);
-  const input = document.getElementById(key);
+function attachUploader(rawKey, kind) {
+  const wrap = document.getElementById('u_' + rawKey);
+  const input = document.getElementById('f_' + rawKey);
+  const errEl = document.getElementById('err_' + rawKey);
   if (!wrap || !input) return;
+
+  const showError = (msg) => { if (errEl) { errEl.textContent = msg; errEl.hidden = false; } };
+  const clearError = () => { if (errEl) errEl.hidden = true; };
 
   const doUpload = async (file) => {
     if (!file) return;
+    clearError();
     wrap.querySelector('.txt').textContent = 'Загружаю…';
     try {
       const form = new FormData();
@@ -692,7 +702,11 @@ function attachUploader(key, kind) {
         btn.onclick = (e) => { e.preventDefault(); input.dataset.url = ''; wrap.querySelector('img,video')?.remove(); btn.remove(); wrap.insertBefore(Object.assign(document.createElement('div'), { className: 'ph', textContent: kind === 'video' ? 'видео' : 'фото' }), wrap.firstChild); wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать'; };
         wrap.appendChild(btn);
       }
-    } catch (err) { toast('Не загрузилось: ' + err.message); wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать'; }
+    } catch (err) {
+      showError('Не загрузилось: ' + err.message);
+      toast('Не загрузилось: ' + err.message);
+      wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать';
+    }
   };
 
   input.onchange = () => doUpload(input.files[0]);
