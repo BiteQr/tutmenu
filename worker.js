@@ -173,14 +173,26 @@ async function handleAdminApi(request, env, segments) {
 
   if (section === 'restaurants') {
     const email = accessEmail(request);
-    const me = await env.DB.prepare('SELECT role FROM admin_users WHERE email = ?').bind(email).first();
-    if (!me || me.role !== 'owner') return json({ error: 'owner_only' }, { status: 403 });
+    const me = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(email).first();
+    if (!me) return json({ error: 'not_registered' }, { status: 403 });
+
+    const qSlug = normId(url.searchParams.get('restaurant'));
 
     if (method === 'GET') {
+      if (qSlug) {
+        // Один ресторан — владелец или его собственный редактор
+        if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
+        const row = await env.DB.prepare('SELECT * FROM restaurants WHERE slug = ?').bind(qSlug).first();
+        if (!row) return json({ error: 'not_found' }, { status: 404 });
+        return json({ restaurant: row });
+      }
+      if (me.role !== 'owner') return json({ error: 'owner_only' }, { status: 403 });
       const rows = await env.DB.prepare('SELECT * FROM restaurants ORDER BY name').all();
       return json({ restaurants: rows.results });
     }
+
     if (method === 'POST') {
+      if (me.role !== 'owner') return json({ error: 'owner_only' }, { status: 403 });
       const b = await request.json();
       const slug = normId(b.slug);
       if (!slug) return json({ error: 'no_slug' }, { status: 400 });
@@ -196,16 +208,17 @@ async function handleAdminApi(request, env, segments) {
       }
       return json({ ok: true, slug });
     }
+
     if (method === 'PUT') {
-      const slug = normId(url.searchParams.get('slug'));
-      if (!slug) return json({ error: 'no_slug' }, { status: 400 });
+      if (!qSlug) return json({ error: 'no_slug' }, { status: 400 });
+      if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video']
         .filter((c) => c in b);
       if (!cols.length) return json({ ok: true });
       const set = cols.map((c) => `${c} = ?`).join(', ');
-      await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), slug).run();
+      await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), qSlug).run();
       return json({ ok: true });
     }
     return json({ error: 'method_not_allowed' }, { status: 405 });
@@ -222,7 +235,17 @@ async function handleAdminApi(request, env, segments) {
 
   if (method === 'GET') {
     const rows = await env.DB.prepare(`SELECT * FROM ${def.table} WHERE restaurant_id = ? ORDER BY sort`).bind(slug).all();
-    return json({ items: rows.results });
+    let items = rows.results;
+    if (section === 'menu-items') {
+      // variants/recommendations хранятся в базе как строка (JSON / список через запятую) —
+      // тем же способом их превращает в объект и публичный /api/menu
+      items = items.map((r) => ({
+        ...r,
+        variants: r.variants ? JSON.parse(r.variants) : [],
+        recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : []
+      }));
+    }
+    return json({ items });
   }
   if (method === 'POST') {
     const body = await request.json();
