@@ -46,6 +46,22 @@ export async function authorize(env, request, slug) {
    Один файл, без подпапок — чтобы не зависеть от того, как именно
    GitHub сохраняет структуру при загрузке файлов через браузер.
    ========================================================= */
+
+/** Пустая строка в поле-ссылке (category_id / section_id / item_id) означает
+ *  «ничего не выбрано» — а колонка в базе ссылается на другую таблицу (FOREIGN KEY),
+ *  так что пустую строку нужно превратить в NULL, иначе SQLite откажет с ошибкой FK. */
+const FK_COLUMNS = {
+  sections: ['category_id'],
+  'menu-items': ['section_id'],
+  promos: ['item_id']
+};
+function normalizeFK(section, body) {
+  const cols = FK_COLUMNS[section] || [];
+  const out = { ...body };
+  cols.forEach((c) => { if (out[c] === '' || out[c] === undefined) out[c] = null; });
+  return out;
+}
+
 const ADMIN_TABLES = {
   'categories': {
     table: 'categories',
@@ -248,7 +264,7 @@ async function handleAdminApi(request, env, segments) {
     return json({ items });
   }
   if (method === 'POST') {
-    const body = await request.json();
+    const body = normalizeFK(section, await request.json());
     const cols = def.cols.filter((c) => c in body);
     const placeholders = cols.map(() => '?').join(',');
     const res = await env.DB.prepare(
@@ -261,7 +277,7 @@ async function handleAdminApi(request, env, segments) {
   if (!id) return json({ error: 'no_id' }, { status: 400 });
 
   if (method === 'PUT') {
-    const body = await request.json();
+    const body = normalizeFK(section, await request.json());
     const cols = def.cols.filter((c) => c in body);
     if (!cols.length) return json({ ok: true });
     const set = cols.map((c) => `${c} = ?`).join(', ');
