@@ -1,0 +1,7 @@
+{
+  "name": "menu-worker",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
