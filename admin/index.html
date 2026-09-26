@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Админка меню</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f6f8; --panel:#fff; --line:#e5e5ea; --text:#1c1c1e; --muted:#8a8a8f;
+  --dark:#1c1c1e; --on-dark:#fff; --danger:#ff3b30; --ok:#34c759;
+  --r:12px; --r-l:16px;
+  --font:-apple-system,BlinkMacSystemFont,'Inter',Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.4;}
+[hidden]{display:none!important;}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit;}
+input,textarea,select{font:inherit;color:inherit;}
+a{color:inherit;}
+
+/* ---------- loader / gate ---------- */
+.center-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;}
+.spinner{width:32px;height:32px;border-radius:50%;border:3px solid #ddd;border-top-color:var(--dark);animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.gate-box{max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-l);padding:28px;}
+.gate-box h1{font-size:19px;margin-bottom:10px;}
+.gate-box p{color:var(--muted);font-size:15px;margin-bottom:6px;}
+.gate-email{display:inline-block;margin-top:8px;padding:6px 12px;background:var(--bg);border-radius:8px;font-size:14px;font-family:monospace;}
+
+/* ---------- layout ---------- */
+.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;height:60px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);}
+.topbar h1{font-size:17px;font-weight:800;white-space:nowrap;}
+.topbar .spacer{flex:1;}
+.rselect{height:38px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-size:14px;max-width:220px;}
+.topbar .email{font-size:13px;color:var(--muted);white-space:nowrap;}
+.btn{height:38px;padding:0 16px;border-radius:9px;font-size:14px;font-weight:600;white-space:nowrap;}
+.btn-dark{background:var(--dark);color:var(--on-dark);}
+.btn-outline{background:var(--panel);border:1px solid var(--line);}
+.btn-danger{color:var(--danger);}
+.btn-sm{height:30px;padding:0 12px;font-size:13px;border-radius:7px;}
+.btn:disabled{opacity:.5;cursor:default;}
+
+.tabs{display:flex;gap:4px;overflow-x:auto;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);}
+.tab{padding:9px 16px;border-radius:8px;font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap;}
+.tab.active{background:var(--dark);color:var(--on-dark);}
+
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 80px;}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-l);padding:20px;margin-bottom:16px;}
+.panel h2{font-size:16px;margin-bottom:14px;}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.panel-head h2{margin:0;}
+
+/* ---------- list of rows ---------- */
+.rows{display:flex;flex-direction:column;gap:10px;}
+.row-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;}
+.row-card.inactive{opacity:.45;}
+.row-thumb{width:48px;height:48px;border-radius:8px;object-fit:cover;background:var(--bg);flex:none;}
+.row-body{flex:1;min-width:0;}
+.row-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.row-sub{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.row-actions{display:flex;gap:6px;flex:none;}
+.empty-hint{color:var(--muted);font-size:14px;padding:16px 0;text-align:center;}
+
+/* ---------- forms ---------- */
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px;}
+.field input[type=text],.field input[type=number],.field input[type=url],.field textarea,.field select{
+  width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff;
+}
+.field textarea{resize:vertical;min-height:64px;}
+.field-check{display:flex;align-items:center;gap:8px;}
+.field-check input{width:18px;height:18px;}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.field-hint{font-size:12px;color:var(--muted);margin-top:4px;}
+.form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:6px;}
+
+/* ---------- upload drop zone ---------- */
+.uploader{border:1.5px dashed var(--line);border-radius:10px;padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;position:relative;}
+.uploader.drag{border-color:var(--dark);background:var(--bg);}
+.uploader img,.uploader video{width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--bg);flex:none;}
+.uploader .ph{width:56px;height:56px;border-radius:8px;background:var(--bg);flex:none;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;}
+.uploader .txt{font-size:13px;color:var(--muted);}
+.uploader input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.uploader .clear{margin-left:auto;font-size:13px;color:var(--danger);flex:none;position:relative;z-index:2;}
+
+/* ---------- variants editor ---------- */
+.variant-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+.variant-row input{flex:1;}
+.variant-row button{flex:none;color:var(--danger);font-size:13px;}
+.price-mode{display:flex;gap:8px;margin-bottom:10px;}
+.price-mode button{flex:1;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);}
+.price-mode button.active{background:var(--dark);color:#fff;border-color:var(--dark);}
+
+/* ---------- recommendations picker ---------- */
+.rec-list{display:flex;flex-wrap:wrap;gap:8px;max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:9px;padding:10px;}
+.rec-chip{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--bg);font-size:13px;cursor:pointer;user-select:none;}
+.rec-chip.sel{background:var(--dark);color:#fff;}
+
+/* ---------- modal ---------- */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}
+.modal{background:#fff;border-radius:var(--r-l);padding:22px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;}
+.modal h2{font-size:17px;margin-bottom:16px;}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1c1c1e;color:#fff;padding:12px 20px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+@media (max-width:520px){ .field-row{grid-template-columns:1fr;} .topbar h1{display:none;} }
+</style>
+</head>
+<body>
+
+<div id="loader" class="center-screen"><div class="spinner"></div></div>
+
+<div id="gate" class="center-screen" hidden></div>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <h1>🍽 Админка</h1>
+    <select id="restaurantSelect" class="rselect" hidden></select>
+    <span id="restaurantName" class="email" hidden></span>
+    <div class="spacer"></div>
+    <button class="btn btn-outline" id="addRestaurantBtn" hidden>+ Новый ресторан</button>
+    <span class="email" id="meEmail"></span>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <div class="wrap" id="content"></div>
+</div>
+
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   КОНФИГ
+   ========================================================= */
+const API = '/admin/api';
+const LANGS = [['ru','Рус'],['kk','Қаз'],['en','Eng']];
+
+/* =========================================================
+   API-ХЕЛПЕР
+   ========================================================= */
+async function api(path, { method = 'GET', body, isForm } = {}) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    if (isForm) { opts.body = body; }
+    else { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  }
+  const res = await fetch(API + path, opts);
+  let data = null;
+  try { data = await res.json(); } catch { /* ignore */ }
+  if (!res.ok) throw new Error(data?.message || data?.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* =========================================================
+   СОСТОЯНИЕ
+   ========================================================= */
+const state = {
+  me: null,           // {email, role, restaurants:[{slug,name,active}]}
+  slug: null,         // текущий выбранный ресторан
+  settings: null,     // полная строка restaurants для текущего slug
+  categories: [], sections: [], menuItems: [], promos: [], buttons: [],
+  tab: 'settings'
+};
+
+/* =========================================================
+   СХЕМЫ ПОЛЕЙ ДЛЯ ОБЫЧНЫХ ТАБЛИЦ
+   (menu-items и promos.item_id обрабатываются отдельными полями ниже)
+   ========================================================= */
+const SCHEMAS = {
+  categories: {
+    title: 'Категории', endpoint: 'categories', icon: '🗂',
+    fields: [
+      { key: 'active', type: 'check', label: 'Показывать в меню', default: true },
+      { key: 'image', type: 'image', label: 'Фото карточки' },
+      { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
+      { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
+      { key: 'title_en', type: 'text', label: 'Название (англ)' },
+      { key: 'sort', type: 'number', label: 'Порядок (меньше — выше)', default: 0 }
+    ],
+    rowTitle: (r) => r.title_ru || '(без названия)',
+    rowImage: (r) => r.image
+  },
+  sections: {
+    title: 'Разделы', endpoint: 'sections', icon: '📑',
+    fields: [
+      { key: 'active', type: 'check', label: 'Показывать в меню', default: true },
+      { key: 'category_id', type: 'select', label: 'Категория', ref: 'categories', labelKey: 'title_ru' },
+      { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
+      { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
+      { key: 'title_en', type: 'text', label: 'Название (англ)' },
+      { key: 'subtitle_ru', type: 'textarea', label: 'Подзаголовок (рус)' },
+      { key: 'subtitle_kk', type: 'textarea', label: 'Подзаголовок (қаз)' },
+      { key: 'subtitle_en', type: 'textarea', label: 'Подзаголовок (англ)' },
+      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
+    ],
+    rowTitle: (r) => r.title_ru || '(без названия)',
+    rowSub: (r) => catLabel(r.category_id)
+  },
+  promos: {
+    title: 'Акции', endpoint: 'promos', icon: '📣',
+    fields: [
+      { key: 'active', type: 'check', label: 'Показывать', default: true },
+      { key: 'image', type: 'image', label: 'Фото' },
+      { key: 'title_ru', type: 'text', label: 'Заголовок (рус)', required: true },
+      { key: 'title_kk', type: 'text', label: 'Заголовок (қаз)' },
+      { key: 'title_en', type: 'text', label: 'Заголовок (англ)' },
+      { key: 'description_ru', type: 'textarea', label: 'Описание (рус)' },
+      { key: 'description_kk', type: 'textarea', label: 'Описание (қаз)' },
+      { key: 'description_en', type: 'textarea', label: 'Описание (англ)' },
+      { key: 'item_id', type: 'select', label: 'Кнопка ведёт к блюду (необязательно)', ref: 'menuItems', labelKey: 'title_ru', allowEmpty: true },
+      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
+    ],
+    rowTitle: (r) => r.title_ru || '(без названия)',
+    rowImage: (r) => r.image
+  },
+  buttons: {
+    title: 'Кнопки на главной', endpoint: 'buttons', icon: '🔘',
+    fields: [
+      { key: 'active', type: 'check', label: 'Показывать', default: true },
+      { key: 'type', type: 'select', label: 'Тип', options: [['menu','Открыть меню'],['link','Внешняя ссылка'],['tel','Позвонить']] },
+      { key: 'style', type: 'select', label: 'Вид', options: [['primary','Основная (крупная)'],['outline','Обычная'],['wide','На всю ширину'],['text','Текстовая']] },
+      { key: 'title_ru', type: 'text', label: 'Текст (рус)', required: true },
+      { key: 'title_kk', type: 'text', label: 'Текст (қаз)' },
+      { key: 'title_en', type: 'text', label: 'Текст (англ)' },
+      { key: 'url', type: 'text', label: 'Ссылка / id категории / телефон' },
+      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
+    ],
+    rowTitle: (r) => r.title_ru || '(без текста)',
+    rowSub: (r) => r.type
+  }
+};
+
+function catLabel(id) { const c = state.categories.find((x) => String(x.id) === String(id)); return c ? c.title_ru : '—'; }
+function secLabel(id) { const s = state.sections.find((x) => String(x.id) === String(id)); return s ? s.title_ru : '—'; }
+
+/* =========================================================
+   ЗАГРУЗКА / АВТОРИЗАЦИЯ
+   ========================================================= */
+async function init() {
+  try {
+    const me = await api('/me');
+    if (me.error === 'no_access_email') return showGate('noAuth');
+    if (me.error === 'not_registered') return showGate('notRegistered', me.email);
+    state.me = me;
+    document.getElementById('meEmail').textContent = me.email;
+
+    if (!me.restaurants.length) return showGate('noRestaurants', me.email);
+
+    if (me.role === 'owner') {
+      const sel = document.getElementById('restaurantSelect');
+      sel.hidden = false;
+      sel.innerHTML = me.restaurants.map((r) => `<option value="${esc(r.slug)}">${esc(r.name)} (${esc(r.slug)})</option>`).join('');
+      sel.onchange = () => selectRestaurant(sel.value);
+      document.getElementById('addRestaurantBtn').hidden = false;
+      document.getElementById('addRestaurantBtn').onclick = openCreateRestaurantModal;
+      await selectRestaurant(sel.value);
+    } else {
+      document.getElementById('restaurantName').hidden = false;
+      document.getElementById('restaurantName').textContent = me.restaurants[0].name;
+      await selectRestaurant(me.restaurants[0].slug);
+    }
+
+    document.getElementById('loader').hidden = true;
+    document.getElementById('app').hidden = false;
+  } catch (err) {
+    showGate('error', String(err));
+  }
+}
+
+function showGate(kind, extra) {
+  document.getElementById('loader').hidden = true;
+  const gate = document.getElementById('gate');
+  gate.hidden = false;
+  const box = document.createElement('div');
+  box.className = 'gate-box';
+  if (kind === 'noAuth') {
+    box.innerHTML = `<h1>Не удалось определить вход</h1><p>Открой эту страницу по обычной ссылке ещё раз. Если не поможет — обратись к владельцу сайта.</p>`;
+  } else if (kind === 'notRegistered' || kind === 'noRestaurants') {
+    box.innerHTML = `<h1>Доступ пока не выдан</h1><p>Твой email вошёл, но пока не привязан ни к одному ресторану.</p><p>Отправь этот адрес владельцу сайта, чтобы он открыл доступ:</p><div class="gate-email">${esc(extra)}</div>`;
+  } else {
+    box.innerHTML = `<h1>Что-то пошло не так</h1><p>${esc(extra)}</p>`;
+  }
+  gate.innerHTML = '';
+  gate.appendChild(box);
+}
+
+async function selectRestaurant(slug) {
+  state.slug = slug;
+  const [settingsRes, cats, secs, items, promos, buttons] = await Promise.all([
+    api(`/restaurants?restaurant=${slug}`),
+    api(`/categories?restaurant=${slug}`),
+    api(`/sections?restaurant=${slug}`),
+    api(`/menu-items?restaurant=${slug}`),
+    api(`/promos?restaurant=${slug}`),
+    api(`/buttons?restaurant=${slug}`)
+  ]);
+  state.settings = settingsRes.restaurant;
+  state.categories = cats.items;
+  state.sections = secs.items;
+  state.menuItems = items.items;
+  state.promos = promos.items;
+  state.buttons = buttons.items;
+  renderTabs();
+  renderTab();
+}
+
+async function reloadTable(key, endpoint) {
+  const r = await api(`/${endpoint}?restaurant=${state.slug}`);
+  state[key] = r.items;
+}
+
+/* =========================================================
+   ВКЛАДКИ
+   ========================================================= */
+const TABS = [
+  ['settings', '⚙️ Настройки'],
+  ['categories', '🗂 Категории'],
+  ['sections', '📑 Разделы'],
+  ['menuItems', '🍽 Блюда'],
+  ['promos', '📣 Акции'],
+  ['buttons', '🔘 Кнопки']
+];
+
+function renderTabs() {
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = TABS.map(([key, label]) =>
+    `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
+  ).join('');
+  nav.querySelectorAll('.tab').forEach((btn) => {
+    btn.onclick = () => { state.tab = btn.dataset.tab; renderTabs(); renderTab(); };
+  });
+}
+
+function renderTab() {
+  const c = document.getElementById('content');
+  if (state.tab === 'settings') return renderSettingsTab(c);
+  if (state.tab === 'menuItems') return renderMenuItemsTab(c);
+  renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
+}
+
+/* =========================================================
+   УНИВЕРСАЛЬНАЯ ФОРМА (категории / разделы / акции / кнопки)
+   ========================================================= */
+function refOptions(field) {
+  const list = field.ref === 'categories' ? state.categories : field.ref === 'sections' ? state.sections : state.menuItems;
+  const opts = list.map((r) => `<option value="${r.id}">${esc(r[field.labelKey] || '#' + r.id)}</option>`);
+  if (field.allowEmpty) opts.unshift(`<option value="">— нет —</option>`);
+  return opts.join('');
+}
+
+function fieldHTML(field, value) {
+  const v = value ?? field.default ?? '';
+  if (field.type === 'check') {
+    return `<div class="field field-check"><input type="checkbox" id="f_${field.key}" ${v ? 'checked' : ''}><label for="f_${field.key}" style="margin:0;">${esc(field.label)}</label></div>`;
+  }
+  if (field.type === 'select') {
+    return `<div class="field"><label>${esc(field.label)}</label>
+      <select id="f_${field.key}">${field.options ? field.options.map(([val,l]) => `<option value="${val}" ${val===v?'selected':''}>${esc(l)}</option>`).join('') : refOptions(field)}</select></div>`;
+  }
+  if (field.type === 'textarea') {
+    return `<div class="field"><label>${esc(field.label)}</label><textarea id="f_${field.key}">${esc(v)}</textarea></div>`;
+  }
+  if (field.type === 'image') {
+    return `<div class="field"><label>${esc(field.label)}</label>${uploaderHTML(field.key, v, 'image')}</div>`;
+  }
+  if (field.type === 'number') {
+    return `<div class="field"><label>${esc(field.label)}</label><input type="number" id="f_${field.key}" value="${esc(v)}"></div>`;
+  }
+  return `<div class="field"><label>${esc(field.label)}</label><input type="text" id="f_${field.key}" value="${esc(v)}"></div>`;
+}
+
+function readField(field) {
+  const el = document.getElementById('f_' + field.key);
+  if (field.type === 'check') return el.checked;
+  if (field.type === 'number') return Number(el.value) || 0;
+  if (field.type === 'image') return el.dataset.url || '';
+  return el.value;
+}
+
+function renderGenericTab(container, tabKey, schema) {
+  const rows = state[tabKey];
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>${schema.title}</h2><button class="btn btn-dark btn-sm" id="addBtn">+ Добавить</button></div>
+      <div class="rows" id="rows">${rows.length ? rows.map((r) => rowCardHTML(r, schema)).join('') : `<p class="empty-hint">Пока пусто</p>`}</div>
+    </div>`;
+  document.getElementById('addBtn').onclick = () => openEntityModal(tabKey, schema, null);
+  rows.forEach((r) => {
+    document.getElementById('edit_' + r.id).onclick = () => openEntityModal(tabKey, schema, r);
+    document.getElementById('del_' + r.id).onclick = () => deleteEntity(tabKey, schema, r);
+  });
+}
+
+function rowCardHTML(r, schema) {
+  const img = schema.rowImage ? schema.rowImage(r) : null;
+  const thumb = img ? `<img class="row-thumb" src="${esc(img)}">` : '';
+  return `
+    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+      ${thumb}
+      <div class="row-body">
+        <div class="row-title">${esc(schema.rowTitle(r))}</div>
+        ${schema.rowSub ? `<div class="row-sub">${esc(schema.rowSub(r))}</div>` : ''}
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-outline btn-sm" id="edit_${r.id}">Изменить</button>
+        <button class="btn btn-outline btn-sm btn-danger" id="del_${r.id}">Удалить</button>
+      </div>
+    </div>`;
+}
+
+function openEntityModal(tabKey, schema, row) {
+  const body = schema.fields.map((f) => fieldHTML(f, row ? row[f.key] : undefined)).join('');
+  openModal(row ? 'Изменить' : 'Добавить', `
+    <form id="entityForm">${body}
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+        <button type="submit" class="btn btn-dark">Сохранить</button>
+      </div>
+    </form>`, () => {
+    schema.fields.filter((f) => f.type === 'image').forEach((f) => attachUploader('f_' + f.key, 'image'));
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('entityForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const payload = {};
+      schema.fields.forEach((f) => { payload[f.key] = readField(f); });
+      try {
+        if (row) await api(`/${schema.endpoint}/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
+        else await api(`/${schema.endpoint}?restaurant=${state.slug}`, { method: 'POST', body: payload });
+        closeModal();
+        await reloadTable(tabKey, schema.endpoint);
+        renderTab();
+        toast('Сохранено');
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  });
+}
+
+async function deleteEntity(tabKey, schema, row) {
+  if (!confirm('Удалить «' + schema.rowTitle(row) + '»?')) return;
+  try {
+    await api(`/${schema.endpoint}/${row.id}?restaurant=${state.slug}`, { method: 'DELETE' });
+    await reloadTable(tabKey, schema.endpoint);
+    renderTab();
+    toast('Удалено');
+  } catch (err) { toast('Ошибка: ' + err.message); }
+}
+
+/* =========================================================
+   БЛЮДА — отдельная вкладка (цена/вариации + рекомендации)
+   ========================================================= */
+const MENU_TEXT_FIELDS = [
+  { key: 'active', type: 'check', label: 'Показывать', default: true },
+  { key: 'section_id', type: 'select', label: 'Раздел', ref: 'sections', labelKey: 'title_ru' },
+  { key: 'image', type: 'image', label: 'Фото блюда' },
+  { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
+  { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
+  { key: 'title_en', type: 'text', label: 'Название (англ)' },
+  { key: 'description_ru', type: 'textarea', label: 'Описание (рус)' },
+  { key: 'description_kk', type: 'textarea', label: 'Описание (қаз)' },
+  { key: 'description_en', type: 'textarea', label: 'Описание (англ)' },
+  { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
+];
+
+function renderMenuItemsTab(container) {
+  const rows = state.menuItems;
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Блюда</h2><button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button></div>
+      <div class="rows" id="rows">${rows.length ? rows.map(menuRowHTML).join('') : `<p class="empty-hint">Пока пусто</p>`}</div>
+    </div>`;
+  document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
+  rows.forEach((r) => {
+    document.getElementById('edit_' + r.id).onclick = () => openMenuItemModal(r);
+    document.getElementById('del_' + r.id).onclick = () => deleteEntity('menuItems', SCHEMAS_MENU, r);
+  });
+}
+const SCHEMAS_MENU = { endpoint: 'menu-items', rowTitle: (r) => r.title_ru || '(без названия)' };
+
+function priceLabel(r) {
+  if (r.variants && r.variants.length) return r.variants.map((v) => `${v.label || ''} ${v.price}₸`).join(' · ');
+  return (r.price || 0) + '₸';
+}
+function menuRowHTML(r) {
+  const thumb = r.image ? `<img class="row-thumb" src="${esc(r.image)}">` : '<div class="row-thumb"></div>';
+  return `
+    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+      ${thumb}
+      <div class="row-body">
+        <div class="row-title">${esc(r.title_ru || '(без названия)')}</div>
+        <div class="row-sub">${esc(secLabel(r.sectionId))} · ${esc(priceLabel(r))}</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-outline btn-sm" id="edit_${r.id}">Изменить</button>
+        <button class="btn btn-outline btn-sm btn-danger" id="del_${r.id}">Удалить</button>
+      </div>
+    </div>`;
+}
+
+function openMenuItemModal(row) {
+  const hasVariants = !!(row && row.variants && row.variants.length);
+  const body = `
+    <form id="entityForm">
+      ${MENU_TEXT_FIELDS.map((f) => fieldHTML(f, row ? (f.key === 'section_id' ? row.sectionId : row[f.key]) : undefined)).join('')}
+
+      <div class="field">
+        <label>Цена</label>
+        <div class="price-mode">
+          <button type="button" id="modeSingle" class="${hasVariants ? '' : 'active'}">Одна цена</button>
+          <button type="button" id="modeVariants" class="${hasVariants ? 'active' : ''}">Несколько вариантов (объём/размер)</button>
+        </div>
+        <div id="singlePrice" ${hasVariants ? 'hidden' : ''}>
+          <input type="number" id="f_price" placeholder="Цена, ₸" value="${row && !hasVariants ? esc(row.price) : ''}">
+        </div>
+        <div id="variantsBox" ${hasVariants ? '' : 'hidden'}>
+          <div id="variantRows"></div>
+          <button type="button" class="btn btn-outline btn-sm" id="addVariant">+ Ещё вариант</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Рекомендации в корзине (что предложить вместе с этим блюдом)</label>
+        <div class="rec-list" id="recList"></div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+        <button type="submit" class="btn btn-dark">Сохранить</button>
+      </div>
+    </form>`;
+
+  openModal(row ? 'Изменить блюдо' : 'Новое блюдо', body, () => {
+    attachUploader('f_image', 'image');
+
+    const variantRows = document.getElementById('variantRows');
+    const addRow = (label = '', price = '') => {
+      const idx = variantRows.children.length;
+      const div = document.createElement('div');
+      div.className = 'variant-row';
+      div.innerHTML = `<input type="text" placeholder="Например 0.5 л" value="${esc(label)}" data-vl>
+                        <input type="number" placeholder="Цена" value="${esc(price)}" style="max-width:110px" data-vp>
+                        <button type="button" data-rm>✕</button>`;
+      div.querySelector('[data-rm]').onclick = () => div.remove();
+      variantRows.appendChild(div);
+    };
+    (row && row.variants && row.variants.length ? row.variants : [{ label: '', price: '' }]).forEach((v) => addRow(v.label, v.price));
+    document.getElementById('addVariant').onclick = () => addRow();
+
+    const modeSingle = document.getElementById('modeSingle'), modeVariants = document.getElementById('modeVariants');
+    modeSingle.onclick = () => { modeSingle.classList.add('active'); modeVariants.classList.remove('active'); document.getElementById('singlePrice').hidden = false; document.getElementById('variantsBox').hidden = true; };
+    modeVariants.onclick = () => { modeVariants.classList.add('active'); modeSingle.classList.remove('active'); document.getElementById('singlePrice').hidden = true; document.getElementById('variantsBox').hidden = false; };
+
+    const recList = document.getElementById('recList');
+    const selected = new Set((row?.recommendations || []).map(String));
+    const others = state.menuItems.filter((m) => !row || String(m.id) !== String(row.id));
+    recList.innerHTML = others.length ? others.map((m) =>
+      `<span class="rec-chip ${selected.has(String(m.id)) ? 'sel' : ''}" data-id="${m.id}">${esc(m.title_ru)}</span>`
+    ).join('') : '<span style="color:var(--muted);font-size:13px;">Сначала добавь другие блюда</span>';
+    recList.querySelectorAll('.rec-chip').forEach((chip) => {
+      chip.onclick = () => { chip.classList.toggle('sel'); const id = chip.dataset.id; chip.classList.contains('sel') ? selected.add(id) : selected.delete(id); };
+    });
+
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('entityForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const payload = {};
+      MENU_TEXT_FIELDS.forEach((f) => { payload[f.key === 'section_id' ? 'section_id' : f.key] = readField(f); });
+
+      const useVariants = modeVariants.classList.contains('active');
+      if (useVariants) {
+        const vs = [...variantRows.querySelectorAll('.variant-row')].map((row2) => ({
+          label: row2.querySelector('[data-vl]').value.trim(),
+          price: Number(row2.querySelector('[data-vp]').value) || 0
+        })).filter((v) => v.label || v.price);
+        payload.variants = JSON.stringify(vs);
+        payload.price = 0;
+      } else {
+        payload.price = Number(document.getElementById('f_price').value) || 0;
+        payload.variants = '';
+      }
+      payload.recommendations = [...selected].join(',');
+
+      try {
+        if (row) await api(`/menu-items/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
+        else await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: payload });
+        closeModal();
+        await reloadTable('menuItems', 'menu-items');
+        renderTab();
+        toast('Сохранено');
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  });
+}
+
+/* =========================================================
+   НАСТРОЙКИ РЕСТОРАНА
+   ========================================================= */
+const SETTINGS_FIELDS = [
+  { key: 'name', type: 'text', label: 'Название заведения', required: true },
+  { key: 'tagline_ru', type: 'text', label: 'Слоган (рус)' },
+  { key: 'tagline_kk', type: 'text', label: 'Слоган (қаз)' },
+  { key: 'tagline_en', type: 'text', label: 'Слоган (англ)' },
+  { key: 'whatsapp', type: 'text', label: 'WhatsApp для заказов (только цифры, с кодом страны)' },
+  { key: 'theme', type: 'select', label: 'Стиль оформления', options: [['modern','Modern — универсальный'],['premium','Premium — рестораны высокой кухни'],['friendly','Friendly — кофейни и детское меню'],['bold','Bold — бары и стрит-фуд']] },
+  { key: 'accent_color', type: 'text', label: 'Свой акцентный цвет (необязательно, формат #rrggbb)' },
+  { key: 'logo_welcome', type: 'image', label: 'Логотип на главном экране (светлый)' },
+  { key: 'logo_header', type: 'image', label: 'Логотип в шапке меню (тёмный)' },
+  { key: 'bg_image', type: 'image', label: 'Фон главного экрана (фото)' },
+  { key: 'bg_video', type: 'video', label: 'Фон главного экрана (видео, необязательно)' }
+];
+
+function renderSettingsTab(container) {
+  const s = state.settings;
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Настройки — ${esc(s.name)}</h2></div>
+      <form id="settingsForm">
+        ${SETTINGS_FIELDS.map((f) => fieldHTML(f, s[f.key])).join('')}
+        <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
+      </form>
+    </div>`;
+  SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader('f_' + f.key, 'image'));
+  SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader('f_' + f.key, 'video'));
+
+  document.getElementById('settingsForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {};
+    SETTINGS_FIELDS.forEach((f) => { payload[f.key] = readField({ ...f, type: f.type === 'video' ? 'image' : f.type }); });
+    try {
+      await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: payload });
+      toast('Сохранено');
+    } catch (err) { toast('Ошибка: ' + err.message); }
+  };
+}
+
+/* =========================================================
+   ЗАГРУЗКА ФОТО / ВИДЕО (drag&drop)
+   ========================================================= */
+function uploaderHTML(key, url, kind) {
+  const isVideo = kind === 'video';
+  const preview = url
+    ? (isVideo ? `<video src="${esc(url)}" muted></video>` : `<img src="${esc(url)}">`)
+    : `<div class="ph">${isVideo ? 'видео' : 'фото'}</div>`;
+  return `
+    <div class="uploader" id="u_${key}">
+      ${preview}
+      <span class="txt">Перетащи файл сюда или нажми, чтобы выбрать</span>
+      ${url ? `<button type="button" class="clear" data-clear>Убрать</button>` : ''}
+      <input type="file" accept="${isVideo ? 'video/mp4' : 'image/*'}" id="f_${key}" data-url="${esc(url || '')}">
+    </div>`;
+}
+
+function attachUploader(key, kind) {
+  const wrap = document.getElementById('u_' + key);
+  const input = document.getElementById(key);
+  if (!wrap || !input) return;
+
+  const doUpload = async (file) => {
+    if (!file) return;
+    wrap.querySelector('.txt').textContent = 'Загружаю…';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });
+      input.dataset.url = res.url;
+      const old = wrap.querySelector('img,video');
+      if (old) old.remove();
+      const el = document.createElement(kind === 'video' ? 'video' : 'img');
+      el.src = res.url;
+      if (kind === 'video') el.muted = true;
+      wrap.insertBefore(el, wrap.firstChild);
+      wrap.querySelector('.ph')?.remove();
+      wrap.querySelector('.txt').textContent = 'Готово — перетащи новый файл, чтобы заменить';
+      if (!wrap.querySelector('[data-clear]')) {
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'clear'; btn.textContent = 'Убрать'; btn.dataset.clear = '1';
+        btn.onclick = (e) => { e.preventDefault(); input.dataset.url = ''; wrap.querySelector('img,video')?.remove(); btn.remove(); wrap.insertBefore(Object.assign(document.createElement('div'), { className: 'ph', textContent: kind === 'video' ? 'видео' : 'фото' }), wrap.firstChild); wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать'; };
+        wrap.appendChild(btn);
+      }
+    } catch (err) { toast('Не загрузилось: ' + err.message); wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать'; }
+  };
+
+  input.onchange = () => doUpload(input.files[0]);
+  wrap.ondragover = (e) => { e.preventDefault(); wrap.classList.add('drag'); };
+  wrap.ondragleave = () => wrap.classList.remove('drag');
+  wrap.ondrop = (e) => { e.preventDefault(); wrap.classList.remove('drag'); doUpload(e.dataTransfer.files[0]); };
+  wrap.querySelector('[data-clear]')?.addEventListener('click', (e) => { e.preventDefault(); input.dataset.url = ''; });
+}
+
+/* =========================================================
+   МОДАЛКИ
+   ========================================================= */
+function openModal(title, bodyHTML, onMount) {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="overlay" id="overlay"><div class="modal"><h2>${esc(title)}</h2>${bodyHTML}</div></div>`;
+  document.getElementById('overlay').addEventListener('click', (e) => { if (e.target.id === 'overlay') closeModal(); });
+  onMount && onMount();
+}
+function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+function openCreateRestaurantModal() {
+  openModal('Новый ресторан', `
+    <form id="newRestForm">
+      <div class="field"><label>Название</label><input type="text" id="nr_name" required></div>
+      <div class="field"><label>Slug (латиницей, без пробелов)</label><input type="text" id="nr_slug" required></div>
+      <div class="field"><label>Домен (если уже есть, необязательно)</label><input type="text" id="nr_domain" placeholder="example.kz"></div>
+      <div class="field"><label>Email того, кто будет вести меню (необязательно)</label><input type="text" id="nr_email" placeholder="client@mail.com"></div>
+      <div class="field-check field" style="margin-top:-4px;"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+        <button type="submit" class="btn btn-dark">Создать</button>
+      </div>
+    </form>`, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('nr_name').oninput = (e) => {
+      document.getElementById('nr_slug').value = e.target.value.toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    };
+    document.getElementById('newRestForm').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api('/restaurants', { method: 'POST', body: {
+          name: document.getElementById('nr_name').value.trim(),
+          slug: document.getElementById('nr_slug').value.trim(),
+          domain: document.getElementById('nr_domain').value.trim(),
+          editorEmail: document.getElementById('nr_email').value.trim()
+        }});
+        closeModal();
+        toast('Ресторан создан');
+        const sel = document.getElementById('restaurantSelect');
+        const opt = document.createElement('option'); opt.value = r.slug; opt.textContent = document.getElementById('nr_name').value + ` (${r.slug})`;
+        sel.appendChild(opt); sel.value = r.slug;
+        await selectRestaurant(r.slug);
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  });
+}
+
+init();
+</script>
+</body>
+</html>
