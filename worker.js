@@ -236,6 +236,9 @@ async function handleAdminApi(request, env, segments) {
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video']
         .filter((c) => c in b);
+      // Домен чистим тем же способом, что и при поиске по hostname (без https://, www., слэша) —
+      // иначе вписанный "с запасом" адрес не совпадёт с реальным при заходе на сайт
+      if (cols.includes('domain')) b.domain = normId(b.domain.replace(/^https?:\/\//i, '')) || null;
       if (cols.length) {
         const set = cols.map((c) => `${c} = ?`).join(', ');
         await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), qSlug).run();
