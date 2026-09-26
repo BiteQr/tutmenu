@@ -292,8 +292,8 @@ async function handleUpload(request, env) {
   if (!file || typeof file === 'string') return json({ error: 'no_file' }, { status: 400 });
   if (file.size > MAX_BYTES) return json({ error: 'too_large', message: 'Файл больше 15 МБ' }, { status: 413 });
 
-  const okType = /^image\/(jpeg|png|webp|gif)$|^video\/mp4$/.test(file.type);
-  if (!okType) return json({ error: 'bad_type', message: 'Разрешены JPG, PNG, WEBP, GIF, MP4' }, { status: 415 });
+  const okType = /^image\/(jpeg|png|webp|gif|svg\+xml)$|^video\/mp4$/.test(file.type);
+  if (!okType) return json({ error: 'bad_type', message: 'Разрешены JPG, PNG, WEBP, GIF, SVG, MP4' }, { status: 415 });
 
   const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const key = `${slug}/${crypto.randomUUID()}.${ext}`;
