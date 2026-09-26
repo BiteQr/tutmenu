@@ -12,7 +12,7 @@
   // ЗАМЕНИ database_id на настоящий: Cloudflare Dashboard → D1 → база tutmenu →
   // вкладка Overview → поле "Database ID".
   "d1_databases": [
-    { "binding": "DB", "database_name": "tutmenu", "database_id": "ЗАМЕНИ-НА-СВОЙ-DATABASE-ID" }
+    { "binding": "DB", "database_name": "tutmenu", "database_id": "936a5fca-c65d-4bc9-82e7-f3dc5ebd2808" }
   ],
 
   "r2_buckets": [
