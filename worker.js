@@ -170,11 +170,71 @@ async function handleOrders(request, env) {
   return json({ ok: true });
 }
 
+/* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
+   Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
+   type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end']);
+
+async function handleTrack(request, env) {
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ ok: false }, { status: 400 }); } // тихо — гостю ошибка аналитики не важна
+
+  const slug = normId(body.restaurantId);
+  const sessionId = String(body.sessionId || '').slice(0, 64);
+  const type = String(body.type || '');
+  if (!slug || !sessionId || !EVENT_TYPES.has(type)) return json({ ok: false }, { status: 400 });
+
+  await env.DB.prepare(
+    `INSERT INTO events (restaurant_id, session_id, type, path, ref_id, ref_title, value)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    slug, sessionId, type,
+    String(body.path || '').slice(0, 32),
+    String(body.refId || '').slice(0, 64),
+    String(body.refTitle || '').slice(0, 200),
+    Number(body.value) || 0
+  ).run();
+
+  return json({ ok: true });
+}
+
 /* ---------- /admin/api/* — требует входа через Cloudflare Access ---------- */
 async function handleAdminApi(request, env, segments) {
   const [section, idStr] = segments;
   const method = request.method;
   const url = new URL(request.url);
+
+  if (section === 'stats') {
+    const url2 = new URL(request.url);
+    const slug = normId(url2.searchParams.get('restaurant'));
+    if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+    const auth = await authorize(env, request, slug);
+    if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+
+    const days = Math.min(90, Math.max(1, Number(url2.searchParams.get('days')) || 7));
+    const since = `datetime('now', '-${days} days')`;
+
+    const [sessions, hits, addToCart, categories, orders, duration] = await Promise.all([
+      env.DB.prepare(`SELECT COUNT(DISTINCT session_id) n FROM events WHERE restaurant_id=? AND created_at >= ${since}`).bind(slug).first(),
+      env.DB.prepare(`SELECT path, COUNT(DISTINCT session_id) n FROM events WHERE restaurant_id=? AND type='hit' AND created_at >= ${since} GROUP BY path`).bind(slug).all(),
+      env.DB.prepare(`SELECT ref_title title, COUNT(*) n FROM events WHERE restaurant_id=? AND type='add_to_cart' AND created_at >= ${since} GROUP BY ref_title ORDER BY n DESC LIMIT 8`).bind(slug).all(),
+      env.DB.prepare(`SELECT ref_title title, COUNT(*) n FROM events WHERE restaurant_id=? AND type='view_category' AND created_at >= ${since} GROUP BY ref_title ORDER BY n DESC LIMIT 8`).bind(slug).all(),
+      env.DB.prepare(`SELECT COUNT(*) n, COALESCE(SUM(total),0) revenue FROM orders WHERE restaurant_id=? AND created_at >= ${since}`).bind(slug).first(),
+      env.DB.prepare(`SELECT AVG(value) sec FROM events WHERE restaurant_id=? AND type='session_end' AND value > 0 AND created_at >= ${since}`).bind(slug).first()
+    ]);
+
+    const hitMap = Object.fromEntries(hits.results.map((r) => [r.path, r.n]));
+    return json({
+      days,
+      sessions: sessions.n || 0,
+      funnel: { welcome: hitMap.welcome || 0, menu: hitMap.menu || 0, cart: hitMap.cart || 0 },
+      topAddedToCart: addToCart.results,
+      topCategories: categories.results,
+      orders: { count: orders.n || 0, revenue: orders.revenue || 0 },
+      avgSeconds: duration.sec ? Math.round(duration.sec) : null
+    });
+  }
 
   if (section === 'me') {
     const email = accessEmail(request);
@@ -358,6 +418,7 @@ export default {
     try {
       if (p === '/api/menu' && method === 'GET') return await handleMenu(request, env);
       if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
+      if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p.startsWith('/admin/api/')) {
         const segments = p.slice('/admin/api/'.length).split('/').filter(Boolean);
