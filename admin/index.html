@@ -113,6 +113,26 @@ a{color:inherit;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
 @media (max-width:520px){ .field-row{grid-template-columns:1fr;} .topbar h1{display:none;} }
+
+/* ---------- статистика ---------- */
+.period-switch{display:flex;gap:6px;}
+.period-switch button{padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);background:var(--bg);}
+.period-switch button.active{background:var(--dark);color:#fff;}
+.stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:4px;}
+.stat-card{padding:16px;border:1px solid var(--line);border-radius:10px;text-align:center;}
+.stat-card__n{font-size:26px;font-weight:800;}
+.stat-card__l{font-size:12px;color:var(--muted);margin-top:4px;}
+.funnel{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;}
+.funnel__step{width:100%;max-width:320px;padding:12px;border-radius:10px;background:var(--bg);text-align:center;}
+.funnel__n{font-size:22px;font-weight:800;}
+.funnel__l{font-size:13px;color:var(--muted);}
+.funnel__arrow{font-size:12px;color:var(--danger);padding:2px 0;min-height:16px;}
+.stat-bars{display:flex;flex-direction:column;gap:10px;}
+.stat-bar-row{display:flex;align-items:center;gap:10px;}
+.stat-bar-label{flex:0 0 140px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.stat-bar-track{flex:1;height:10px;border-radius:5px;background:var(--bg);overflow:hidden;}
+.stat-bar-fill{height:100%;background:var(--dark);border-radius:5px;}
+.stat-bar-n{flex:0 0 auto;font-size:13px;font-weight:700;min-width:20px;text-align:right;}
 </style>
 </head>
 <body>
@@ -172,6 +192,7 @@ function toast(msg) {
 }
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n) { return Math.round(Number(n) || 0).toLocaleString('ru-RU') + ' ₸'; }
 
 /* =========================================================
    СОСТОЯНИЕ
@@ -181,7 +202,7 @@ const state = {
   slug: null,         // текущий выбранный ресторан
   settings: null,     // полная строка restaurants для текущего slug
   categories: [], sections: [], menuItems: [], promos: [], buttons: [],
-  tab: 'settings'
+  tab: 'stats'
 };
 
 /* =========================================================
@@ -335,6 +356,7 @@ async function reloadTable(key, endpoint) {
    ВКЛАДКИ
    ========================================================= */
 const TABS = [
+  ['stats', '📊 Статистика'],
   ['settings', '⚙️ Настройки'],
   ['categories', '🗂 Категории'],
   ['sections', '📑 Разделы'],
@@ -355,6 +377,7 @@ function renderTabs() {
 
 function renderTab() {
   const c = document.getElementById('content');
+  if (state.tab === 'stats') return renderStatsTab(c);
   if (state.tab === 'settings') return renderSettingsTab(c);
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
@@ -633,6 +656,80 @@ const SETTINGS_FIELDS = [
   { key: 'bg_image', type: 'image', label: 'Фон главного экрана (фото)' },
   { key: 'bg_video', type: 'video', label: 'Фон главного экрана (видео, необязательно)' }
 ];
+
+/* =========================================================
+   СТАТИСТИКА — своя аналитика без внешних сервисов
+   ========================================================= */
+function fmtDuration(sec) {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m ? `${m} мин ${s} сек` : `${s} сек`;
+}
+
+function barListHTML(rows, emptyText) {
+  if (!rows.length) return `<p class="empty-hint">${emptyText}</p>`;
+  const max = Math.max(...rows.map((r) => r.n), 1);
+  return rows.map((r) => `
+    <div class="stat-bar-row">
+      <span class="stat-bar-label">${esc(r.title || '(без названия)')}</span>
+      <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round((r.n / max) * 100)}%"></div></div>
+      <span class="stat-bar-n">${r.n}</span>
+    </div>`).join('');
+}
+
+async function renderStatsTab(container) {
+  container.innerHTML = `<p class="empty-hint">Загружаю статистику…</p>`;
+  const days = state.statsDays || 7;
+  let d;
+  try { d = await api(`/stats?restaurant=${state.slug}&days=${days}`); }
+  catch (err) { container.innerHTML = `<p class="empty-hint">Не получилось загрузить: ${esc(err.message)}</p>`; return; }
+  state.statsDays = days;
+
+  const dropMenu = d.funnel.welcome ? Math.round(100 - (d.funnel.menu / d.funnel.welcome) * 100) : 0;
+  const dropCart = d.funnel.menu ? Math.round(100 - (d.funnel.cart / d.funnel.menu) * 100) : 0;
+
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Статистика</h2>
+        <div class="period-switch" id="periodSwitch">
+          ${[7, 30, 90].map((n) => `<button type="button" class="${n === days ? 'active' : ''}" data-days="${n}">${n} дн.</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="stat-cards">
+        <div class="stat-card"><div class="stat-card__n">${d.sessions}</div><div class="stat-card__l">гостей открыли сайт</div></div>
+        <div class="stat-card"><div class="stat-card__n">${d.orders.count}</div><div class="stat-card__l">заказов оформлено</div></div>
+        <div class="stat-card"><div class="stat-card__n">${money(d.orders.revenue)}</div><div class="stat-card__l">на сумму</div></div>
+        <div class="stat-card"><div class="stat-card__n">${fmtDuration(d.avgSeconds)}</div><div class="stat-card__l">в среднем на сайте</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Путь гостя</h2>
+      <div class="funnel">
+        <div class="funnel__step"><div class="funnel__n">${d.funnel.welcome}</div><div class="funnel__l">открыли главный экран</div></div>
+        <div class="funnel__arrow">${d.funnel.welcome ? `↓ ${dropMenu}% ушли` : ''}</div>
+        <div class="funnel__step"><div class="funnel__n">${d.funnel.menu}</div><div class="funnel__l">открыли меню</div></div>
+        <div class="funnel__arrow">${d.funnel.menu ? `↓ ${dropCart}% ушли` : ''}</div>
+        <div class="funnel__step"><div class="funnel__n">${d.funnel.cart}</div><div class="funnel__l">открыли корзину</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Чаще всего добавляют в корзину</h2>
+      <div class="stat-bars">${barListHTML(d.topAddedToCart, 'Пока никто ничего не добавлял')}</div>
+    </div>
+
+    <div class="panel">
+      <h2>Самые популярные категории</h2>
+      <div class="stat-bars">${barListHTML(d.topCategories, 'Пока нет данных')}</div>
+    </div>`;
+
+  document.querySelectorAll('#periodSwitch button').forEach((btn) => {
+    btn.onclick = () => { state.statsDays = Number(btn.dataset.days); renderTab(); };
+  });
+}
 
 function renderSettingsTab(container) {
   const s = state.settings;
