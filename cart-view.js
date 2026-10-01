@@ -111,6 +111,28 @@
     return `${I18n.t('orderMsgTitle')}:\n${rows.join('\n')}\n\n${I18n.t('total')}: ${money(Cart.total())}`;
   }
 
+  /** "77001234567" → "+7 700 123 45 67" — только для показа гостю, не для ссылок */
+  function formatPhone(digits) {
+    const d = String(digits || '').replace(/\D/g, '');
+    if (d.length !== 11) return digits ? '+' + d : '';
+    return `+${d[0]} ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7, 9)} ${d.slice(9, 11)}`;
+  }
+
+  /** Запасной вариант, если WhatsApp не открылся или не установлен: копируем текст заказа
+   *  в буфер обмена, чтобы гость мог вставить его в любой мессенджер или отправить сам. */
+  async function copyOrderFallback() {
+    const lines = Cart.lines();
+    if (!lines.length) return;
+    const text = buildOrderText(lines);
+    const phone = String(App.data?.settings?.whatsapp || C.WHATSAPP || '');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(phone ? I18n.t('orderCopied').replace('{phone}', formatPhone(phone)) : I18n.t('orderCopiedNoPhone'));
+    } catch {
+      toast(I18n.t('copyFailed'));
+    }
+  }
+
   async function order() {
     const lines = Cart.lines();
     if (!lines.length) return;
@@ -151,6 +173,7 @@
     const act = t.closest('[data-action]')?.dataset.action;
     if (act === 'close-cart') { App.back('#/menu'); return; }
     if (act === 'order') { order(); return; }
+    if (act === 'copy-order') { copyOrderFallback(); return; }
 
     const inc = t.closest('[data-inc]'); if (inc) { Cart.inc(inc.dataset.inc); return; }
     const dec = t.closest('[data-dec]'); if (dec) { Cart.dec(dec.dataset.dec); return; }

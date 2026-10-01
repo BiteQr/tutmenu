@@ -50,6 +50,14 @@ export async function authorize(env, request, slug) {
 /** Пустая строка в поле-ссылке (category_id / section_id / item_id) означает
  *  «ничего не выбрано» — а колонка в базе ссылается на другую таблицу (FOREIGN KEY),
  *  так что пустую строку нужно превратить в NULL, иначе SQLite откажет с ошибкой FK. */
+/** D1/SQLite не умеет напрямую привязывать JS true/false как параметр — превращаем в 1/0.
+ *  Без этого падает КАЖДОЕ сохранение чекбокса "Показывать" в любой форме админки. */
+function toSql(v) {
+  if (v === true) return 1;
+  if (v === false) return 0;
+  return v;
+}
+
 const FK_COLUMNS = {
   sections: ['category_id'],
   'menu-items': ['section_id'],
@@ -74,7 +82,7 @@ const ADMIN_TABLES = {
   'menu-items': {
     table: 'menu_items',
     cols: ['section_id', 'sort', 'active', 'image', 'title_ru', 'title_kk', 'title_en',
-           'description_ru', 'description_kk', 'description_en', 'price', 'variants', 'recommendations']
+           'description_ru', 'description_kk', 'description_en', 'price', 'variants', 'recommendations', 'badge_ids']
   },
   'promos': {
     table: 'promos',
@@ -84,6 +92,10 @@ const ADMIN_TABLES = {
   'buttons': {
     table: 'buttons',
     cols: ['sort', 'active', 'type', 'style', 'title_ru', 'title_kk', 'title_en', 'url']
+  },
+  'badges': {
+    table: 'badges',
+    cols: ['sort', 'active', 'icon', 'color', 'title_ru', 'title_kk', 'title_en']
   }
 };
 
@@ -102,13 +114,15 @@ async function handleMenu(request, env) {
   }
 
   const slug = restaurant.slug;
-  const [buttons, promos, categories, sections, items] = await Promise.all([
+  const [buttons, promos, categories, sections, items, badges] = await Promise.all([
     env.DB.prepare('SELECT * FROM buttons WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
     env.DB.prepare('SELECT * FROM promos WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
     env.DB.prepare('SELECT * FROM categories WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
     env.DB.prepare('SELECT * FROM sections WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
-    env.DB.prepare('SELECT * FROM menu_items WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all()
+    env.DB.prepare('SELECT * FROM menu_items WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
+    env.DB.prepare('SELECT * FROM badges WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all()
   ]);
+  const badgeMap = new Map(badges.results.map((b) => [String(b.id), b]));
 
   const settings = {
     name: restaurant.name,
@@ -117,7 +131,9 @@ async function handleMenu(request, env) {
     theme: restaurant.theme,
     accentColor: restaurant.accent_color,
     logoWelcome: restaurant.logo_welcome, logoHeader: restaurant.logo_header,
-    bgImage: restaurant.bg_image, bgVideo: restaurant.bg_video
+    bgImage: restaurant.bg_image, bgVideo: restaurant.bg_video,
+    notice_ru: restaurant.notice_ru || '', notice_kk: restaurant.notice_kk || '', notice_en: restaurant.notice_en || '',
+    hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || ''
   };
 
   const payload = {
@@ -147,7 +163,11 @@ async function handleMenu(request, env) {
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       price: r.price || 0,
       variants: r.variants ? JSON.parse(r.variants) : [],
-      recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : []
+      recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : [],
+      badges: (r.badge_ids || '').split(',').map((s) => s.trim()).filter(Boolean)
+        .map((bid) => badgeMap.get(bid))
+        .filter(Boolean)
+        .map((b) => ({ id: String(b.id), title_ru: b.title_ru, title_kk: b.title_kk, title_en: b.title_en, icon: b.icon, color: b.color }))
     }))
   };
 
@@ -294,14 +314,15 @@ async function handleAdminApi(request, env, segments) {
       if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
-                    'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video']
+                    'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to']
         .filter((c) => c in b);
       // Домен чистим тем же способом, что и при поиске по hostname (без https://, www., слэша) —
       // иначе вписанный "с запасом" адрес не совпадёт с реальным при заходе на сайт
       if (cols.includes('domain')) b.domain = normId(b.domain.replace(/^https?:\/\//i, '')) || null;
       if (cols.length) {
         const set = cols.map((c) => `${c} = ?`).join(', ');
-        await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => b[c]), qSlug).run();
+        await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => toSql(b[c])), qSlug).run();
       }
       // Назначить/сменить редактора может только владелец, даже если остальные поля правит сам ресторан
       if (me.role === 'owner' && typeof b.editorEmail === 'string' && b.editorEmail.trim()) {
@@ -326,12 +347,13 @@ async function handleAdminApi(request, env, segments) {
     const rows = await env.DB.prepare(`SELECT * FROM ${def.table} WHERE restaurant_id = ? ORDER BY sort`).bind(slug).all();
     let items = rows.results;
     if (section === 'menu-items') {
-      // variants/recommendations хранятся в базе как строка (JSON / список через запятую) —
+      // variants/recommendations/badge_ids хранятся в базе как строка (JSON / список через запятую) —
       // тем же способом их превращает в объект и публичный /api/menu
       items = items.map((r) => ({
         ...r,
         variants: r.variants ? JSON.parse(r.variants) : [],
-        recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : []
+        recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        badgeIds: r.badge_ids ? r.badge_ids.split(',').map((s) => s.trim()).filter(Boolean) : []
       }));
     }
     return json({ items });
@@ -342,7 +364,7 @@ async function handleAdminApi(request, env, segments) {
     const placeholders = cols.map(() => '?').join(',');
     const res = await env.DB.prepare(
       `INSERT INTO ${def.table} (restaurant_id${cols.length ? ', ' + cols.join(', ') : ''}) VALUES (?${cols.length ? ', ' + placeholders : ''})`
-    ).bind(slug, ...cols.map((c) => body[c])).run();
+    ).bind(slug, ...cols.map((c) => toSql(body[c]))).run();
     return json({ ok: true, id: res.meta.last_row_id });
   }
 
@@ -355,7 +377,7 @@ async function handleAdminApi(request, env, segments) {
     if (!cols.length) return json({ ok: true });
     const set = cols.map((c) => `${c} = ?`).join(', ');
     await env.DB.prepare(`UPDATE ${def.table} SET ${set} WHERE id = ? AND restaurant_id = ?`)
-      .bind(...cols.map((c) => body[c]), id, slug).run();
+      .bind(...cols.map((c) => toSql(body[c])), id, slug).run();
     return json({ ok: true });
   }
   if (method === 'DELETE') {

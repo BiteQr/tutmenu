@@ -120,6 +120,12 @@ body.is-locked { overflow: hidden; }
   letter-spacing: .16em; opacity: .85;
 }
 
+.welcome__hours {
+  margin-top: 16px; padding: 8px 16px; border-radius: var(--pill);
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3);
+  font-size: 13px; font-weight: 500;
+}
+
 .welcome__buttons {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   width: 100%; max-width: 480px; margin: 0 auto;
@@ -282,6 +288,13 @@ body.is-locked { overflow: hidden; }
   border-radius: var(--r); background: var(--surface);
 }
 .item__body { display: flex; flex-direction: column; min-width: 0; }
+.item-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.item-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 9px; border-radius: var(--pill);
+  background: var(--surface); color: var(--text);
+  font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
+}
 .item__title { font-size: 18px; font-weight: 700; line-height: 1.25; }
 .item__desc { margin-top: 8px; font-size: 15px; line-height: 1.4; color: var(--muted-2); }
 
@@ -420,6 +433,12 @@ body.is-locked { overflow: hidden; }
 .order-btn:active { transform: scale(.98); }
 .order-btn:disabled { opacity: .35; }
 
+.fallback-link {
+  display: block; width: 100%; max-width: 600px; margin: 10px auto 0;
+  text-align: center; font-size: 13px; color: var(--muted); text-decoration: underline;
+  pointer-events: auto;
+}
+
 /* =========================================================
    OVERLAYS (акция, выбор варианта)
    ========================================================= */
@@ -452,6 +471,18 @@ body.is-locked { overflow: hidden; }
 .promo-full__body { padding: 20px var(--pad) 4px; }
 .promo-full__title { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1.2; }
 .promo-full__desc { margin-top: 10px; font-size: 16px; line-height: 1.45; color: var(--muted-2); white-space: pre-line; }
+.notice__text { font-size: 15px; line-height: 1.55; white-space: pre-line; }
+
+/* Отдельный класс (не .overlay) — чтобы route() не закрывал уведомление вместе с модалками акций/вариантов */
+.notice-overlay {
+  position: fixed; inset: 0; z-index: 85;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,.5);
+  opacity: 0; transition: opacity .25s;
+}
+.notice-overlay.is-open { opacity: 1; }
+.notice-overlay .overlay__panel { transform: none; }
+@media (min-width: 700px) { .notice-overlay { align-items: center; padding: 24px; } }
 .promo-full__btn {
   display: block; width: 100%; height: 54px; margin-top: 20px;
   border-radius: var(--pill); background: var(--dark); color: #fff; font-size: 17px; font-weight: 600;

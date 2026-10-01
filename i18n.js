@@ -15,7 +15,12 @@
       viewDish: 'Посмотреть блюдо', added: 'Добавлено в заказ',
       chooseVariant: 'Выберите вариант', byDefault: 'По умолчанию', from: 'от',
       remove: 'Удалить', orderSent: 'Заказ отправлен', orderFailed: 'Заказ не отправлен. Проверьте интернет и нажмите ещё раз.',
-      orderMsgTitle: 'Новый заказ', loadError: 'Меню не загрузилось. Проверьте интернет.', retry: 'Повторить'
+      orderMsgTitle: 'Новый заказ', loadError: 'Меню не загрузилось. Проверьте интернет.', retry: 'Повторить',
+      noticeAgree: 'Согласен(-на)', closedNow: 'Сейчас не работаем — откроемся в {time}',
+      copyOrderFallback: 'Не открылся WhatsApp? Скопировать заказ',
+      orderCopied: 'Заказ скопирован — отправьте его на {phone}',
+      orderCopiedNoPhone: 'Заказ скопирован',
+      copyFailed: 'Не получилось скопировать'
     },
     kk: {
       back: 'Артқа', up: 'Жоғары', cart: 'Себет', close: 'Жабу',
@@ -26,7 +31,12 @@
       viewDish: 'Тағамды көру', added: 'Тапсырысқа қосылды',
       chooseVariant: 'Нұсқаны таңдаңыз', byDefault: 'Әдепкі', from: 'бастап',
       remove: 'Жою', orderSent: 'Тапсырыс жіберілді', orderFailed: 'Тапсырыс жіберілмеді. Интернетті тексеріп, қайта басыңыз.',
-      orderMsgTitle: 'Жаңа тапсырыс', loadError: 'Мәзір жүктелмеді. Интернетті тексеріңіз.', retry: 'Қайталау'
+      orderMsgTitle: 'Жаңа тапсырыс', loadError: 'Мәзір жүктелмеді. Интернетті тексеріңіз.', retry: 'Қайталау',
+      noticeAgree: 'Келісемін', closedNow: 'Қазір жұмыс істемейміз — {time} ашамыз',
+      copyOrderFallback: 'WhatsApp ашылмады ма? Тапсырысты көшіру',
+      orderCopied: 'Тапсырыс көшірілді — {phone} нөміріне жіберіңіз',
+      orderCopiedNoPhone: 'Тапсырыс көшірілді',
+      copyFailed: 'Көшіру сәтсіз аяқталды'
     },
     en: {
       back: 'Back', up: 'Back to top', cart: 'Cart', close: 'Close',
@@ -37,7 +47,12 @@
       viewDish: 'View dish', added: 'Added to order',
       chooseVariant: 'Choose an option', byDefault: 'Default', from: 'from',
       remove: 'Remove', orderSent: 'Order sent', orderFailed: 'Order not sent. Check your connection and try again.',
-      orderMsgTitle: 'New order', loadError: 'Menu failed to load. Check your connection.', retry: 'Retry'
+      orderMsgTitle: 'New order', loadError: 'Menu failed to load. Check your connection.', retry: 'Retry',
+      noticeAgree: 'I agree', closedNow: "We're closed now — opening at {time}",
+      copyOrderFallback: "WhatsApp didn't open? Copy order",
+      orderCopied: 'Order copied — send it to {phone}',
+      orderCopiedNoPhone: 'Order copied',
+      copyFailed: 'Could not copy'
     }
   };
 

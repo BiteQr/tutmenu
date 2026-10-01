@@ -2,7 +2,7 @@
    WELCOME SCREEN — фон (видео/фото), логотип, кнопки из JSON
    ========================================================= */
 (function (App) {
-  const { $, esc, safeUrl } = App.utils;
+  const { $, esc, safeUrl, lockScroll } = App.utils;
   const I18n = App.I18n;
   const root = $('#welcome');
 
@@ -100,12 +100,80 @@
     }).join('');
   }
 
+  /** Простой хэш текста — чтобы попап показался заново, если владелец поменяет текст уведомления */
+  function simpleHash(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+
+  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — один раз на устройство,
+   *  показывается заново только если владелец изменит текст. Если текст пустой — не показывается вообще. */
+  let noticeAttempted = false;
+  function maybeShowNotice(data) {
+    if (noticeAttempted) return;
+    noticeAttempted = true;
+
+    const text = I18n.f(data.settings, 'notice');
+    if (!text) return;
+
+    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
+    let seen = null;
+    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
+    if (seen) return;
+
+    const el = document.createElement('div');
+    el.className = 'notice-overlay';
+    el.innerHTML = `
+      <div class="overlay__panel">
+        <div class="promo-full__body">
+          <p class="notice__text">${esc(text)}</p>
+          <button type="button" class="promo-full__btn" data-notice-agree>${esc(I18n.t('noticeAgree'))}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('is-open'));
+    lockScroll('notice', true);
+
+    el.querySelector('[data-notice-agree]').onclick = () => {
+      try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
+      el.remove();
+      lockScroll('notice', false);
+    };
+  }
+
+  /** Сейчас в рабочих часах заведения (по часам гостя — считаем, что гость в том же городе) */
+  function isOpenNow(from, to) {
+    if (!from || !to) return true; // часы не заданы — фичу не показываем вообще
+    const [fh, fm] = from.split(':').map(Number);
+    const [th, tm] = to.split(':').map(Number);
+    if ([fh, fm, th, tm].some((n) => Number.isNaN(n))) return true; // на случай кривого ввода — лучше ничего не показать, чем наврать
+    const now = new Date();
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const start = fh * 60 + fm, end = th * 60 + tm;
+    if (start === end) return true; // круглосуточно
+    return start < end ? (cur >= start && cur < end) : (cur >= start || cur < end); // учитываем работу за полночь
+  }
+
+  function renderHours(s) {
+    const center = $('.welcome__center', root);
+    const old = $('.welcome__hours', center);
+    if (old) old.remove();
+    if (isOpenNow(s.hoursFrom, s.hoursTo)) return;
+    const el = document.createElement('p');
+    el.className = 'welcome__hours';
+    el.textContent = I18n.t('closedNow').replace('{time}', s.hoursFrom);
+    $('.welcome__tagline', center).insertAdjacentElement('afterend', el);
+  }
+
   function render(data) {
     const s = data.settings;
     renderBackground(s);
     renderLogo(s);
     renderLangs();
+    renderHours(s);
     renderButtons(data.buttons);
+    maybeShowNotice(data);
   }
 
   // Делегирование событий
