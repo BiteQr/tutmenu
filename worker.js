@@ -66,7 +66,10 @@ const FK_COLUMNS = {
 function normalizeFK(section, body) {
   const cols = FK_COLUMNS[section] || [];
   const out = { ...body };
-  cols.forEach((c) => { if (out[c] === '' || out[c] === undefined) out[c] = null; });
+  // Важно: трогаем поле, только если клиент его реально прислал (например, выбрал "— нет —").
+  // Если поля вообще нет в body (частичное сохранение — скажем, только badge_ids или active),
+  // ни в коем случае не добавляем его — иначе затрём привязку к разделу/категории/блюду при любом частичном PUT.
+  cols.forEach((c) => { if (c in out && out[c] === '') out[c] = null; });
   return out;
 }
 
