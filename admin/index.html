@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 :root{
   --bg:#f6f6f8; --panel:#fff; --line:#e5e5ea; --text:#1c1c1e; --muted:#8a8a8f;
@@ -57,6 +58,12 @@ a{color:inherit;}
 .rows{display:flex;flex-direction:column;gap:10px;}
 .row-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;}
 .row-card.inactive{opacity:.45;}
+.mini-toggle{position:relative;display:inline-block;width:38px;height:22px;flex:none;}
+.mini-toggle input{opacity:0;width:0;height:0;position:absolute;}
+.mini-toggle span{position:absolute;inset:0;background:var(--line);border-radius:999px;transition:.2s;cursor:pointer;}
+.mini-toggle span::before{content:'';position:absolute;width:18px;height:18px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+.mini-toggle input:checked + span{background:var(--ok);}
+.mini-toggle input:checked + span::before{transform:translateX(16px);}
 .row-thumb{width:48px;height:48px;border-radius:8px;object-fit:cover;background:var(--bg);flex:none;}
 .row-body{flex:1;min-width:0;}
 .row-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -201,7 +208,7 @@ const state = {
   me: null,           // {email, role, restaurants:[{slug,name,active}]}
   slug: null,         // текущий выбранный ресторан
   settings: null,     // полная строка restaurants для текущего slug
-  categories: [], sections: [], menuItems: [], promos: [], buttons: [],
+  categories: [], sections: [], menuItems: [], promos: [], buttons: [], badges: [],
   tab: 'stats'
 };
 
@@ -270,6 +277,19 @@ const SCHEMAS = {
     ],
     rowTitle: (r) => r.title_ru || '(без текста)',
     rowSub: (r) => r.type
+  },
+  badges: {
+    title: 'Метки', endpoint: 'badges', icon: '🏷',
+    fields: [
+      { key: 'active', type: 'check', label: 'Показывать', default: true },
+      { key: 'icon', type: 'text', label: 'Эмодзи-иконка (необязательно)' },
+      { key: 'color', type: 'text', label: 'Цвет метки, например #ff3b30 (необязательно)' },
+      { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
+      { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
+      { key: 'title_en', type: 'text', label: 'Название (англ)' },
+      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
+    ],
+    rowTitle: (r) => `${r.icon ? r.icon + ' ' : ''}${r.title_ru || '(без названия)'}`
   }
 };
 
@@ -329,13 +349,14 @@ function showGate(kind, extra) {
 
 async function selectRestaurant(slug) {
   state.slug = slug;
-  const [settingsRes, cats, secs, items, promos, buttons] = await Promise.all([
+  const [settingsRes, cats, secs, items, promos, buttons, badges] = await Promise.all([
     api(`/restaurants?restaurant=${slug}`),
     api(`/categories?restaurant=${slug}`),
     api(`/sections?restaurant=${slug}`),
     api(`/menu-items?restaurant=${slug}`),
     api(`/promos?restaurant=${slug}`),
-    api(`/buttons?restaurant=${slug}`)
+    api(`/buttons?restaurant=${slug}`),
+    api(`/badges?restaurant=${slug}`)
   ]);
   state.settings = settingsRes.restaurant;
   state.categories = cats.items;
@@ -343,6 +364,7 @@ async function selectRestaurant(slug) {
   state.menuItems = items.items;
   state.promos = promos.items;
   state.buttons = buttons.items;
+  state.badges = badges.items;
   renderTabs();
   renderTab();
 }
@@ -361,6 +383,7 @@ const TABS = [
   ['categories', '🗂 Категории'],
   ['sections', '📑 Разделы'],
   ['menuItems', '🍽 Блюда'],
+  ['badges', '🏷 Метки'],
   ['promos', '📣 Акции'],
   ['buttons', '🔘 Кнопки']
 ];
@@ -380,6 +403,7 @@ function renderTab() {
   if (state.tab === 'stats') return renderStatsTab(c);
   if (state.tab === 'settings') return renderSettingsTab(c);
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
+  if (state.tab === 'badges') return renderBadgesTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
 }
 
@@ -436,7 +460,24 @@ function renderGenericTab(container, tabKey, schema) {
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openEntityModal(tabKey, schema, r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity(tabKey, schema, r);
+    document.getElementById('toggle_' + r.id).onchange = (e) => quickToggle(tabKey, schema, r, e.target.checked);
   });
+}
+
+/** Включить/выключить строку прямо из списка, без захода в карточку — для стоп-листа в разгар смены */
+async function quickToggle(tabKey, schema, row, checked) {
+  try {
+    await api(`/${schema.endpoint}/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: { active: checked } });
+    row.active = checked;
+    renderTab();
+  } catch (err) {
+    toast('Ошибка: ' + err.message);
+    renderTab(); // откатываем чекбокс визуально, раз не сохранилось
+  }
+}
+
+function toggleHTML(r) {
+  return `<label class="mini-toggle" title="Показывать"><input type="checkbox" id="toggle_${r.id}" ${r.active !== false ? 'checked' : ''}><span></span></label>`;
 }
 
 function rowCardHTML(r, schema) {
@@ -444,6 +485,7 @@ function rowCardHTML(r, schema) {
   const thumb = img ? `<img class="row-thumb" src="${esc(img)}">` : '';
   return `
     <div class="row-card ${r.active === false ? 'inactive' : ''}">
+      ${toggleHTML(r)}
       ${thumb}
       <div class="row-body">
         <div class="row-title">${esc(schema.rowTitle(r))}</div>
@@ -520,6 +562,7 @@ function renderMenuItemsTab(container) {
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openMenuItemModal(r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity('menuItems', SCHEMAS_MENU, r);
+    document.getElementById('toggle_' + r.id).onchange = (e) => quickToggle('menuItems', SCHEMAS_MENU, r, e.target.checked);
   });
 }
 const SCHEMAS_MENU = { endpoint: 'menu-items', rowTitle: (r) => r.title_ru || '(без названия)' };
@@ -528,13 +571,19 @@ function priceLabel(r) {
   if (r.variants && r.variants.length) return r.variants.map((v) => `${v.label || ''} ${v.price}₸`).join(' · ');
   return (r.price || 0) + '₸';
 }
+function badgeIcons(badgeIds) {
+  if (!badgeIds || !badgeIds.length) return '';
+  return badgeIds.map((id) => state.badges.find((b) => String(b.id) === String(id))?.icon).filter(Boolean).join(' ');
+}
 function menuRowHTML(r) {
   const thumb = r.image ? `<img class="row-thumb" src="${esc(r.image)}">` : '<div class="row-thumb"></div>';
+  const icons = badgeIcons(r.badgeIds);
   return `
     <div class="row-card ${r.active === false ? 'inactive' : ''}">
+      ${toggleHTML(r)}
       ${thumb}
       <div class="row-body">
-        <div class="row-title">${esc(r.title_ru || '(без названия)')}</div>
+        <div class="row-title">${icons ? icons + ' ' : ''}${esc(r.title_ru || '(без названия)')}</div>
         <div class="row-sub">${esc(secLabel(r.sectionId))} · ${esc(priceLabel(r))}</div>
       </div>
       <div class="row-actions">
@@ -542,6 +591,81 @@ function menuRowHTML(r) {
         <button class="btn btn-outline btn-sm btn-danger" id="del_${r.id}">Удалить</button>
       </div>
     </div>`;
+}
+
+/* =========================================================
+   МЕТКИ (Хит продаж / Веган / Острое…) — свой каталог на ресторан
+   + массовое назначение блюдам без захода в каждое по отдельности
+   ========================================================= */
+function renderBadgesTab(container) {
+  const rows = state.badges;
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Метки</h2><button class="btn btn-dark btn-sm" id="addBtn">+ Добавить метку</button></div>
+      <p style="font-size:13px;color:var(--muted);margin:-6px 0 14px;">
+        Метка вроде «Хит продаж» или «Острое» — заведи один раз, дальше через «Назначить блюдам»
+        отмечаешь сразу нужные блюда галочками, не открывая каждое по отдельности.
+      </p>
+      <div class="rows" id="rows">${rows.length ? rows.map(badgeRowHTML).join('') : `<p class="empty-hint">Пока нет ни одной метки</p>`}</div>
+    </div>`;
+  document.getElementById('addBtn').onclick = () => openEntityModal('badges', SCHEMAS.badges, null);
+  rows.forEach((r) => {
+    document.getElementById('edit_' + r.id).onclick = () => openEntityModal('badges', SCHEMAS.badges, r);
+    document.getElementById('del_' + r.id).onclick = () => deleteEntity('badges', SCHEMAS.badges, r);
+    document.getElementById('assign_' + r.id).onclick = () => openAssignBadgeModal(r);
+  });
+}
+
+function badgeRowHTML(r) {
+  return `
+    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+      <div class="row-body">
+        <div class="row-title">${esc((r.icon ? r.icon + ' ' : '') + (r.title_ru || '(без названия)'))}</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-outline btn-sm" id="assign_${r.id}">Назначить блюдам</button>
+        <button class="btn btn-outline btn-sm" id="edit_${r.id}">Изменить</button>
+        <button class="btn btn-outline btn-sm btn-danger" id="del_${r.id}">Удалить</button>
+      </div>
+    </div>`;
+}
+
+function openAssignBadgeModal(badge) {
+  const already = new Set(state.menuItems.filter((m) => (m.badgeIds || []).includes(String(badge.id))).map((m) => String(m.id)));
+  const body = `
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Отметь блюда с меткой «${esc(badge.title_ru)}». Можно выбрать сразу несколько.</p>
+    <div class="rec-list" id="assignList" style="max-height:360px;">
+      ${state.menuItems.length
+        ? state.menuItems.map((m) => `<span class="rec-chip ${already.has(String(m.id)) ? 'sel' : ''}" data-id="${m.id}">${esc(m.title_ru)}</span>`).join('')
+        : '<span style="color:var(--muted);font-size:13px;">Сначала добавь блюда на вкладке «Блюда»</span>'}
+    </div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+      <button type="button" class="btn btn-dark" id="saveAssignBtn">Сохранить</button>
+    </div>`;
+
+  openModal(`Метка «${badge.title_ru}»`, body, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.querySelectorAll('#assignList .rec-chip').forEach((chip) => {
+      chip.onclick = () => chip.classList.toggle('sel');
+    });
+    document.getElementById('saveAssignBtn').onclick = async () => {
+      const nowSelected = new Set([...document.querySelectorAll('#assignList .rec-chip.sel')].map((c) => c.dataset.id));
+      const changed = state.menuItems.filter((m) => already.has(String(m.id)) !== nowSelected.has(String(m.id)));
+      if (!changed.length) { closeModal(); return; }
+      try {
+        for (const m of changed) {
+          const ids = new Set(m.badgeIds || []);
+          if (nowSelected.has(String(m.id))) ids.add(String(badge.id)); else ids.delete(String(badge.id));
+          await api(`/menu-items/${m.id}?restaurant=${state.slug}`, { method: 'PUT', body: { badge_ids: [...ids].join(',') } });
+        }
+        closeModal();
+        await reloadTable('menuItems', 'menu-items');
+        renderTab();
+        toast(`Обновлено блюд: ${changed.length}`);
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  });
 }
 
 function openMenuItemModal(row) {
@@ -563,6 +687,11 @@ function openMenuItemModal(row) {
           <div id="variantRows"></div>
           <button type="button" class="btn btn-outline btn-sm" id="addVariant">+ Ещё вариант</button>
         </div>
+      </div>
+
+      <div class="field">
+        <label>Метки (Хит продаж, Веган, Острое…)</label>
+        <div class="rec-list" id="badgeList"></div>
       </div>
 
       <div class="field">
@@ -597,6 +726,15 @@ function openMenuItemModal(row) {
     modeSingle.onclick = () => { modeSingle.classList.add('active'); modeVariants.classList.remove('active'); document.getElementById('singlePrice').hidden = false; document.getElementById('variantsBox').hidden = true; };
     modeVariants.onclick = () => { modeVariants.classList.add('active'); modeSingle.classList.remove('active'); document.getElementById('singlePrice').hidden = true; document.getElementById('variantsBox').hidden = false; };
 
+    const badgeList = document.getElementById('badgeList');
+    const selectedBadges = new Set((row?.badgeIds || []).map(String));
+    badgeList.innerHTML = state.badges.length ? state.badges.map((b) =>
+      `<span class="rec-chip ${selectedBadges.has(String(b.id)) ? 'sel' : ''}" data-id="${b.id}">${esc((b.icon ? b.icon + ' ' : '') + b.title_ru)}</span>`
+    ).join('') : '<span style="color:var(--muted);font-size:13px;">Меток пока нет — заведи на вкладке «Метки»</span>';
+    badgeList.querySelectorAll('.rec-chip').forEach((chip) => {
+      chip.onclick = () => { chip.classList.toggle('sel'); const id = chip.dataset.id; chip.classList.contains('sel') ? selectedBadges.add(id) : selectedBadges.delete(id); };
+    });
+
     const recList = document.getElementById('recList');
     const selected = new Set((row?.recommendations || []).map(String));
     const others = state.menuItems.filter((m) => !row || String(m.id) !== String(row.id));
@@ -626,6 +764,7 @@ function openMenuItemModal(row) {
         payload.variants = '';
       }
       payload.recommendations = [...selected].join(',');
+      payload.badge_ids = [...selectedBadges].join(',');
 
       try {
         if (row) await api(`/menu-items/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
@@ -654,7 +793,12 @@ const SETTINGS_FIELDS = [
   { key: 'logo_welcome', type: 'image', label: 'Логотип на главном экране (светлый)' },
   { key: 'logo_header', type: 'image', label: 'Логотип в шапке меню (тёмный)' },
   { key: 'bg_image', type: 'image', label: 'Фон главного экрана (фото)' },
-  { key: 'bg_video', type: 'video', label: 'Фон главного экрана (видео, необязательно)' }
+  { key: 'bg_video', type: 'video', label: 'Фон главного экрана (видео, необязательно)' },
+  { key: 'notice_ru', type: 'textarea', label: 'Всплывающее уведомление при входе (рус) — оставь пустым, если не нужно' },
+  { key: 'notice_kk', type: 'textarea', label: 'Уведомление (қаз)' },
+  { key: 'notice_en', type: 'textarea', label: 'Уведомление (англ)' },
+  { key: 'hours_from', type: 'text', label: 'Открываемся в (например 10:00) — необязательно' },
+  { key: 'hours_to', type: 'text', label: 'Закрываемся в (например 23:00) — необязательно' }
 ];
 
 /* =========================================================
@@ -734,6 +878,7 @@ async function renderStatsTab(container) {
 function renderSettingsTab(container) {
   const s = state.settings;
   const isOwner = state.me.role === 'owner';
+  const url = menuUrl();
   container.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h2>Настройки — ${esc(s.name)}</h2></div>
@@ -742,6 +887,16 @@ function renderSettingsTab(container) {
         <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
       </form>
     </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>QR-код для столов</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;word-break:break-all;">Ссылка в коде: ${esc(url)}</p>
+      <div id="qrHolder"></div>
+      <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
+        <button type="button" class="btn btn-dark btn-sm" id="downloadQrBtn">Скачать PNG для печати</button>
+      </div>
+    </div>
+
     ${isOwner ? `
     <div class="panel">
       <div class="panel-head"><h2>Кто ведёт этот ресторан</h2></div>
@@ -760,6 +915,8 @@ function renderSettingsTab(container) {
     </div>` : ''}`;
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
   SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
+  renderQR(url);
+  document.getElementById('downloadQrBtn').onclick = () => downloadQR(url);
 
   document.getElementById('settingsForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -767,7 +924,9 @@ function renderSettingsTab(container) {
     SETTINGS_FIELDS.forEach((f) => { payload[f.key] = readField(f); });
     try {
       await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: payload });
+      Object.assign(state.settings, payload);
       toast('Сохранено');
+      renderQR(menuUrl()); // домен мог поменяться — код должен вести на актуальный адрес
     } catch (err) { toast('Ошибка: ' + err.message); }
   };
 
@@ -783,6 +942,32 @@ function renderSettingsTab(container) {
       } catch (err) { toast('Ошибка: ' + err.message); }
     };
   }
+}
+
+/** Ссылка на меню этого ресторана — свой домен, если задан, иначе текущий адрес с ?r=slug */
+function menuUrl() {
+  const s = state.settings;
+  return s.domain ? `https://${s.domain}/#/menu` : `${location.origin}/?r=${state.slug}#/menu`;
+}
+
+function renderQR(url) {
+  const holder = document.getElementById('qrHolder');
+  if (!holder) return;
+  holder.innerHTML = '';
+  if (typeof QRCode === 'undefined') { holder.innerHTML = '<p class="empty-hint">QR-библиотека не загрузилась — проверь интернет и обнови страницу</p>'; return; }
+  new QRCode(holder, { text: url, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+}
+
+function downloadQR(url) {
+  if (typeof QRCode === 'undefined') { toast('QR-библиотека не загрузилась'); return; }
+  const holder = document.createElement('div');
+  new QRCode(holder, { text: url, width: 1000, height: 1000, correctLevel: QRCode.CorrectLevel.M });
+  const canvas = holder.querySelector('canvas');
+  if (!canvas) { toast('Не получилось создать QR-код для скачивания'); return; }
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = `qr-${state.slug}.png`;
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* =========================================================
