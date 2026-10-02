@@ -2,6 +2,13 @@
    ОБЩИЕ ХЕЛПЕРЫ
    ========================================================= */
 
+/** JSON.parse без страховки — одно повреждённое блюдо уронит выдачу всего меню разом.
+ *  При ошибке блюдо просто остаётся без вариаций, а не валит весь запрос. */
+function safeVariants(raw) {
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
 function json(data, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -165,7 +172,7 @@ async function handleMenu(request, env) {
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en,
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       price: r.price || 0,
-      variants: r.variants ? JSON.parse(r.variants) : [],
+      variants: safeVariants(r.variants),
       recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : [],
       badges: (r.badge_ids || '').split(',').map((s) => s.trim()).filter(Boolean)
         .map((bid) => badgeMap.get(bid))
@@ -304,7 +311,7 @@ async function handleAdminApi(request, env, segments) {
       await env.DB.prepare(
         `INSERT INTO restaurants (slug, domain, active, name, tagline_ru, whatsapp, theme, accent_color)
          VALUES (?, ?, 1, ?, ?, ?, ?, ?)`
-      ).bind(slug, normId(b.domain) || null, b.name || slug, b.tagline_ru || '', b.whatsapp || '', b.theme || 'modern', b.accentColor || '').run();
+      ).bind(slug, normId(String(b.domain || '').replace(/^https?:\/\//i, '')) || null, b.name || slug, b.tagline_ru || '', b.whatsapp || '', b.theme || 'modern', b.accentColor || '').run();
       if (b.editorEmail) {
         await env.DB.prepare('INSERT OR REPLACE INTO admin_users (email, restaurant_id, role) VALUES (?, ?, ?)')
           .bind(String(b.editorEmail).trim().toLowerCase(), slug, 'editor').run();
@@ -354,7 +361,7 @@ async function handleAdminApi(request, env, segments) {
       // тем же способом их превращает в объект и публичный /api/menu
       items = items.map((r) => ({
         ...r,
-        variants: r.variants ? JSON.parse(r.variants) : [],
+        variants: safeVariants(r.variants),
         recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : [],
         badgeIds: r.badge_ids ? r.badge_ids.split(',').map((s) => s.trim()).filter(Boolean) : []
       }));
