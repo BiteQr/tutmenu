@@ -107,10 +107,21 @@
     return (h >>> 0).toString(36);
   }
 
-  /** Фактический показ попапа — вынесено отдельно, чтобы вызывать его С ЗАДЕРЖКОЙ,
-   *  уже после того как сайт открылся, а не одновременно с загрузкой. */
-  function showNoticePopup(text, key) {
+  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — показывается в момент перехода
+   *  в меню (клик по кнопке «Меню» или по категории), не на самом Welcome-экране.
+   *  Один раз на устройство; показывается заново только если владелец изменит текст.
+   *  Если текст пустой — не показывается вообще. */
+  function maybeShowNotice() {
     if (document.querySelector('.notice-overlay')) return; // уже показан — не задваиваем
+    if (!App.data || !App.data.settings) return;
+
+    const text = I18n.f(App.data.settings, 'notice');
+    if (!text) return;
+
+    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
+    let seen = null;
+    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
+    if (seen) return;
 
     const el = document.createElement('div');
     el.className = 'notice-overlay';
@@ -118,7 +129,7 @@
       <div class="overlay__panel">
         <div class="promo-full__body">
           <p class="notice__text">${esc(text)}</p>
-          <button type="button" class="promo-full__btn" data-notice-agree>${esc(I18n.t('noticeAgree'))}</button>
+          <button type="button" class="notice-overlay__btn" data-notice-agree>${esc(I18n.t('noticeAgree'))}</button>
         </div>
       </div>`;
     document.body.appendChild(el);
@@ -130,35 +141,6 @@
       el.remove();
       lockScroll('notice', false);
     };
-  }
-
-  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — один раз на устройство,
-   *  показывается заново только если владелец изменит текст. Если текст пустой — не показывается вообще.
-   *  Показываем с небольшой задержкой ПОСЛЕ открытия сайта (не одновременно с загрузкой) —
-   *  ждём, пока исчезнет loader, и только потом выводим попап по центру экрана. */
-  const NOTICE_DELAY_MS = 600;
-
-  function maybeShowNotice(data) {
-    const text = I18n.f(data.settings, 'notice');
-    if (!text) return;
-
-    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
-    let seen = null;
-    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
-    if (seen) return;
-    if (document.querySelector('.notice-overlay')) return; // уже показан (например, из предыдущего рендера) — не планируем второй показ
-
-    const loader = document.getElementById('loader');
-    const whenReady = (cb) => {
-      if (!loader || loader.classList.contains('is-done')) return cb();
-      // ждём, пока основной экран реально откроется, потом ещё чуть-чуть для эффекта «после», не одновременно
-      const obs = new MutationObserver(() => {
-        if (loader.classList.contains('is-done')) { obs.disconnect(); cb(); }
-      });
-      obs.observe(loader, { attributes: true, attributeFilter: ['class'] });
-    };
-
-    whenReady(() => setTimeout(() => showNoticePopup(text, key), NOTICE_DELAY_MS));
   }
 
   /** Сейчас в рабочих часах заведения (по часам гостя — считаем, что гость в том же городе) */
@@ -192,7 +174,6 @@
     renderLangs();
     renderHours(s);
     renderButtons(data.buttons);
-    maybeShowNotice(data);
   }
 
   // Делегирование событий
@@ -202,6 +183,11 @@
 
     const catLink = e.target.closest('[data-open-cat]');
     if (catLink) App.pendingCategory = catLink.dataset.openCat; // меню откроется на этой категории
+
+    // Любая кнопка, ведущая в меню (основная «Меню» или категория) — показываем уведомление
+    // чуть позже, уже после того как экран меню откроется, а не одновременно с кликом.
+    const menuLink = e.target.closest('a[href="#/menu"]');
+    if (menuLink) setTimeout(maybeShowNotice, 400);
   });
 
   App.Welcome = { render };
