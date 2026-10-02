@@ -107,21 +107,10 @@
     return (h >>> 0).toString(36);
   }
 
-  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — один раз на устройство,
-   *  показывается заново только если владелец изменит текст. Если текст пустой — не показывается вообще.
-   *  Проверяем «попап уже на экране», а не «уже пытались один раз» — иначе при подгрузке
-   *  свежих данных поверх кэша (обычное дело для вернувшихся гостей) обновлённый текст
-   *  уведомления никогда бы не показался тем, кто уже видел старую версию. */
-  function maybeShowNotice(data) {
-    if (document.querySelector('.notice-overlay')) return;
-
-    const text = I18n.f(data.settings, 'notice');
-    if (!text) return;
-
-    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
-    let seen = null;
-    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
-    if (seen) return;
+  /** Фактический показ попапа — вынесено отдельно, чтобы вызывать его С ЗАДЕРЖКОЙ,
+   *  уже после того как сайт открылся, а не одновременно с загрузкой. */
+  function showNoticePopup(text, key) {
+    if (document.querySelector('.notice-overlay')) return; // уже показан — не задваиваем
 
     const el = document.createElement('div');
     el.className = 'notice-overlay';
@@ -141,6 +130,35 @@
       el.remove();
       lockScroll('notice', false);
     };
+  }
+
+  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — один раз на устройство,
+   *  показывается заново только если владелец изменит текст. Если текст пустой — не показывается вообще.
+   *  Показываем с небольшой задержкой ПОСЛЕ открытия сайта (не одновременно с загрузкой) —
+   *  ждём, пока исчезнет loader, и только потом выводим попап по центру экрана. */
+  const NOTICE_DELAY_MS = 600;
+
+  function maybeShowNotice(data) {
+    const text = I18n.f(data.settings, 'notice');
+    if (!text) return;
+
+    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
+    let seen = null;
+    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
+    if (seen) return;
+    if (document.querySelector('.notice-overlay')) return; // уже показан (например, из предыдущего рендера) — не планируем второй показ
+
+    const loader = document.getElementById('loader');
+    const whenReady = (cb) => {
+      if (!loader || loader.classList.contains('is-done')) return cb();
+      // ждём, пока основной экран реально откроется, потом ещё чуть-чуть для эффекта «после», не одновременно
+      const obs = new MutationObserver(() => {
+        if (loader.classList.contains('is-done')) { obs.disconnect(); cb(); }
+      });
+      obs.observe(loader, { attributes: true, attributeFilter: ['class'] });
+    };
+
+    whenReady(() => setTimeout(() => showNoticePopup(text, key), NOTICE_DELAY_MS));
   }
 
   /** Сейчас в рабочих часах заведения (по часам гостя — считаем, что гость в том же городе) */
