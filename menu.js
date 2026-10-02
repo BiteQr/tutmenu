@@ -120,6 +120,15 @@
     return `<div class="variant">${C.VARIANT_ORDER === 'label-first' ? label + dots + price : price + dots + label}</div>`;
   }
 
+  /** Плашки меток (Хит продаж, Веган, Острое…) на карточке блюда */
+  function badgesHTML(badges) {
+    if (!badges || !badges.length) return '';
+    return `<div class="item-badges">${badges.map((b) => {
+      const style = b.color ? ` style="background:${esc(b.color)}1f;color:${esc(b.color)};"` : '';
+      return `<span class="item-badge"${style}>${b.icon ? esc(b.icon) + ' ' : ''}${esc(I18n.f(b, 'title'))}</span>`;
+    }).join('')}</div>`;
+  }
+
   function itemHTML(it, secTitle = '') {
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
@@ -131,6 +140,7 @@
       <article class="item ${it.image ? '' : 'item--noimg'}" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
         ${it.image ? img(it.image, 'item__img', title) : ''}
         <div class="item__body">
+          ${badgesHTML(it.badges)}
           <h3 class="item__title">${esc(title)}</h3>
           ${desc ? `<p class="item__desc">${esc(desc)}</p>` : ''}
           ${hasVariants ? `<div class="variants">${it.variants.map(variantHTML).join('')}</div>` : ''}
