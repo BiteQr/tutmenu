@@ -438,7 +438,7 @@ function fieldHTML(field, value) {
   if (field.type === 'number') {
     return `<div class="field"><label>${esc(field.label)}</label><input type="number" id="f_${field.key}" value="${esc(v)}"></div>`;
   }
-  return `<div class="field"><label>${esc(field.label)}</label><input type="text" id="f_${field.key}" value="${esc(v)}"></div>`;
+  return `<div class="field"><label>${esc(field.label)}</label><input type="text" id="f_${field.key}" value="${esc(v)}" ${field.required ? 'required' : ''}></div>`;
 }
 
 function readField(field) {
