@@ -120,13 +120,21 @@
     return `<div class="variant">${C.VARIANT_ORDER === 'label-first' ? label + dots + price : price + dots + label}</div>`;
   }
 
-  /** Плашки меток (Хит продаж, Веган, Острое…) на карточке блюда */
+  /** Плашки меток (Хит продаж, Веган, Острое…) на карточке блюда.
+   *  Фон и цвет текста — независимые поля из админки. Если задан только фон
+   *  (старые метки, созданные до появления отдельного цвета текста) — ведём
+   *  себя как раньше: лёгкий тон фона + тот же цвет на тексте. */
+  function badgeStyle(b) {
+    if (b.color && b.textColor) return `background:${esc(b.color)};color:${esc(b.textColor)};`;
+    if (b.color) return `background:${esc(b.color)}1f;color:${esc(b.color)};`;
+    return '';
+  }
+
   function badgesHTML(badges) {
     if (!badges || !badges.length) return '';
-    return `<div class="item-badges">${badges.map((b) => {
-      const style = b.color ? ` style="background:${esc(b.color)}1f;color:${esc(b.color)};"` : '';
-      return `<span class="item-badge"${style}>${b.icon ? esc(b.icon) + ' ' : ''}${esc(I18n.f(b, 'title'))}</span>`;
-    }).join('')}</div>`;
+    return `<div class="item-badges">${badges.map((b) =>
+      `<span class="item-badge" style="${badgeStyle(b)}">${b.icon ? esc(b.icon) + ' ' : ''}${esc(I18n.f(b, 'title'))}</span>`
+    ).join('')}</div>`;
   }
 
   function itemHTML(it, secTitle = '') {
