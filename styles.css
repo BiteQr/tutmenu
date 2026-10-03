@@ -214,6 +214,7 @@ body.is-locked { overflow: hidden; }
   scroll-snap-align: start;
 }
 .promo img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s var(--ease); }
+.promo video { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .promo:active img { transform: scale(.98); }
 
 /* Поиск */
