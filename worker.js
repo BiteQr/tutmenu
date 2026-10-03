@@ -465,7 +465,16 @@ export default {
       return json({ error: 'server_error', message: String(err) }, { status: 500 });
     }
 
-    // Всё остальное — статичные файлы сайта (index.html, css, js, картинки-заглушки)
-    return env.ASSETS.fetch(request);
+    // Всё остальное — статичные файлы сайта (index.html, css, js, картинки-заглушки).
+    // Саму страницу /admin отдаём БЕЗ кэша: это инструмент, которым пользуются
+    // с разных устройств, и застрявшая в кэше телефона старая версия после
+    // каждого обновления файла — больше не должна быть возможна в принципе.
+    const res = await env.ASSETS.fetch(request);
+    if (p === '/admin' || p === '/admin/' || p === '/admin/index.html') {
+      const noCache = new Response(res.body, res);
+      noCache.headers.set('cache-control', 'no-store');
+      return noCache;
+    }
+    return res;
   }
 };
