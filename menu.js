@@ -197,11 +197,53 @@
 
   function render(d) {
     data = d;
+    els.sections.dataset.itemLayout = d.settings.itemLayout || 'list';
     renderHeader();
     renderPromos();
     renderBody();
     I18n.applyStatic();
   }
+
+  /* ---------------------------------------------------------
+     ВЫБОР ЯЗЫКА ПРИ ВХОДЕ В МЕНЮ
+     Один раз за визит (не при каждом возврате на экран меню в рамках
+     одной сессии) — гость явно выбирает язык до того, как увидит блюда.
+     --------------------------------------------------------- */
+  const LANG_PROMPT_KEY = 'menu_lang_asked_v1';
+  let langPromptDone = false;
+
+  function maybeShowLangPrompt() {
+    if (langPromptDone) return;
+    let asked = null;
+    try { asked = sessionStorage.getItem(LANG_PROMPT_KEY); } catch { /* приватный режим — просто спросим ещё раз, не страшно */ }
+    if (asked) { langPromptDone = true; return; }
+    langPromptDone = true;
+
+    const el = document.createElement('div');
+    el.className = 'lang-overlay';
+    el.innerHTML = `
+      <div class="overlay__panel">
+        <div class="lang-overlay__body">
+          <div class="lang-overlay__icon">🌐</div>
+          ${I18n.langs.map((l) => `<button type="button" class="lang-overlay__btn" data-pick-lang="${l}">${esc(I18n.FULL[l])}</button>`).join('')}
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('is-open'));
+
+    el.querySelectorAll('[data-pick-lang]').forEach((btn) => {
+      btn.onclick = () => {
+        try { sessionStorage.setItem(LANG_PROMPT_KEY, '1'); } catch { /* ignore */ }
+        I18n.set(btn.dataset.pickLang);
+        el.remove();
+      };
+    });
+  }
+
+  // Срабатывает в момент, когда экран меню РЕАЛЬНО становится видимым — неважно,
+  // пришёл ли гость по клику, кнопке «назад» в браузере или прямой ссылке на #/menu.
+  new MutationObserver(() => { if (!root.hidden) maybeShowLangPrompt(); })
+    .observe(root, { attributes: true, attributeFilter: ['hidden'] });
 
   /* ---------------------------------------------------------
      СКРОЛЛ: навигация и scroll-spy
