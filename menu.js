@@ -61,11 +61,21 @@
   /* ---------------------------------------------------------
      RENDER: акции
      --------------------------------------------------------- */
+  /** Акция — фото ИЛИ горизонтальное видео (с автовоспроизведением, без звука,
+   *  как и на главном экране). Если задано видео — показываем его, иначе фото/заглушку. */
+  function promoMediaHTML(p, cls, eager) {
+    if (p.video) {
+      const posterAttr = p.image ? ` poster="${esc(safeUrl(p.image))}"` : '';
+      return `<video class="${cls}" src="${esc(safeUrl(p.video))}"${posterAttr} autoplay muted loop playsinline preload="metadata"></video>`;
+    }
+    return photoHTML(p.image, cls, I18n.f(p, 'title'), eager);
+  }
+
   function renderPromos() {
     els.promos.hidden = !data.promos.length;
     els.promos.innerHTML = data.promos.map((p, i) =>
       `<button type="button" class="promo" data-promo="${i}" aria-label="${esc(I18n.f(p, 'title'))}">
-         ${img(p.image, '', I18n.f(p, 'title'), i < 2)}
+         ${promoMediaHTML(p, '', i < 2)}
        </button>`).join('');
   }
 
@@ -77,7 +87,7 @@
     const title = I18n.f(p, 'title');
     const desc = I18n.f(p, 'description');
     $('.overlay__content', els.promoModal).innerHTML = `
-      ${img(p.image, 'promo-full__img', title, true)}
+      ${promoMediaHTML(p, 'promo-full__img', true)}
       <div class="promo-full__body">
         ${title ? `<h3 class="promo-full__title">${esc(title)}</h3>` : ''}
         ${desc ? `<p class="promo-full__desc">${esc(desc)}</p>` : ''}
