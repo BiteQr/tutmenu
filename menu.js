@@ -124,6 +124,14 @@
    *  Фон и цвет текста — независимые поля из админки. Если задан только фон
    *  (старые метки, созданные до появления отдельного цвета текста) — ведём
    *  себя как раньше: лёгкий тон фона + тот же цвет на тексте. */
+  /** Фото блюда/категории — если фото не загружено, показываем свою заглушку
+   *  (иконка на фоне из палитры темы), а не пустое место. Ничего не грузится
+   *  извне — не может сломаться или не отрисоваться. */
+  function photoHTML(src, cls, alt, eager) {
+    if (src) return img(src, cls, alt, eager);
+    return `<div class="${cls} img-ph" aria-hidden="true">🍽</div>`;
+  }
+
   function badgeStyle(b) {
     if (b.color && b.textColor) return `background:${esc(b.color)};color:${esc(b.textColor)};`;
     if (b.color) return `background:${esc(b.color)}1f;color:${esc(b.color)};`;
@@ -145,8 +153,8 @@
     const searchStr = norm(`${title} ${desc} ${it.title_ru || ''} ${it.title_en || ''} ${it.title_kk || ''} ${secTitle}`);
 
     return `
-      <article class="item ${it.image ? '' : 'item--noimg'}" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
-        ${it.image ? img(it.image, 'item__img', title) : ''}
+      <article class="item" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
+        ${photoHTML(it.image, 'item__img', title)}
         <div class="item__body">
           ${badgesHTML(it.badges)}
           <h3 class="item__title">${esc(title)}</h3>
@@ -168,7 +176,7 @@
     els.cats.hidden = tree.filter((g) => g.cat).length < 2;
     els.cats.innerHTML = tree.filter((g) => g.cat).map(({ cat }) =>
       `<button type="button" class="cat" data-cat="${esc(cat.id)}">
-         ${img(cat.image, 'cat__img', I18n.f(cat, 'title'), true)}
+         ${photoHTML(cat.image, 'cat__img', I18n.f(cat, 'title'), true)}
          <span class="cat__title">${esc(I18n.f(cat, 'title'))}</span>
        </button>`).join('');
 
