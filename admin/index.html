@@ -565,6 +565,7 @@ function renderMenuItemsTab(container) {
       <div class="panel-head">
         <h2>Блюда</h2>
         <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" id="dedupBtn">🧹 Склеить дубликаты</button>
           <button class="btn btn-outline btn-sm" id="bulkSectionBtn">🔀 Массово поменять раздел</button>
           <button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button>
         </div>
@@ -573,6 +574,7 @@ function renderMenuItemsTab(container) {
     </div>`;
   document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
   document.getElementById('bulkSectionBtn').onclick = openBulkSectionModal;
+  document.getElementById('dedupBtn').onclick = openDedupModal;
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openMenuItemModal(r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity('menuItems', SCHEMAS_MENU, r);
@@ -580,6 +582,120 @@ function renderMenuItemsTab(container) {
   });
 }
 const SCHEMAS_MENU = { endpoint: 'menu-items', rowTitle: (r) => r.title_ru || '(без названия)' };
+
+/** Находит задвоенные разделы (одинаковое название в одной категории) и задвоенные
+ *  блюда (одинаковое название в одном разделе — считая раздел уже после склейки).
+ *  Ничего не трогает сама — только строит план, который потом подтверждает человек. */
+function computeDuplicatePlan() {
+  const secGroups = new Map();
+  state.sections.forEach((s) => {
+    const key = `${s.category_id}|${(s.title_ru || '').trim().toLowerCase()}`;
+    if (!secGroups.has(key)) secGroups.set(key, []);
+    secGroups.get(key).push(s);
+  });
+  const sectionMerges = [];
+  const sectionIdRemap = new Map();
+  secGroups.forEach((group) => {
+    if (group.length < 2) return;
+    const sorted = [...group].sort((a, b) => Number(a.id) - Number(b.id));
+    const keep = sorted[0], drop = sorted.slice(1);
+    sectionMerges.push({ keep, drop });
+    drop.forEach((d) => sectionIdRemap.set(String(d.id), String(keep.id)));
+  });
+
+  const itemGroups = new Map();
+  state.menuItems.forEach((it) => {
+    const effectiveSec = sectionIdRemap.get(String(it.sectionId)) || String(it.sectionId);
+    const key = `${effectiveSec}|${(it.title_ru || '').trim().toLowerCase()}`;
+    if (!itemGroups.has(key)) itemGroups.set(key, []);
+    itemGroups.get(key).push(it);
+  });
+  const itemMerges = [];
+  itemGroups.forEach((group) => {
+    if (group.length < 2) return;
+    const sorted = [...group].sort((a, b) => Number(a.id) - Number(b.id));
+    itemMerges.push({ keep: sorted[0], drop: sorted.slice(1) });
+  });
+
+  return { sectionMerges, itemMerges };
+}
+
+async function executeDuplicateCleanup(plan, onProgress) {
+  let movedItems = 0, deletedSections = 0, deletedItems = 0;
+  for (const { keep, drop } of plan.sectionMerges) {
+    for (const d of drop) {
+      const itemsHere = state.menuItems.filter((it) => String(it.sectionId) === String(d.id));
+      for (const it of itemsHere) {
+        await api(`/menu-items/${it.id}?restaurant=${state.slug}`, { method: 'PUT', body: { section_id: keep.id } });
+        movedItems++;
+        onProgress?.();
+      }
+      await api(`/sections/${d.id}?restaurant=${state.slug}`, { method: 'DELETE' });
+      deletedSections++;
+      onProgress?.();
+    }
+  }
+  for (const { drop } of plan.itemMerges) {
+    for (const it of drop) {
+      await api(`/menu-items/${it.id}?restaurant=${state.slug}`, { method: 'DELETE' });
+      deletedItems++;
+      onProgress?.();
+    }
+  }
+  return { movedItems, deletedSections, deletedItems };
+}
+
+function openDedupModal() {
+  const plan = computeDuplicatePlan();
+  if (!plan.sectionMerges.length && !plan.itemMerges.length) {
+    openModal('Склеить дубликаты', `<p style="font-size:14px;color:var(--muted);">Дублей не найдено — всё чисто.</p>
+      <div class="form-actions"><button type="button" class="btn btn-dark" id="okBtn">Понятно</button></div>`, () => {
+      document.getElementById('okBtn').onclick = closeModal;
+    });
+    return;
+  }
+
+  const secLines = plan.sectionMerges.map(({ keep, drop }) =>
+    `<li>«${esc(keep.title_ru)}» — оставляем один, удаляем ${drop.length} ${drop.length === 1 ? 'копию' : 'копии'} (блюда из них переедут в тот, что остаётся)</li>`
+  ).join('');
+  const itemLines = plan.itemMerges.map(({ keep, drop }) =>
+    `<li>«${esc(keep.title_ru)}» — ${drop.length} ${drop.length === 1 ? 'лишняя копия' : 'лишние копии'} в том же разделе</li>`
+  ).join('');
+
+  const body = `
+    <p style="font-size:14px;margin-bottom:10px;">Нашёл:</p>
+    ${plan.sectionMerges.length ? `<p style="font-size:13px;font-weight:600;margin-bottom:6px;">Задвоенные разделы (${plan.sectionMerges.length}):</p><ul style="font-size:13px;color:var(--muted);margin:0 0 14px 18px;">${secLines}</ul>` : ''}
+    ${plan.itemMerges.length ? `<p style="font-size:13px;font-weight:600;margin-bottom:6px;">Задвоенные блюда (${plan.itemMerges.length}):</p><ul style="font-size:13px;color:var(--muted);margin:0 0 14px 18px;max-height:220px;overflow-y:auto;">${itemLines}</ul>` : ''}
+    <p style="font-size:13px;color:var(--danger);margin-bottom:14px;">Лишние копии будут удалены без возможности отменить. Один экземпляр каждого названия останется.</p>
+    <p id="dedupProgress" style="font-size:13px;color:var(--muted);"></p>
+    <div class="form-actions">
+      <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+      <button type="button" class="btn btn-dark" id="confirmDedupBtn">Склеить дубликаты</button>
+    </div>`;
+
+  openModal('Найдены дубликаты', body, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('confirmDedupBtn').onclick = async () => {
+      const btn = document.getElementById('confirmDedupBtn');
+      btn.disabled = true;
+      const progressEl = document.getElementById('dedupProgress');
+      let done = 0;
+      try {
+        const result = await executeDuplicateCleanup(plan, () => { done++; progressEl.textContent = `Выполняю… ${done}`; });
+        closeModal();
+        await reloadTable('categories', 'categories');
+        await reloadTable('sections', 'sections');
+        await reloadTable('menuItems', 'menu-items');
+        renderTab();
+        toast(`Готово: удалено разделов — ${result.deletedSections}, удалено блюд-дублей — ${result.deletedItems}`);
+      } catch (err) {
+        progressEl.textContent = '';
+        btn.disabled = false;
+        toast('Ошибка: ' + err.message);
+      }
+    };
+  });
+}
 
 /** Массовая перепривязка блюд к разделам одним экраном — на случай вроде того,
  *  когда много блюд разом оказались не в своём разделе (из-за старого бага в
@@ -1247,8 +1363,14 @@ async function runImport() {
   if (!rows.length) { statusEl.textContent = 'В файле нет строк с данными.'; return; }
 
   const catCache = new Map(state.categories.map((c) => [c.title_ru.trim().toLowerCase(), c.id]));
-  const secCache = new Map(state.sections.map((s) => [`${s.categoryId}|${s.title_ru.trim().toLowerCase()}`, s.id]));
-  let nCat = 0, nSec = 0, nItem = 0, sort = state.menuItems.length;
+  // ВАЖНО: ответ /admin/api/sections отдаёт колонку как category_id (как в базе), а не
+  // camelCase categoryId — раньше тут стояло s.categoryId, которое всегда undefined,
+  // из-за чего повторный прогон импорта никогда не находил уже существующий раздел
+  // и плодил новые дубли при каждом запуске.
+  const secCache = new Map(state.sections.map((s) => [`${s.category_id}|${s.title_ru.trim().toLowerCase()}`, s.id]));
+  // То же самое для блюд — раньше дублей вообще никак не проверяли, блюдо создавалось заново при каждом прогоне
+  const itemCache = new Map(state.menuItems.map((it) => [`${it.sectionId}|${it.title_ru.trim().toLowerCase()}`, it.id]));
+  let nCat = 0, nSec = 0, nItem = 0, nUpdated = 0, sort = state.menuItems.length;
   const errors = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -1282,8 +1404,18 @@ async function runImport() {
         variants: variants.length ? JSON.stringify(variants) : '',
         price: variants.length ? 0 : (Number(row['Цена']) || 0)
       };
-      await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: payload });
-      nItem++;
+      // Блюдо с таким названием уже есть в этом разделе — обновляем его, а не плодим копию.
+      // Так повторный прогон того же файла (например, если файл поправили и перезалили) безопасен.
+      const itemKey = `${secId}|${title.toLowerCase()}`;
+      const existingId = itemCache.get(itemKey);
+      if (existingId) {
+        await api(`/menu-items/${existingId}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
+        nUpdated++;
+      } else {
+        const r = await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: payload });
+        itemCache.set(itemKey, r.id);
+        nItem++;
+      }
     } catch (err) {
       errors.push(`Строка ${i + 2} («${title}»): ${err.message}`);
     }
@@ -1294,7 +1426,7 @@ async function runImport() {
   await reloadTable('menuItems', 'menu-items');
   renderTab();
 
-  statusEl.textContent = `Готово: ${nCat} новых категорий, ${nSec} новых разделов, ${nItem} блюд добавлено.`
+  statusEl.textContent = `Готово: ${nCat} новых категорий, ${nSec} новых разделов, ${nItem} блюд добавлено, ${nUpdated} обновлено.`
     + (errors.length ? `\n\nНе удалось (${errors.length}):\n` + errors.join('\n') : '');
 }
 
