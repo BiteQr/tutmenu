@@ -562,10 +562,17 @@ function renderMenuItemsTab(container) {
   const rows = state.menuItems;
   container.innerHTML = `
     <div class="panel">
-      <div class="panel-head"><h2>Блюда</h2><button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button></div>
+      <div class="panel-head">
+        <h2>Блюда</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" id="bulkSectionBtn">🔀 Массово поменять раздел</button>
+          <button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button>
+        </div>
+      </div>
       <div class="rows" id="rows">${rows.length ? rows.map(menuRowHTML).join('') : `<p class="empty-hint">Пока пусто</p>`}</div>
     </div>`;
   document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
+  document.getElementById('bulkSectionBtn').onclick = openBulkSectionModal;
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openMenuItemModal(r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity('menuItems', SCHEMAS_MENU, r);
@@ -573,6 +580,54 @@ function renderMenuItemsTab(container) {
   });
 }
 const SCHEMAS_MENU = { endpoint: 'menu-items', rowTitle: (r) => r.title_ru || '(без названия)' };
+
+/** Массовая перепривязка блюд к разделам одним экраном — на случай вроде того,
+ *  когда много блюд разом оказались не в своём разделе (из-за старого бага в
+ *  выпадающих списках) и чинить их по одному через карточку было бы слишком долго. */
+function openBulkSectionModal() {
+  const rows = state.menuItems;
+  if (!rows.length) { toast('Сначала добавь блюда'); return; }
+
+  const body = `
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+      У каждого блюда — его текущий раздел. Поменяй, где нужно, и сохрани разом.
+    </p>
+    <div id="bulkList" style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+      ${rows.map((r) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:9px;">
+          <span style="flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.title_ru || '(без названия)')}</span>
+          <select data-bulk-sec="${r.id}" style="flex:none;width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;">
+            ${refOptions({ ref: 'sections', labelKey: 'title_ru' }, r.sectionId)}
+          </select>
+        </div>`).join('')}
+    </div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+      <button type="button" class="btn btn-dark" id="saveBulkBtn">Сохранить изменения</button>
+    </div>`;
+
+  openModal('Массово поменять раздел', body, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('saveBulkBtn').onclick = async () => {
+      const changed = [];
+      document.querySelectorAll('[data-bulk-sec]').forEach((sel) => {
+        const id = sel.dataset.bulkSec;
+        const row = rows.find((r) => String(r.id) === String(id));
+        if (row && String(row.sectionId) !== String(sel.value)) changed.push({ id, section_id: sel.value });
+      });
+      if (!changed.length) { closeModal(); toast('Ничего не поменялось'); return; }
+      try {
+        for (const c of changed) {
+          await api(`/menu-items/${c.id}?restaurant=${state.slug}`, { method: 'PUT', body: { section_id: c.section_id } });
+        }
+        closeModal();
+        await reloadTable('menuItems', 'menu-items');
+        renderTab();
+        toast(`Обновлено блюд: ${changed.length}`);
+      } catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  });
+}
 
 function priceLabel(r) {
   if (r.variants && r.variants.length) return r.variants.map((v) => `${v.label || ''} ${v.price}₸`).join(' · ');
