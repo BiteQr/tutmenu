@@ -394,6 +394,76 @@
     overlay.open(els.variantSheet);
   }
 
+  /** Карточка блюда открывается подробно — как уже устроено у акций (openPromo) и выбора
+   *  варианта: то же самое всплывающее окно снизу, те же классы, никакого нового UI с нуля.
+   *  Модалка создаётся один раз при первом открытии и дальше переиспользуется. */
+  let itemDetailModal = null;
+  function getItemDetailModal() {
+    if (itemDetailModal) return itemDetailModal;
+    itemDetailModal = document.createElement('div');
+    itemDetailModal.id = 'itemDetailModal';
+    itemDetailModal.className = 'overlay';
+    itemDetailModal.hidden = true;
+    itemDetailModal.innerHTML = `
+      <button type="button" class="overlay__close" data-action="close-overlay" aria-label="Закрыть">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="overlay__content"></div>`;
+    document.body.appendChild(itemDetailModal);
+
+    itemDetailModal.addEventListener('click', (e) => {
+      const t = e.target;
+      if (t === itemDetailModal || t.closest('[data-action="close-overlay"]')) { overlay.close(itemDetailModal); return; }
+
+      const pick = t.closest('[data-detail-pick]');
+      if (pick) {
+        Cart.add(pick.dataset.detailPick, +pick.dataset.v);
+        overlay.close(itemDetailModal);
+        toast(I18n.t('added'));
+        bump($(`.add-btn[data-add="${CSS.escape(pick.dataset.detailPick)}"]`, els.sections));
+        App.track('add_to_cart', { id: pick.dataset.detailPick });
+        return;
+      }
+      const addBtn = t.closest('[data-detail-add]');
+      if (addBtn) {
+        overlay.close(itemDetailModal);
+        handleAdd(addBtn.dataset.detailAdd, $(`.add-btn[data-add="${CSS.escape(addBtn.dataset.detailAdd)}"]`, els.sections));
+      }
+    });
+    return itemDetailModal;
+  }
+
+  function openItemDetail(it) {
+    const modal = getItemDetailModal();
+    const title = I18n.f(it, 'title');
+    const desc = I18n.f(it, 'description');
+    const hasVariants = it.variants.length > 0;
+
+    $('.overlay__content', modal).innerHTML = `
+      ${photoHTML(it.image, 'promo-full__img', title, true)}
+      <div class="promo-full__body">
+        ${badgesHTML(it.badges)}
+        <h3 class="promo-full__title">${esc(title)}</h3>
+        ${desc ? `<p class="promo-full__desc">${esc(desc)}</p>` : ''}
+        ${hasVariants ? `
+          <div class="sheet__list" style="padding:0;margin-top:18px;">
+            ${it.variants.map((v, i) => `
+              <button type="button" class="sheet__opt" data-detail-pick="${esc(it.id)}" data-v="${i}">
+                <span>${esc(v.label || I18n.t('byDefault'))}</span>
+                <span class="variant__dots"></span>
+                <span>${money(v.price)}</span>
+              </button>`).join('')}
+          </div>` : `
+          <div class="item__foot" style="padding-top:18px;">
+            ${it.price ? `<span class="item__price">${money(it.price)}</span>` : ''}
+            <button type="button" class="add-btn" data-detail-add="${esc(it.id)}" aria-label="+ ${esc(title)}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>`}
+      </div>`;
+    overlay.open(modal);
+  }
+
   /** Бейджи количества на кнопках «+» и плавающая кнопка корзины */
   function updateBadges() {
     $$('.add-btn', els.sections).forEach((btn) => {
@@ -445,7 +515,16 @@
     if (pill) { goToSection(pill.dataset.sec); return; }
 
     const add = t.closest('[data-add]');
-    if (add) { handleAdd(add.dataset.add, add); }
+    if (add) { handleAdd(add.dataset.add, add); return; }
+
+    // Тап по самой карточке блюда (не по кнопке «+») — открыть подробности,
+    // как уже открываются акции. Кнопка «+» перехватывается чуть выше и сюда не доходит.
+    const itemCard = t.closest('.item');
+    if (itemCard) {
+      const id = itemCard.id.replace(/^item-/, '');
+      const it = Cart.getItem(id);
+      if (it) openItemDetail(it);
+    }
   });
 
   // Модалки живут вне #menu
