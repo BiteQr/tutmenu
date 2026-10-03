@@ -54,9 +54,6 @@ export async function authorize(env, request, slug) {
    GitHub сохраняет структуру при загрузке файлов через браузер.
    ========================================================= */
 
-/** Пустая строка в поле-ссылке (category_id / section_id / item_id) означает
- *  «ничего не выбрано» — а колонка в базе ссылается на другую таблицу (FOREIGN KEY),
- *  так что пустую строку нужно превратить в NULL, иначе SQLite откажет с ошибкой FK. */
 /** D1/SQLite не умеет напрямую привязывать JS true/false как параметр — превращаем в 1/0.
  *  Без этого падает КАЖДОЕ сохранение чекбокса "Показывать" в любой форме админки. */
 function toSql(v) {
@@ -105,7 +102,7 @@ const ADMIN_TABLES = {
   },
   'badges': {
     table: 'badges',
-    cols: ['sort', 'active', 'icon', 'color', 'title_ru', 'title_kk', 'title_en']
+    cols: ['sort', 'active', 'icon', 'color', 'text_color', 'title_ru', 'title_kk', 'title_en']
   }
 };
 
@@ -177,7 +174,10 @@ async function handleMenu(request, env) {
       badges: (r.badge_ids || '').split(',').map((s) => s.trim()).filter(Boolean)
         .map((bid) => badgeMap.get(bid))
         .filter(Boolean)
-        .map((b) => ({ id: String(b.id), title_ru: b.title_ru, title_kk: b.title_kk, title_en: b.title_en, icon: b.icon, color: b.color }))
+        .map((b) => ({
+          id: String(b.id), title_ru: b.title_ru, title_kk: b.title_kk, title_en: b.title_en,
+          icon: b.icon, color: b.color, textColor: b.text_color
+        }))
     }))
   };
 
