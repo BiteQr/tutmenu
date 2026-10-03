@@ -281,7 +281,9 @@ body.is-locked { overflow: hidden; }
   display: grid; grid-template-columns: 38% 1fr; gap: 20px;
   padding: 24px 0;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
 }
+.item:active { opacity: .85; }
 .item--noimg { grid-template-columns: 1fr; }
 
 /* Заглушка вместо фото, когда его не загрузили — своя иконка на фоне темы,
