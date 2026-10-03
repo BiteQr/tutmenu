@@ -140,6 +140,9 @@ a{color:inherit;}
 .stat-bar-track{flex:1;height:10px;border-radius:5px;background:var(--bg);overflow:hidden;}
 .stat-bar-fill{height:100%;background:var(--dark);border-radius:5px;}
 .stat-bar-n{flex:0 0 auto;font-size:13px;font-weight:700;min-width:20px;text-align:right;}
+
+/* ---------- предпросмотр метки в списке ---------- */
+.badge-preview{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -283,7 +286,8 @@ const SCHEMAS = {
     fields: [
       { key: 'active', type: 'check', label: 'Показывать', default: true },
       { key: 'icon', type: 'text', label: 'Эмодзи-иконка (необязательно)' },
-      { key: 'color', type: 'text', label: 'Цвет метки, например #ff3b30 (необязательно)' },
+      { key: 'color', type: 'text', label: 'Цвет фона метки, например #ff3b30 (необязательно)' },
+      { key: 'text_color', type: 'text', label: 'Цвет текста на метке, например #ffffff (необязательно — без него подбирается автоматически)' },
       { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
       { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
       { key: 'title_en', type: 'text', label: 'Название (англ)' },
@@ -410,10 +414,13 @@ function renderTab() {
 /* =========================================================
    УНИВЕРСАЛЬНАЯ ФОРМА (категории / разделы / акции / кнопки)
    ========================================================= */
-function refOptions(field) {
+function refOptions(field, v) {
+  // КРИТИЧНО: каждый option должен нести "selected", если его id совпадает с текущим
+  // значением поля — иначе браузер молча выбирает ПЕРВЫЙ пункт списка по умолчанию,
+  // и это неверное значение потом реально уходит в базу при сохранении формы.
   const list = field.ref === 'categories' ? state.categories : field.ref === 'sections' ? state.sections : state.menuItems;
-  const opts = list.map((r) => `<option value="${r.id}">${esc(r[field.labelKey] || '#' + r.id)}</option>`);
-  if (field.allowEmpty) opts.unshift(`<option value="">— нет —</option>`);
+  const opts = list.map((r) => `<option value="${r.id}" ${String(r.id) === String(v) ? 'selected' : ''}>${esc(r[field.labelKey] || '#' + r.id)}</option>`);
+  if (field.allowEmpty) opts.unshift(`<option value="" ${(v === '' || v == null) ? 'selected' : ''}>— нет —</option>`);
   return opts.join('');
 }
 
@@ -424,7 +431,7 @@ function fieldHTML(field, value) {
   }
   if (field.type === 'select') {
     return `<div class="field"><label>${esc(field.label)}</label>
-      <select id="f_${field.key}">${field.options ? field.options.map(([val,l]) => `<option value="${val}" ${val===v?'selected':''}>${esc(l)}</option>`).join('') : refOptions(field)}</select></div>`;
+      <select id="f_${field.key}">${field.options ? field.options.map(([val,l]) => `<option value="${val}" ${val===v?'selected':''}>${esc(l)}</option>`).join('') : refOptions(field, v)}</select></div>`;
   }
   if (field.type === 'textarea') {
     return `<div class="field"><label>${esc(field.label)}</label><textarea id="f_${field.key}">${esc(v)}</textarea></div>`;
@@ -597,6 +604,15 @@ function menuRowHTML(r) {
    МЕТКИ (Хит продаж / Веган / Острое…) — свой каталог на ресторан
    + массовое назначение блюдам без захода в каждое по отдельности
    ========================================================= */
+/** Стиль живого предпросмотра метки — тот же принцип, что и на сайте:
+ *  оба цвета заданы → используем напрямую; задан только фон (старые метки) →
+ *  лёгкий тон фона + тот же цвет на тексте; ничего не задано → серая нейтральная плашка. */
+function badgePreviewStyle(r) {
+  if (r.color && r.text_color) return `background:${esc(r.color)};color:${esc(r.text_color)};`;
+  if (r.color) return `background:${esc(r.color)}1f;color:${esc(r.color)};`;
+  return `background:var(--bg);color:var(--text);`;
+}
+
 function renderBadgesTab(container) {
   const rows = state.badges;
   container.innerHTML = `
@@ -620,7 +636,7 @@ function badgeRowHTML(r) {
   return `
     <div class="row-card ${r.active === false ? 'inactive' : ''}">
       <div class="row-body">
-        <div class="row-title">${esc((r.icon ? r.icon + ' ' : '') + (r.title_ru || '(без названия)'))}</div>
+        <span class="badge-preview" style="${badgePreviewStyle(r)}">${esc((r.icon ? r.icon + ' ' : '') + (r.title_ru || '(без названия)'))}</span>
       </div>
       <div class="row-actions">
         <button class="btn btn-outline btn-sm" id="assign_${r.id}">Назначить блюдам</button>
