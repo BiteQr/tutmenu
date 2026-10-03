@@ -265,6 +265,7 @@ const SCHEMAS = {
     fields: [
       { key: 'active', type: 'check', label: 'Показывать', default: true },
       { key: 'image', type: 'image', label: 'Фото' },
+      { key: 'video', type: 'video', label: 'Видео акции (горизонтальное, необязательно — вместо фото)' },
       { key: 'title_ru', type: 'text', label: 'Заголовок (рус)', required: true },
       { key: 'title_kk', type: 'text', label: 'Заголовок (қаз)' },
       { key: 'title_en', type: 'text', label: 'Заголовок (англ)' },
@@ -526,6 +527,7 @@ function openEntityModal(tabKey, schema, row) {
       </div>
     </form>`, () => {
     schema.fields.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
+    schema.fields.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
     document.getElementById('cancelBtn').onclick = closeModal;
     document.getElementById('entityForm').onsubmit = async (e) => {
       e.preventDefault();
