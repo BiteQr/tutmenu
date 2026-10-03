@@ -283,6 +283,13 @@ body.is-locked { overflow: hidden; }
   border-bottom: 1px solid var(--line);
 }
 .item--noimg { grid-template-columns: 1fr; }
+
+/* Заглушка вместо фото, когда его не загрузили — своя иконка на фоне темы,
+   а не пустое место. Работает в обоих видах карточек (список и сетка). */
+.img-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; opacity: .5;
+}
 .item__img {
   width: 100%; aspect-ratio: 1; object-fit: cover;
   border-radius: var(--r); background: var(--surface);
