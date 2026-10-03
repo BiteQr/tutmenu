@@ -298,6 +298,21 @@ body.is-locked { overflow: hidden; }
 .item__title { font-size: 18px; font-weight: 700; line-height: 1.25; }
 .item__desc { margin-top: 8px; font-size: 15px; line-height: 1.4; color: var(--muted-2); }
 
+/* Вид карточек «Сетка — по 2 в ряд» — переключается в настройках ресторана (item_layout).
+   По умолчанию (list) ничего из этого не действует — обычный список, как и раньше. */
+#sections[data-item-layout="grid"] .items {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 24px 14px;
+}
+#sections[data-item-layout="grid"] .item {
+  grid-template-columns: 1fr; gap: 0; padding: 0; border-bottom: none;
+}
+#sections[data-item-layout="grid"] .item__img { aspect-ratio: 1; border-radius: var(--r-l); }
+#sections[data-item-layout="grid"] .item-badges { margin-top: 10px; margin-bottom: 4px; }
+#sections[data-item-layout="grid"] .item__title { margin-top: 10px; font-size: 15px; }
+#sections[data-item-layout="grid"] .item__desc { display: none; }
+#sections[data-item-layout="grid"] .item__foot { padding-top: 8px; }
+#sections[data-item-layout="grid"] .item__price { font-size: 15px; }
+
 /* Вариации: цена ........ объём */
 .variants { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
 .variant { display: flex; align-items: baseline; gap: 4px; font-size: 15px; font-weight: 700; white-space: nowrap; }
@@ -491,6 +506,26 @@ body.is-locked { overflow: hidden; }
   border-radius: var(--pill); background: var(--dark); color: #fff;
   font-size: 17px; font-weight: 600; text-align: center;
 }
+
+/* Выбор языка при входе в меню — свой класс (не .overlay), по той же причине,
+   что и .notice-overlay: route() не должен случайно закрыть его за компанию с другими модалками */
+.lang-overlay {
+  position: fixed; inset: 0; z-index: 86;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  background: rgba(0,0,0,.5);
+  opacity: 0; transition: opacity .25s;
+}
+.lang-overlay.is-open { opacity: 1; }
+.lang-overlay .overlay__panel { transform: none; border-radius: var(--r-xl); max-width: 360px; }
+.lang-overlay__body { padding: 30px 26px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.lang-overlay__icon { font-size: 30px; margin-bottom: 4px; }
+.lang-overlay__btn {
+  display: block; width: 100%; padding: 15px; border: 1.5px solid var(--line); border-radius: var(--r);
+  font-size: 15px; font-weight: 700; letter-spacing: .02em; text-align: center; text-transform: uppercase;
+  transition: background .15s;
+}
+.lang-overlay__btn:active { background: var(--surface); }
 
 .sheet__head { padding: 24px 60px 8px var(--pad); }
 .sheet__title { font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.2; }
