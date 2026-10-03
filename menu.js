@@ -402,11 +402,14 @@
     if (itemDetailModal) return itemDetailModal;
     itemDetailModal = document.createElement('div');
     itemDetailModal.id = 'itemDetailModal';
-    itemDetailModal.className = 'overlay';
+    // item-detail-overlay — вторым классом: .overlay нужен, чтобы попадать под общую
+    // уборку модалок (overlay.closeAll() при навигации/Esc), а item-detail-overlay —
+    // свои правила (по центру экрана, а не шторкой снизу, как у акций).
+    itemDetailModal.className = 'overlay item-detail-overlay';
     itemDetailModal.hidden = true;
     itemDetailModal.innerHTML = `
       <div class="overlay__panel">
-        <button type="button" class="overlay__close" data-action="close-overlay" aria-label="Закрыть">
+        <button type="button" class="overlay__close item-detail__close" data-action="close-overlay" aria-label="Закрыть">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
         <div class="overlay__content"></div>
@@ -441,8 +444,13 @@
     const desc = I18n.f(it, 'description');
     const hasVariants = it.variants.length > 0;
 
+    // Текст кнопки — без отдельного ключа перевода (чтобы не трогать i18n.js вслепую),
+    // но по-прежнему на всех трёх языках сайта.
+    const ADD_LABEL = { ru: 'Добавить в корзину', kk: 'Себетке қосу', en: 'Add to cart' };
+    const addLabel = ADD_LABEL[I18n.lang] || ADD_LABEL.ru;
+
     $('.overlay__content', modal).innerHTML = `
-      ${photoHTML(it.image, 'promo-full__img', title, true)}
+      ${photoHTML(it.image, 'item-detail__img', title, true)}
       <div class="promo-full__body">
         ${badgesHTML(it.badges)}
         <h3 class="promo-full__title">${esc(title)}</h3>
@@ -456,11 +464,9 @@
                 <span>${money(v.price)}</span>
               </button>`).join('')}
           </div>` : `
-          <div class="item__foot" style="padding-top:18px;">
+          <div class="item-detail__foot">
             ${it.price ? `<span class="item__price">${money(it.price)}</span>` : ''}
-            <button type="button" class="add-btn" data-detail-add="${esc(it.id)}" aria-label="+ ${esc(title)}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
+            <button type="button" class="item-detail__add" data-detail-add="${esc(it.id)}">${esc(addLabel)}</button>
           </div>`}
       </div>`;
     overlay.open(modal);
