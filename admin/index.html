@@ -32,7 +32,7 @@ a{color:inherit;}
 .gate-email{display:inline-block;margin-top:8px;padding:6px 12px;background:var(--bg);border-radius:8px;font-size:14px;font-family:monospace;}
 
 /* ---------- layout ---------- */
-.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;height:60px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);}
+.topbar{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;min-height:60px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);}
 .topbar h1{font-size:17px;font-weight:800;white-space:nowrap;}
 .topbar .spacer{flex:1;}
 .rselect{height:38px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-size:14px;max-width:220px;}
@@ -51,12 +51,15 @@ a{color:inherit;}
 .wrap{max-width:900px;margin:0 auto;padding:20px 16px 80px;}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-l);padding:20px;margin-bottom:16px;}
 .panel h2{font-size:16px;margin-bottom:14px;}
-.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;}
 .panel-head h2{margin:0;}
 
 /* ---------- list of rows ---------- */
 .rows{display:flex;flex-direction:column;gap:10px;}
-.row-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;}
+.row-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;flex-wrap:wrap;}
+.menu-group{margin-bottom:20px;}
+.menu-group__title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:2px 2px 9px;}
+.menu-group__count{font-size:11px;font-weight:700;background:var(--bg);color:var(--muted);padding:2px 8px;border-radius:999px;}
 .row-card.inactive{opacity:.45;}
 .mini-toggle{position:relative;display:inline-block;width:38px;height:22px;flex:none;}
 .mini-toggle input{opacity:0;width:0;height:0;position:absolute;}
@@ -119,7 +122,15 @@ a{color:inherit;}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1c1c1e;color:#fff;padding:12px 20px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-@media (max-width:520px){ .field-row{grid-template-columns:1fr;} .topbar h1{display:none;} }
+@media (max-width:520px){
+  .field-row{grid-template-columns:1fr;}
+  .topbar h1{display:none;}
+  .topbar{padding:10px 14px;}
+  .wrap{padding:14px 12px 80px;}
+  .row-actions{flex-basis:100%;justify-content:flex-end;}
+  .row-card{padding:10px 10px 12px;}
+  .panel{padding:16px;}
+}
 
 /* ---------- статистика ---------- */
 .period-switch{display:flex;gap:6px;}
@@ -564,17 +575,55 @@ function renderMenuItemsTab(container) {
     <div class="panel">
       <div class="panel-head">
         <h2>Блюда</h2>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-outline btn-sm" id="dedupBtn">🧹 Склеить дубликаты</button>
           <button class="btn btn-outline btn-sm" id="bulkSectionBtn">🔀 Массово поменять раздел</button>
           <button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button>
         </div>
       </div>
-      <div class="rows" id="rows">${rows.length ? rows.map(menuRowHTML).join('') : `<p class="empty-hint">Пока пусто</p>`}</div>
+      <input type="text" id="menuSearch" placeholder="🔍 Найти блюдо по названию…" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:16px;">
+      <div id="menuGroups">${renderMenuGroupsHTML(rows)}</div>
     </div>`;
   document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
   document.getElementById('bulkSectionBtn').onclick = openBulkSectionModal;
   document.getElementById('dedupBtn').onclick = openDedupModal;
+  wireMenuRowButtons(rows);
+
+  document.getElementById('menuSearch').oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const filtered = q ? rows.filter((r) => (r.title_ru || '').toLowerCase().includes(q)) : rows;
+    document.getElementById('menuGroups').innerHTML = renderMenuGroupsHTML(filtered);
+    wireMenuRowButtons(filtered);
+  };
+}
+
+/** Список блюд, сгруппированный по разделам (в том же порядке, что и в самом меню) —
+ *  искать конкретное блюдо среди многих сотен гораздо проще, чем листать один длинный
+ *  список подряд, особенно на телефоне. */
+function renderMenuGroupsHTML(rows) {
+  if (!rows.length) return `<p class="empty-hint">Ничего не найдено</p>`;
+  const bySection = new Map();
+  rows.forEach((r) => {
+    const key = r.sectionId || '';
+    if (!bySection.has(key)) bySection.set(key, []);
+    bySection.get(key).push(r);
+  });
+  const orderedSecIds = state.sections.map((s) => String(s.id)).filter((id) => bySection.has(id));
+  const extraIds = [...bySection.keys()].filter((id) => !orderedSecIds.includes(id));
+  const allIds = [...orderedSecIds, ...extraIds];
+
+  return allIds.map((secId) => {
+    const items = bySection.get(secId);
+    const label = secId ? secLabel(secId) : '— Без раздела —';
+    return `
+      <div class="menu-group">
+        <div class="menu-group__title">${esc(label)} <span class="menu-group__count">${items.length}</span></div>
+        <div class="rows">${items.map(menuRowHTML).join('')}</div>
+      </div>`;
+  }).join('');
+}
+
+function wireMenuRowButtons(rows) {
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openMenuItemModal(r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity('menuItems', SCHEMAS_MENU, r);
