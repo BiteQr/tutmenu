@@ -12,7 +12,11 @@ function safeVariants(raw) {
 function json(data, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...headers }
+    // По умолчанию — без кэша: /admin/api/* отдаёт живые данные для редактирования,
+    // устаревший ответ там цены не имеет, а вредит (ровно это и ловили: в базе
+    // уже верно, а форма показывает старое). Публичному /api/menu этот дефолт
+    // переопределяется ниже его собственным явным cache-control.
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }
   });
 }
 
