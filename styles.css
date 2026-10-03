@@ -292,6 +292,20 @@ body.is-locked { overflow: hidden; }
   display: flex; align-items: center; justify-content: center;
   font-size: 28px; opacity: .5;
 }
+
+/* Подробная карточка блюда — по центру экрана (не шторкой снизу, как у акций),
+   фото с теми же пропорциями, что в списке (квадрат, не растянуто под широкий баннер).
+   Кнопка и крестик закрытия — в акцентный цвет заведения (--dark). */
+.overlay.item-detail-overlay { align-items: center; padding: 20px; }
+.item-detail-overlay .overlay__panel { transform: none; border-radius: var(--r-xl); max-width: 420px; }
+.item-detail__img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--surface); }
+.item-detail__img.img-ph { font-size: 48px; }
+.item-detail__close { color: var(--dark); }
+.item-detail__foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 20px; }
+.item-detail__add {
+  flex: 1; height: 54px; padding: 0 20px; border-radius: var(--pill);
+  background: var(--dark); color: #fff; font-size: 16px; font-weight: 600;
+}
 .item__img {
   width: 100%; aspect-ratio: 1; object-fit: cover;
   border-radius: var(--r); background: var(--surface);
