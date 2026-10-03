@@ -405,10 +405,12 @@
     itemDetailModal.className = 'overlay';
     itemDetailModal.hidden = true;
     itemDetailModal.innerHTML = `
-      <button type="button" class="overlay__close" data-action="close-overlay" aria-label="Закрыть">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-      <div class="overlay__content"></div>`;
+      <div class="overlay__panel">
+        <button type="button" class="overlay__close" data-action="close-overlay" aria-label="Закрыть">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <div class="overlay__content"></div>
+      </div>`;
     document.body.appendChild(itemDetailModal);
 
     itemDetailModal.addEventListener('click', (e) => {
