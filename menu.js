@@ -61,33 +61,46 @@
   /* ---------------------------------------------------------
      RENDER: акции
      --------------------------------------------------------- */
-  /** Акция — фото ИЛИ горизонтальное видео (с автовоспроизведением, без звука,
-   *  как и на главном экране). Если задано видео — показываем его, иначе фото/заглушку. */
-  function promoMediaHTML(p, cls, eager) {
-    if (p.video) {
-      const posterAttr = p.image ? ` poster="${esc(safeUrl(p.image))}"` : '';
-      return `<video class="${cls}" src="${esc(safeUrl(p.video))}"${posterAttr} autoplay muted loop playsinline preload="metadata"></video>`;
-    }
-    return photoHTML(p.image, cls, I18n.f(p, 'title'), eager);
-  }
-
   function renderPromos() {
     els.promos.hidden = !data.promos.length;
     els.promos.innerHTML = data.promos.map((p, i) =>
       `<button type="button" class="promo" data-promo="${i}" aria-label="${esc(I18n.f(p, 'title'))}">
-         ${promoMediaHTML(p, '', i < 2)}
+         ${img(p.image, '', I18n.f(p, 'title'), i < 2)}
        </button>`).join('');
+  }
+
+  let hintShown = false;
+  /** Лёгкая подсказка при первом входе: лента акций слегка сдвигается
+      и возвращается — показывает, что её можно скроллить.
+      Двигаем через transform, а не реальный scrollLeft: у ленты
+      включён scroll-snap (CSS), и мандаторный снэп мгновенно "съедает"
+      любой маленький программный scrollTo, так что настоящий скролл
+      для такой короткой подсказки ненадёжен в разных браузерах. */
+  function hintPromosScroll() {
+    if (hintShown || !data.promos || data.promos.length < 2) return;
+    hintShown = true;
+    const row = els.promos;
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (row.hidden) return;
+        row.style.transition = 'transform .45s cubic-bezier(.22,.9,.3,1)';
+        row.style.transform = 'translateX(-22px)';
+        setTimeout(() => {
+          row.style.transform = 'translateX(0)';
+          setTimeout(() => { row.style.transition = ''; row.style.transform = ''; }, 480);
+        }, 480);
+      }, 650);
+    });
   }
 
   function openPromo(i) {
     const p = data.promos[i];
     if (!p) return;
-    App.track('view_promo', { id: p.id });
     const item = p.itemId ? Cart.getItem(String(p.itemId)) : null;
     const title = I18n.f(p, 'title');
     const desc = I18n.f(p, 'description');
     $('.overlay__content', els.promoModal).innerHTML = `
-      ${promoMediaHTML(p, 'promo-full__img', true)}
+      ${img(p.image, 'promo-full__img', title, true)}
       <div class="promo-full__body">
         ${title ? `<h3 class="promo-full__title">${esc(title)}</h3>` : ''}
         ${desc ? `<p class="promo-full__desc">${esc(desc)}</p>` : ''}
@@ -130,31 +143,6 @@
     return `<div class="variant">${C.VARIANT_ORDER === 'label-first' ? label + dots + price : price + dots + label}</div>`;
   }
 
-  /** Плашки меток (Хит продаж, Веган, Острое…) на карточке блюда.
-   *  Фон и цвет текста — независимые поля из админки. Если задан только фон
-   *  (старые метки, созданные до появления отдельного цвета текста) — ведём
-   *  себя как раньше: лёгкий тон фона + тот же цвет на тексте. */
-  /** Фото блюда/категории — если фото не загружено, показываем свою заглушку
-   *  (иконка на фоне из палитры темы), а не пустое место. Ничего не грузится
-   *  извне — не может сломаться или не отрисоваться. */
-  function photoHTML(src, cls, alt, eager) {
-    if (src) return img(src, cls, alt, eager);
-    return `<div class="${cls} img-ph" aria-hidden="true">🍽</div>`;
-  }
-
-  function badgeStyle(b) {
-    if (b.color && b.textColor) return `background:${esc(b.color)};color:${esc(b.textColor)};`;
-    if (b.color) return `background:${esc(b.color)}1f;color:${esc(b.color)};`;
-    return '';
-  }
-
-  function badgesHTML(badges) {
-    if (!badges || !badges.length) return '';
-    return `<div class="item-badges">${badges.map((b) =>
-      `<span class="item-badge" style="${badgeStyle(b)}">${b.icon ? esc(b.icon) + ' ' : ''}${esc(I18n.f(b, 'title'))}</span>`
-    ).join('')}</div>`;
-  }
-
   function itemHTML(it, secTitle = '') {
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
@@ -163,10 +151,9 @@
     const searchStr = norm(`${title} ${desc} ${it.title_ru || ''} ${it.title_en || ''} ${it.title_kk || ''} ${secTitle}`);
 
     return `
-      <article class="item" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
-        ${photoHTML(it.image, 'item__img', title)}
+      <article class="item ${it.image ? '' : 'item--noimg'}" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
+        ${it.image ? img(it.image, 'item__img', title) : ''}
         <div class="item__body">
-          ${badgesHTML(it.badges)}
           <h3 class="item__title">${esc(title)}</h3>
           ${desc ? `<p class="item__desc">${esc(desc)}</p>` : ''}
           ${hasVariants ? `<div class="variants">${it.variants.map(variantHTML).join('')}</div>` : ''}
@@ -186,7 +173,7 @@
     els.cats.hidden = tree.filter((g) => g.cat).length < 2;
     els.cats.innerHTML = tree.filter((g) => g.cat).map(({ cat }) =>
       `<button type="button" class="cat" data-cat="${esc(cat.id)}">
-         ${photoHTML(cat.image, 'cat__img', I18n.f(cat, 'title'), true)}
+         ${img(cat.image, 'cat__img', I18n.f(cat, 'title'), true)}
          <span class="cat__title">${esc(I18n.f(cat, 'title'))}</span>
        </button>`).join('');
 
@@ -215,53 +202,12 @@
 
   function render(d) {
     data = d;
-    els.sections.dataset.itemLayout = d.settings.itemLayout || 'list';
     renderHeader();
     renderPromos();
     renderBody();
     I18n.applyStatic();
+    hintPromosScroll();
   }
-
-  /* ---------------------------------------------------------
-     ВЫБОР ЯЗЫКА ПРИ ВХОДЕ В МЕНЮ
-     Один раз за визит (не при каждом возврате на экран меню в рамках
-     одной сессии) — гость явно выбирает язык до того, как увидит блюда.
-     --------------------------------------------------------- */
-  const LANG_PROMPT_KEY = 'menu_lang_asked_v1';
-  let langPromptDone = false;
-
-  function maybeShowLangPrompt() {
-    if (langPromptDone) return;
-    let asked = null;
-    try { asked = sessionStorage.getItem(LANG_PROMPT_KEY); } catch { /* приватный режим — просто спросим ещё раз, не страшно */ }
-    if (asked) { langPromptDone = true; return; }
-    langPromptDone = true;
-
-    const el = document.createElement('div');
-    el.className = 'lang-overlay';
-    el.innerHTML = `
-      <div class="overlay__panel">
-        <div class="lang-overlay__body">
-          <div class="lang-overlay__icon">🌐</div>
-          ${I18n.langs.map((l) => `<button type="button" class="lang-overlay__btn" data-pick-lang="${l}">${esc(I18n.FULL[l])}</button>`).join('')}
-        </div>
-      </div>`;
-    document.body.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('is-open'));
-
-    el.querySelectorAll('[data-pick-lang]').forEach((btn) => {
-      btn.onclick = () => {
-        try { sessionStorage.setItem(LANG_PROMPT_KEY, '1'); } catch { /* ignore */ }
-        I18n.set(btn.dataset.pickLang);
-        el.remove();
-      };
-    });
-  }
-
-  // Срабатывает в момент, когда экран меню РЕАЛЬНО становится видимым — неважно,
-  // пришёл ли гость по клику, кнопке «назад» в браузере или прямой ссылке на #/menu.
-  new MutationObserver(() => { if (!root.hidden) maybeShowLangPrompt(); })
-    .observe(root, { attributes: true, attributeFilter: ['hidden'] });
 
   /* ---------------------------------------------------------
      СКРОЛЛ: навигация и scroll-spy
@@ -334,7 +280,6 @@
     if (!el) return;
     setActive(el);
     scrollToEl(el);
-    App.track('view_category', { id: catId });
   }
 
   function goToItem(id) {
@@ -383,7 +328,6 @@
     Cart.add(id, item.variants.length === 1 ? 0 : -1);
     bump(sourceBtn);
     toast(I18n.t('added'));
-    App.track('add_to_cart', { id: item.id, title: I18n.f(item, 'title') });
   }
 
   function openVariantSheet(item) {
@@ -402,84 +346,6 @@
           </button>`).join('')}
       </div>`;
     overlay.open(els.variantSheet);
-  }
-
-  /** Карточка блюда открывается подробно — как уже устроено у акций (openPromo) и выбора
-   *  варианта: то же самое всплывающее окно снизу, те же классы, никакого нового UI с нуля.
-   *  Модалка создаётся один раз при первом открытии и дальше переиспользуется. */
-  let itemDetailModal = null;
-  function getItemDetailModal() {
-    if (itemDetailModal) return itemDetailModal;
-    itemDetailModal = document.createElement('div');
-    itemDetailModal.id = 'itemDetailModal';
-    // item-detail-overlay — вторым классом: .overlay нужен, чтобы попадать под общую
-    // уборку модалок (overlay.closeAll() при навигации/Esc), а item-detail-overlay —
-    // свои правила (по центру экрана, а не шторкой снизу, как у акций).
-    itemDetailModal.className = 'overlay item-detail-overlay';
-    itemDetailModal.hidden = true;
-    itemDetailModal.innerHTML = `
-      <div class="overlay__panel">
-        <button type="button" class="overlay__close item-detail__close" data-action="close-overlay" aria-label="Закрыть">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
-        <div class="overlay__content"></div>
-      </div>`;
-    document.body.appendChild(itemDetailModal);
-
-    itemDetailModal.addEventListener('click', (e) => {
-      const t = e.target;
-      if (t === itemDetailModal || t.closest('[data-action="close-overlay"]')) { overlay.close(itemDetailModal); return; }
-
-      const pick = t.closest('[data-detail-pick]');
-      if (pick) {
-        Cart.add(pick.dataset.detailPick, +pick.dataset.v);
-        overlay.close(itemDetailModal);
-        toast(I18n.t('added'));
-        bump($(`.add-btn[data-add="${CSS.escape(pick.dataset.detailPick)}"]`, els.sections));
-        App.track('add_to_cart', { id: pick.dataset.detailPick });
-        return;
-      }
-      const addBtn = t.closest('[data-detail-add]');
-      if (addBtn) {
-        overlay.close(itemDetailModal);
-        handleAdd(addBtn.dataset.detailAdd, $(`.add-btn[data-add="${CSS.escape(addBtn.dataset.detailAdd)}"]`, els.sections));
-      }
-    });
-    return itemDetailModal;
-  }
-
-  function openItemDetail(it) {
-    const modal = getItemDetailModal();
-    const title = I18n.f(it, 'title');
-    const desc = I18n.f(it, 'description');
-    const hasVariants = it.variants.length > 0;
-
-    // Текст кнопки — без отдельного ключа перевода (чтобы не трогать i18n.js вслепую),
-    // но по-прежнему на всех трёх языках сайта.
-    const ADD_LABEL = { ru: 'Добавить в корзину', kk: 'Себетке қосу', en: 'Add to cart' };
-    const addLabel = ADD_LABEL[I18n.lang] || ADD_LABEL.ru;
-
-    $('.overlay__content', modal).innerHTML = `
-      ${photoHTML(it.image, 'item-detail__img', title, true)}
-      <div class="promo-full__body">
-        ${badgesHTML(it.badges)}
-        <h3 class="promo-full__title">${esc(title)}</h3>
-        ${desc ? `<p class="promo-full__desc">${esc(desc)}</p>` : ''}
-        ${hasVariants ? `
-          <div class="sheet__list" style="padding:0;margin-top:18px;">
-            ${it.variants.map((v, i) => `
-              <button type="button" class="sheet__opt" data-detail-pick="${esc(it.id)}" data-v="${i}">
-                <span>${esc(v.label || I18n.t('byDefault'))}</span>
-                <span class="variant__dots"></span>
-                <span>${money(v.price)}</span>
-              </button>`).join('')}
-          </div>` : `
-          <div class="item-detail__foot">
-            ${it.price ? `<span class="item__price">${money(it.price)}</span>` : ''}
-            <button type="button" class="item-detail__add" data-detail-add="${esc(it.id)}">${esc(addLabel)}</button>
-          </div>`}
-      </div>`;
-    overlay.open(modal);
   }
 
   /** Бейджи количества на кнопках «+» и плавающая кнопка корзины */
@@ -533,16 +399,7 @@
     if (pill) { goToSection(pill.dataset.sec); return; }
 
     const add = t.closest('[data-add]');
-    if (add) { handleAdd(add.dataset.add, add); return; }
-
-    // Тап по самой карточке блюда (не по кнопке «+») — открыть подробности,
-    // как уже открываются акции. Кнопка «+» перехватывается чуть выше и сюда не доходит.
-    const itemCard = t.closest('.item');
-    if (itemCard) {
-      const id = itemCard.id.replace(/^item-/, '');
-      const it = Cart.getItem(id);
-      if (it) openItemDetail(it);
-    }
+    if (add) { handleAdd(add.dataset.add, add); }
   });
 
   // Модалки живут вне #menu
@@ -565,7 +422,6 @@
         overlay.close(ov);
         toast(I18n.t('added'));
         bump($(`.add-btn[data-add="${CSS.escape(pick.dataset.pick)}"]`, els.sections));
-        App.track('add_to_cart', { id: pick.dataset.pick });
       }
     });
   });
