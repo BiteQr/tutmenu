@@ -79,6 +79,30 @@
        </button>`).join('');
   }
 
+  let hintShown = false;
+  /** Лёгкая подсказка при первом входе: лента акций слегка сдвигается
+      и возвращается — показывает, что её можно скроллить.
+      Двигаем через transform, а не реальный scrollLeft: у ленты
+      включён scroll-snap (CSS), и мандаторный снэп мгновенно "съедает"
+      любой маленький программный scrollTo, так что настоящий скролл
+      для такой короткой подсказки ненадёжен в разных браузерах. */
+  function hintPromosScroll() {
+    if (hintShown || !data.promos || data.promos.length < 2) return;
+    hintShown = true;
+    const row = els.promos;
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (row.hidden) return;
+        row.style.transition = 'transform .45s cubic-bezier(.22,.9,.3,1)';
+        row.style.transform = 'translateX(-22px)';
+        setTimeout(() => {
+          row.style.transform = 'translateX(0)';
+          setTimeout(() => { row.style.transition = ''; row.style.transform = ''; }, 480);
+        }, 480);
+      }, 650);
+    });
+  }
+
   function openPromo(i) {
     const p = data.promos[i];
     if (!p) return;
@@ -220,6 +244,7 @@
     renderPromos();
     renderBody();
     I18n.applyStatic();
+    hintPromosScroll();
   }
 
   /* ---------------------------------------------------------
@@ -545,14 +570,21 @@
     }
   });
 
+  /** Останавливаем видео акции при закрытии модалки — иначе оно крутится в фоне */
+  function pausePromoVideo() {
+    const v = $('video', els.promoModal);
+    if (v) v.pause();
+  }
+
   // Модалки живут вне #menu
   [els.promoModal, els.variantSheet].forEach((ov) => {
     ov.addEventListener('click', (e) => {
       const t = e.target;
-      if (t === ov || t.closest('[data-action="close-overlay"]')) { overlay.close(ov); return; }
+      if (t === ov || t.closest('[data-action="close-overlay"]')) { pausePromoVideo(); overlay.close(ov); return; }
 
       const goto = t.closest('[data-goto-item]');
       if (goto) {
+        pausePromoVideo();
         overlay.close(ov);
         App.go('#/menu');
         setTimeout(() => goToItem(goto.dataset.gotoItem), 260);
@@ -571,7 +603,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { overlay.closeAll(); toggleLangList(false); }
+    if (e.key === 'Escape') { pausePromoVideo(); overlay.closeAll(); toggleLangList(false); }
   });
 
   els.search.addEventListener('input', debounce(applySearch, 120));
