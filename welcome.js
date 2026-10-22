@@ -154,7 +154,7 @@
     if (isOpenNow(s.hoursFrom, s.hoursTo)) return;
     const el = document.createElement('p');
     el.className = 'welcome__hours';
-    el.textContent = I18n.t('closedNow').replace('{time}', s.hoursFrom);
+    el.textContent = I18n.t('closedNow').replace('{from}', s.hoursFrom).replace('{to}', s.hoursTo);
     $('.welcome__tagline', center).insertAdjacentElement('afterend', el);
   }
 
