@@ -303,6 +303,13 @@ body.is-locked { overflow: hidden; }
 .item-detail__img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--surface); }
 .item-detail__img.img-ph { font-size: 48px; }
 .item-detail__close { color: var(--dark); }
+/* Крестик едет вместе с прокруткой окна и всегда под пальцем (sticky), а не уезжает вверх с фото.
+   Отрицательный нижний отступ — чтобы он лежал поверх фото, а не сдвигал его вниз. */
+.item-detail-overlay .overlay__close,
+#promoModal .overlay__close {
+  position: sticky; top: 12px; right: auto;
+  display: grid; margin: 12px 12px -46px auto;
+}
 .item-detail__foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 20px; }
 .item-detail__add {
   width: 100%; height: 56px; margin-top: 22px; padding: 0 24px; border-radius: var(--pill);
@@ -320,6 +327,7 @@ body.is-locked { overflow: hidden; }
 .detail-recs__row {
   display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
   margin: 0 calc(-1 * var(--pad)); padding: 0 var(--pad) 6px; scrollbar-width: none;
+  scroll-padding-inline: var(--pad); /* «примагничивание» к линии текста, а не к краю окна */
 }
 .detail-recs__row::-webkit-scrollbar { display: none; }
 .rec-card { flex: 0 0 132px; scroll-snap-align: start; cursor: pointer; }
@@ -378,9 +386,19 @@ body.is-locked { overflow: hidden; }
 }
 #sections[data-item-layout="grid"] .item {
   grid-template-columns: 1fr; gap: 0; padding: 0; border-bottom: none;
+  /* Без этого браузер раздаёт лишнюю высоту (когда у соседа название длиннее) и фото, и тексту —
+     и подпись короткой карточки «съезжает» вниз. Теперь лишнее место уходит только в текстовый блок. */
+  grid-template-rows: auto 1fr; align-content: start;
 }
 #sections[data-item-layout="grid"] .item__img { aspect-ratio: 1; border-radius: var(--r-l); }
-#sections[data-item-layout="grid"] .item-badges { margin-top: 10px; margin-bottom: 4px; }
+/* В сетке метки («Острое» и т.п.) лежат на углу фото — иначе название с меткой стоит ниже соседнего */
+#sections[data-item-layout="grid"] .item { position: relative; }
+#sections[data-item-layout="grid"] .item-badges {
+  position: absolute; top: 8px; left: 8px; right: 8px; margin: 0; z-index: 1; pointer-events: none;
+}
+#sections[data-item-layout="grid"] .item-badge { position: relative; z-index: 0; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+/* белая подложка под полупрозрачной меткой, чтобы она читалась поверх любого фото */
+#sections[data-item-layout="grid"] .item-badge::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: #fff; }
 #sections[data-item-layout="grid"] .item__title { margin-top: 10px; font-size: 15px; }
 #sections[data-item-layout="grid"] .item__desc { display: none; }
 #sections[data-item-layout="grid"] .item__more { margin-top: 4px; font-size: 13px; }
