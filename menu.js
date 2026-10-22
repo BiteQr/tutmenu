@@ -206,6 +206,7 @@
           ${badgesHTML(it.badges)}
           <h3 class="item__title">${esc(title)}</h3>
           ${desc ? `<p class="item__desc">${esc(desc)}</p>` : ''}
+          <span class="item__more">${esc(I18n.t('more'))}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
           ${hasVariants ? `<div class="variants">${it.variants.map(variantHTML).join('')}</div>` : ''}
           <div class="item__foot">
             ${!hasVariants && it.price ? `<span class="item__price">${money(it.price)}</span>` : ''}
@@ -488,9 +489,47 @@
       if (addBtn) {
         overlay.close(itemDetailModal);
         handleAdd(addBtn.dataset.detailAdd, $(`.add-btn[data-add="${CSS.escape(addBtn.dataset.detailAdd)}"]`, els.sections));
+        return;
+      }
+      // «С этим берут»: «+» — сразу в заказ, тап по карточке — открыть то блюдо
+      const recAdd = t.closest('[data-rec-add]');
+      if (recAdd) {
+        const rec = Cart.getItem(recAdd.dataset.recAdd);
+        if (rec && rec.variants.length) { overlay.close(itemDetailModal); handleAdd(rec.id, null); return; }
+        handleAdd(recAdd.dataset.recAdd, recAdd);
+        return;
+      }
+      const recOpen = t.closest('[data-open-rec]');
+      if (recOpen) {
+        const rec = Cart.getItem(recOpen.dataset.openRec);
+        if (rec) openItemDetail(rec);
       }
     });
     return itemDetailModal;
+  }
+
+  /** «С этим берут» — блюда из поля «Рекомендации» в админке, маленькими карточками в ряд.
+   *  Нажал на карточку — открывается то блюдо, на «+» — сразу в заказ. */
+  function recsHTML(it) {
+    const recs = (it.recommendations || []).map((id) => Cart.getItem(id)).filter(Boolean).slice(0, 8);
+    if (!recs.length) return '';
+    return `
+      <div class="detail-recs">
+        <h4 class="detail-recs__title">${esc(I18n.t('pairsWith'))}</h4>
+        <div class="detail-recs__row">
+          ${recs.map((r) => `
+            <div class="rec-card" data-open-rec="${esc(r.id)}">
+              ${photoHTML(r.image, 'rec-card__img', I18n.f(r, 'title'))}
+              <div class="rec-card__title">${esc(I18n.f(r, 'title'))}</div>
+              <div class="rec-card__foot">
+                <span class="rec-card__price">${r.variants.length ? `${esc(I18n.t('from'))} ${money(Math.min(...r.variants.map((v) => v.price)))}` : money(r.price)}</span>
+                <button type="button" class="rec-card__add" data-rec-add="${esc(r.id)}" aria-label="+ ${esc(I18n.f(r, 'title'))}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
   }
 
   function openItemDetail(it) {
@@ -498,11 +537,7 @@
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
     const hasVariants = it.variants.length > 0;
-
-    // Текст кнопки — без отдельного ключа перевода (чтобы не трогать i18n.js вслепую),
-    // но по-прежнему на всех трёх языках сайта.
-    const ADD_LABEL = { ru: 'Добавить в корзину', kk: 'Себетке қосу', en: 'Add to cart' };
-    const addLabel = ADD_LABEL[I18n.lang] || ADD_LABEL.ru;
+    markTipSeen(); // гость сам нашёл, что блюдо открывается — подсказка больше не нужна
 
     $('.overlay__content', modal).innerHTML = `
       ${photoHTML(it.image, 'item-detail__img', title, true)}
@@ -519,13 +554,58 @@
                 <span>${money(v.price)}</span>
               </button>`).join('')}
           </div>` : `
-          <div class="item-detail__foot">
-            ${it.price ? `<span class="item__price">${money(it.price)}</span>` : ''}
-            <button type="button" class="item-detail__add" data-detail-add="${esc(it.id)}">${esc(addLabel)}</button>
-          </div>`}
+          <button type="button" class="item-detail__add" data-detail-add="${esc(it.id)}">
+            <span>${esc(I18n.t('addWithPrice'))}</span>
+            ${it.price ? `<span class="item-detail__add-price">${money(it.price)}</span>` : ''}
+          </button>`}
+        ${recsHTML(it)}
       </div>`;
+    $('.overlay__panel', modal).scrollTop = 0;
     overlay.open(modal);
   }
+
+  /* ---------------------------------------------------------
+     ПОДСКАЗКА «НАЖМИТЕ НА БЛЮДО»
+     Один раз на устройство: пузырь над первым блюдом. Ждём, пока гость закроет
+     окна выбора языка и уведомления, чтобы не наслаивать одно на другое.
+     Исчезает по кнопке «Понятно» или как только гость сам открыл любое блюдо.
+     --------------------------------------------------------- */
+  const TIP_KEY = 'menu_tip_tap_v1';
+  let tipTimer = 0;
+  function tipSeen() { try { return !!localStorage.getItem(TIP_KEY); } catch { return true; } }
+  function markTipSeen() {
+    try { localStorage.setItem(TIP_KEY, '1'); } catch { /* ignore */ }
+    clearInterval(tipTimer);
+    $('.tip-tap', root)?.remove();
+  }
+  function scheduleTip() {
+    if (tipSeen() || tipTimer) return;
+    let tries = 0;
+    tipTimer = setInterval(() => {
+      if (++tries > 60 || tipSeen()) { clearInterval(tipTimer); return; }
+      if (root.hidden) return;
+      const blocked = document.querySelector('.overlay.is-open, .notice-overlay, .lang-overlay');
+      if (blocked) return;
+      // первое блюдо, которое сейчас видно на экране
+      const first = $$('.item', els.sections).find((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top > 80 && r.top < innerHeight * 0.7;
+      });
+      if (!first) return;
+      clearInterval(tipTimer);
+      const tip = document.createElement('div');
+      tip.className = 'tip-tap';
+      tip.innerHTML = `
+        <span class="tip-tap__icon">👆</span>
+        <span class="tip-tap__text">${esc(I18n.t('tipTap'))}</span>
+        <button type="button" class="tip-tap__ok">${esc(I18n.t('tipOk'))}</button>`;
+      first.before(tip);
+      requestAnimationFrame(() => tip.classList.add('is-shown'));
+      tip.querySelector('.tip-tap__ok').onclick = (e) => { e.stopPropagation(); markTipSeen(); };
+    }, 700);
+  }
+  new MutationObserver(() => { if (!root.hidden) setTimeout(scheduleTip, 1200); })
+    .observe(root, { attributes: true, attributeFilter: ['hidden'] });
 
   /** Бейджи количества на кнопках «+» и плавающая кнопка корзины */
   function updateBadges() {
