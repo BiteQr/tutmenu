@@ -1140,18 +1140,25 @@ function renderSettingsTab(container) {
     <div class="panel">
       <div class="panel-head"><h2>Кто ведёт этот ресторан</h2></div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
-        Email человека, который должен видеть и редактировать именно этот ресторан в /admin.
-        При входе он получит одноразовый код на почту — больше ничего настраивать не нужно.
+        Email'ы людей, которые должны видеть и редактировать именно этот ресторан в /admin —
+        можно добавить сколько угодно. При входе каждый получает одноразовый код на свою почту —
+        больше ничего настраивать не нужно.
       </p>
-      <form id="editorForm">
+      <div class="rows" id="editorsList">
+        ${(s.editorEmails && s.editorEmails.length) ? s.editorEmails.map((email) => `
+          <div class="row-card">
+            <div class="row-body"><div class="row-title">${esc(email)}</div></div>
+            <div class="row-actions">
+              <button type="button" class="btn btn-outline btn-sm btn-danger" data-remove-editor="${esc(email)}">Убрать</button>
+            </div>
+          </div>`).join('') : '<p class="empty-hint">Пока никого нет</p>'}
+      </div>
+      <form id="editorForm" style="margin-top:14px;">
         <div class="field">
-          <label>Email редактора</label>
-          <input type="text" id="editorEmailInput" placeholder="client@example.com" value="${esc((s.editorEmails && s.editorEmails[0]) || '')}">
+          <label>Добавить email</label>
+          <input type="text" id="editorEmailInput" placeholder="client@example.com">
         </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-dark">Сохранить доступ</button>
-          ${(s.editorEmails && s.editorEmails[0]) ? '<button type="button" class="btn btn-outline" id="removeEditorBtn">Убрать доступ</button>' : ''}
-        </div>
+        <div class="form-actions"><button type="submit" class="btn btn-dark">Добавить</button></div>
       </form>
     </div>` : ''}`;
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
@@ -1172,29 +1179,37 @@ function renderSettingsTab(container) {
   };
 
   if (isOwner) {
+    // Сохраняем весь список разом — сервер каждый раз заменяет editor-записи этого
+    // ресторана на присланный набор, поэтому шлём полный список, а не один email.
+    const saveEditors = async (emails) => {
+      await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmails: emails } });
+      state.settings.editorEmails = emails;
+      renderTab();
+    };
+
     document.getElementById('editorForm').onsubmit = async (e) => {
       e.preventDefault();
-      const email = document.getElementById('editorEmailInput').value.trim();
+      const input = document.getElementById('editorEmailInput');
+      const email = input.value.trim().toLowerCase();
       if (!email) return;
+      const current = s.editorEmails || [];
+      if (current.includes(email)) { toast('Этот email уже в списке'); return; }
       try {
-        await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmail: email } });
-        state.settings.editorEmails = [email];
-        toast('Доступ сохранён');
-        renderTab(); // перерисовать — появится кнопка «Убрать доступ»
+        await saveEditors([...current, email]);
+        toast('Доступ выдан');
       } catch (err) { toast('Ошибка: ' + err.message); }
     };
-    const removeBtn = document.getElementById('removeEditorBtn');
-    if (removeBtn) {
-      removeBtn.onclick = async () => {
-        if (!confirm('Убрать доступ у ' + ((s.editorEmails && s.editorEmails[0]) || 'этого человека') + '?')) return;
+
+    document.querySelectorAll('[data-remove-editor]').forEach((btn) => {
+      btn.onclick = async () => {
+        const email = btn.dataset.removeEditor;
+        if (!confirm('Убрать доступ у ' + email + '?')) return;
         try {
-          await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmail: '' } });
-          state.settings.editorEmails = [];
+          await saveEditors((s.editorEmails || []).filter((e) => e !== email));
           toast('Доступ убран');
-          renderTab();
         } catch (err) { toast('Ошибка: ' + err.message); }
       };
-    }
+    });
   }
 }
 

@@ -339,14 +339,15 @@ async function handleAdminApi(request, env, segments) {
         const set = cols.map((c) => `${c} = ?`).join(', ');
         await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => toSql(b[c])), qSlug).run();
       }
-      // Назначить/сменить/убрать редактора может только владелец, даже если остальные поля правит сам ресторан.
-      // Сперва всегда удаляем прежнего редактора этого ресторана — иначе при смене человека
-      // старый email так и остаётся в admin_users и сохраняет доступ навсегда (повиснет).
-      // Пустая строка — это осознанный «убрать доступ» (сохраняем, не только новый email).
-      if (me.role === 'owner' && typeof b.editorEmail === 'string') {
+      // Управлять списком редакторов может только владелец, даже если остальные поля правит сам ресторан.
+      // editorEmails — это ВЕСЬ желаемый список целиком (не один добавляемый email): у ресторана
+      // может быть несколько редакторов разом, поэтому проще каждый раз полностью заменить набор
+      // editor-записей этого ресторана на присланный, чем вычислять разницу построчно.
+      // Пустой массив — это осознанное «убрать всех».
+      if (me.role === 'owner' && Array.isArray(b.editorEmails)) {
         await env.DB.prepare("DELETE FROM admin_users WHERE restaurant_id = ? AND role = 'editor'").bind(qSlug).run();
-        const email = b.editorEmail.trim().toLowerCase();
-        if (email) {
+        const emails = [...new Set(b.editorEmails.map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+        for (const email of emails) {
           await env.DB.prepare('INSERT OR REPLACE INTO admin_users (email, restaurant_id, role) VALUES (?, ?, ?)')
             .bind(email, qSlug, 'editor').run();
         }
