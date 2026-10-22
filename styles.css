@@ -384,6 +384,10 @@ body.is-locked { overflow: hidden; }
 #sections[data-item-layout="grid"] .item__title { margin-top: 10px; font-size: 15px; }
 #sections[data-item-layout="grid"] .item__desc { display: none; }
 #sections[data-item-layout="grid"] .item__more { margin-top: 4px; font-size: 13px; }
+/* В узкой карточке сетки: «+» чуть компактнее, но всё ещё под палец, и цена не налезает на кнопку */
+#sections[data-item-layout="grid"] .item__foot { gap: 6px; }
+#sections[data-item-layout="grid"] .add-btn { min-width: 40px; height: 40px; }
+#sections[data-item-layout="grid"] .item__price { min-width: 0; white-space: nowrap; }
 #sections[data-item-layout="grid"] .item__foot { padding-top: 8px; }
 #sections[data-item-layout="grid"] .item__price { font-size: 15px; }
 

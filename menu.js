@@ -599,7 +599,9 @@
         <span class="tip-tap__icon">👆</span>
         <span class="tip-tap__text">${esc(I18n.t('tipTap'))}</span>
         <button type="button" class="tip-tap__ok">${esc(I18n.t('tipOk'))}</button>`;
-      first.before(tip);
+      // Ставим над всем списком раздела, а не внутрь него — иначе в виде «по 2 в ряд»
+      // подсказка заняла бы место одной из клеток сетки и сломала раскладку.
+      (first.closest('.items') || first).before(tip);
       requestAnimationFrame(() => tip.classList.add('is-shown'));
       tip.querySelector('.tip-tap__ok').onclick = (e) => { e.stopPropagation(); markTipSeen(); };
     }, 700);
