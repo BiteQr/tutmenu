@@ -298,9 +298,19 @@ body.is-locked { overflow: hidden; }
 /* Подробная карточка блюда — по центру экрана (не шторкой снизу, как у акций),
    фото с теми же пропорциями, что в списке (квадрат, не растянуто под широкий баннер).
    Кнопка и крестик закрытия — в акцентный цвет заведения (--dark). */
-.overlay.item-detail-overlay { align-items: center; padding: 20px; }
-.item-detail-overlay .overlay__panel { transform: none; border-radius: var(--r-xl); max-width: 420px; }
-.item-detail__img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--surface); }
+.overlay.item-detail-overlay {
+  align-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+.item-detail-overlay .overlay__panel {
+  transform: none; border-radius: var(--r-xl); max-width: 420px;
+  /* Высота — по реально видимой части экрана (dvh), а не по полной высоте телефона (vh):
+     иначе в браузерах с панелями сверху/снизу окно вылезало и крестик с кнопками не было видно */
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior: contain;
+}
+.item-detail__img { width: 100%; aspect-ratio: 1; max-height: 42vh; max-height: 42dvh; object-fit: cover; background: var(--surface); }
 .item-detail__img.img-ph { font-size: 48px; }
 .item-detail__close { color: var(--dark); }
 /* Крестик едет вместе с прокруткой окна и всегда под пальцем (sticky), а не уезжает вверх с фото.
@@ -318,6 +328,8 @@ body.is-locked { overflow: hidden; }
   transition: transform .15s var(--ease);
 }
 .item-detail__add:active { transform: scale(.97); }
+/* Если описание длинное и кнопка не помещается — она «прилипает» к низу окна и видна сразу */
+.item-detail-overlay .item-detail__add { position: sticky; bottom: 12px; z-index: 2; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 .item-detail__add:only-child, .item-detail__add span:only-child { justify-content: center; }
 .item-detail__add-price { font-weight: 800; }
 
@@ -562,7 +574,7 @@ body.is-locked { overflow: hidden; }
 }
 .overlay.is-open { opacity: 1; }
 .overlay__panel {
-  position: relative; width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto;
+  position: relative; width: 100%; max-width: 560px; max-height: 92vh; max-height: 92dvh; overflow-y: auto;
   background: #fff; border-radius: var(--r-xl) var(--r-xl) 0 0;
   padding-bottom: calc(20px + var(--safe-b));
   transform: translateY(40px); transition: transform .3s var(--ease);
