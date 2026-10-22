@@ -701,6 +701,7 @@ function renderMenuItemsTab(container) {
       <div class="panel-head">
         <h2>Блюда</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="recompressBtn">⚡ Сжать фото</button>
           <button class="btn btn-outline btn-sm" id="dedupBtn">🧹 Склеить дубликаты</button>
           <button class="btn btn-outline btn-sm" id="bulkSectionBtn">🔀 Массово поменять раздел</button>
           <button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button>
@@ -713,6 +714,7 @@ function renderMenuItemsTab(container) {
   document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
   document.getElementById('bulkSectionBtn').onclick = openBulkSectionModal;
   document.getElementById('dedupBtn').onclick = openDedupModal;
+  document.getElementById('recompressBtn').onclick = openRecompressModal;
   wireMenuRowButtons(rows);
   wireMenuSortable();
 
@@ -1378,6 +1380,119 @@ function downloadQR(url) {
 }
 
 /* =========================================================
+   СЖАТИЕ ФОТО В БРАУЗЕРЕ
+   Уменьшаем длинную сторону до maxSide и пережимаем в WebP (а где браузер
+   не умеет кодировать WebP — например Safari — в JPEG). Если что-то пошло не
+   так (формат, который браузер не открывает, вроде HEIC в Chrome), молча
+   отдаём оригинал — загрузка не должна ломаться из-за сжатия.
+   ========================================================= */
+async function compressImage(file, maxSide = 1280) {
+  try {
+    if (!/^image\/(jpeg|png|webp|heic|heif|avif|bmp)$/i.test(file.type)) return file; // SVG/GIF не трогаем
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = URL.createObjectURL(file);
+    });
+    const w0 = img.naturalWidth, h0 = img.naturalHeight;
+    URL.revokeObjectURL(img.src);
+    if (!w0 || !h0) return file;
+    // Уже маленькое и лёгкое — не пережимаем ещё раз, чтобы не терять качество зря
+    if (Math.max(w0, h0) <= maxSide && file.size < 300 * 1024) return file;
+
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    const w = Math.round(w0 * scale), h = Math.round(h0 * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const toBlob = (type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+    let blob = await toBlob('image/webp', 0.8);
+    if (!blob || blob.type !== 'image/webp') {
+      // PNG может быть с прозрачностью (логотипы) — в JPEG она стала бы чёрным фоном
+      if (file.type === 'image/png') return file;
+      blob = await toBlob('image/jpeg', 0.82);
+    }
+    if (!blob || blob.size >= file.size) return file;
+    const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const name = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.' + ext;
+    return new File([blob], name, { type: blob.type });
+  } catch {
+    return file;
+  }
+}
+
+/** Разово пережать уже загруженные фото (блюда, категории, акции, фон). Новое фото
+ *  загружается рядом, в записи меняется ссылка; если сжатие не дало выигрыша — запись не трогаем. */
+async function recompressExistingPhotos(onProgress) {
+  const jobs = [];
+  const isOurs = (u) => typeof u === 'string' && /\/files\//.test(u);
+  state.menuItems.forEach((r) => isOurs(r.image) && jobs.push({ endpoint: 'menu-items', id: r.id, field: 'image', url: r.image }));
+  state.categories.forEach((r) => isOurs(r.image) && jobs.push({ endpoint: 'categories', id: r.id, field: 'image', url: r.image }));
+  state.promos.forEach((r) => isOurs(r.image) && jobs.push({ endpoint: 'promos', id: r.id, field: 'image', url: r.image }));
+  if (isOurs(state.settings.bg_image)) jobs.push({ endpoint: 'restaurants', field: 'bg_image', url: state.settings.bg_image, maxSide: 2000 });
+
+  let done = 0, shrunk = 0, savedBytes = 0;
+  for (const job of jobs) {
+    try {
+      // Берём файл с этого же домена: /files/... отдаёт тот же воркер на любом адресе
+      const path = job.url.replace(/^https?:\/\/[^/]+/, '');
+      const res = await fetch(path);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 300 * 1024) {
+          const name = path.split('/').pop() || 'photo.jpg';
+          const small = await compressImage(new File([blob], name, { type: blob.type }), job.maxSide || 1280);
+          if (small.size < blob.size * 0.8) {
+            const form = new FormData();
+            form.append('file', small);
+            const up = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });
+            const target = job.endpoint === 'restaurants'
+              ? `/restaurants?restaurant=${state.slug}`
+              : `/${job.endpoint}/${job.id}?restaurant=${state.slug}`;
+            await api(target, { method: 'PUT', body: { [job.field]: up.url } });
+            shrunk++; savedBytes += blob.size - small.size;
+          }
+        }
+      }
+    } catch { /* одно битое фото не должно останавливать остальные */ }
+    done++;
+    onProgress?.(done, jobs.length);
+  }
+  return { total: jobs.length, shrunk, savedMB: Math.round(savedBytes / 1024 / 1024) };
+}
+
+function openRecompressModal() {
+  openModal('Сжать фото', `
+    <p style="font-size:14px;margin-bottom:10px;">Пройдусь по всем уже загруженным фото и пережму тяжёлые — меню у гостей начнёт открываться заметно быстрее. Новые фото и так сжимаются сами при загрузке.</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Не закрывай вкладку, пока идёт процесс — это займёт пару минут.</p>
+    <p id="recompressProgress" style="font-size:14px;font-weight:600;"></p>
+    <div class="form-actions">
+      <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
+      <button type="button" class="btn btn-dark" id="startRecompressBtn">Сжать</button>
+    </div>`, () => {
+    document.getElementById('cancelBtn').onclick = closeModal;
+    document.getElementById('startRecompressBtn').onclick = async () => {
+      const btn = document.getElementById('startRecompressBtn');
+      const cancel = document.getElementById('cancelBtn');
+      btn.disabled = true; cancel.disabled = true;
+      const prog = document.getElementById('recompressProgress');
+      const r = await recompressExistingPhotos((d, t) => { prog.textContent = `Обработано ${d} из ${t}…`; });
+      await reloadTable('menuItems', 'menu-items');
+      await reloadTable('categories', 'categories');
+      await reloadTable('promos', 'promos');
+      try { state.settings = (await api(`/restaurants?restaurant=${state.slug}`)).restaurant; } catch { /* ignore */ }
+      closeModal();
+      renderTab();
+      toast(r.shrunk ? `Готово: сжато ${r.shrunk} фото из ${r.total}, сэкономлено ~${r.savedMB} МБ` : 'Все фото уже лёгкие — сжимать нечего');
+    };
+  });
+}
+
+/* =========================================================
    ЗАГРУЗКА ФОТО / ВИДЕО (drag&drop) + вставка готовой ссылки
    ========================================================= */
 function uploaderHTML(key, url, kind) {
@@ -1437,8 +1552,11 @@ function attachUploader(rawKey, kind) {
   const doUpload = async (file) => {
     if (!file) return;
     clearError();
-    wrap.querySelector('.txt').textContent = 'Загружаю…';
+    wrap.querySelector('.txt').textContent = kind === 'image' ? 'Сжимаю и загружаю…' : 'Загружаю…';
     try {
+      // Фото с телефона весят 3–8 МБ — гость в меню ждал бы каждую карточку по несколько секунд.
+      // Ужимаем прямо в браузере до разумного размера, ещё до отправки на сервер.
+      if (kind === 'image') file = await compressImage(file, rawKey === 'bg_image' ? 2000 : 1280);
       const form = new FormData();
       form.append('file', file);
       const res = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });

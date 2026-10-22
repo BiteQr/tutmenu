@@ -125,6 +125,17 @@ async function handleMenu(request, env) {
   }
 
   const slug = restaurant.slug;
+  // Старые фото сохранены с полным адресом *.workers.dev/files/... — отдаём их гостю как /files/...,
+  // чтобы грузились с того же домена, что и само меню (и попадали в кэш этого домена).
+  const reqHost = new URL(request.url).host.toLowerCase();
+  const ownDomain = String(restaurant.domain || '').toLowerCase();
+  const lu = (u) => {
+    if (!u || typeof u !== 'string') return u || '';
+    const m = u.match(/^https?:\/\/([^/]+)(\/files\/.*)$/i);
+    if (!m) return u;
+    const host = m[1].toLowerCase();
+    return (host.endsWith('.workers.dev') || host === reqHost || host === ownDomain) ? m[2] : u;
+  };
   const [buttons, promos, categories, sections, items, badges] = await Promise.all([
     env.DB.prepare('SELECT * FROM buttons WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
     env.DB.prepare('SELECT * FROM promos WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
@@ -141,8 +152,8 @@ async function handleMenu(request, env) {
     whatsapp: restaurant.whatsapp,
     theme: restaurant.theme,
     accentColor: restaurant.accent_color,
-    logoWelcome: restaurant.logo_welcome, logoHeader: restaurant.logo_header,
-    bgImage: restaurant.bg_image, bgVideo: restaurant.bg_video,
+    logoWelcome: lu(restaurant.logo_welcome), logoHeader: lu(restaurant.logo_header),
+    bgImage: lu(restaurant.bg_image), bgVideo: lu(restaurant.bg_video),
     notice_ru: restaurant.notice_ru || '', notice_kk: restaurant.notice_kk || '', notice_en: restaurant.notice_en || '',
     hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || '',
     itemLayout: restaurant.item_layout || 'list'
@@ -155,13 +166,13 @@ async function handleMenu(request, env) {
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en, url: r.url
     })),
     promos: promos.results.map((r) => ({
-      id: String(r.id), image: r.image, video: r.video || '',
+      id: String(r.id), image: lu(r.image), video: lu(r.video),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en,
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       itemId: r.item_id ? String(r.item_id) : ''
     })),
     categories: categories.results.map((r) => ({
-      id: String(r.id), image: r.image,
+      id: String(r.id), image: lu(r.image),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en
     })),
     sections: sections.results.map((r) => ({
@@ -170,7 +181,7 @@ async function handleMenu(request, env) {
       subtitle_ru: r.subtitle_ru, subtitle_kk: r.subtitle_kk, subtitle_en: r.subtitle_en
     })),
     menuItems: items.results.map((r) => ({
-      id: String(r.id), sectionId: r.section_id ? String(r.section_id) : '', image: r.image,
+      id: String(r.id), sectionId: r.section_id ? String(r.section_id) : '', image: lu(r.image),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en,
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       price: r.price || 0,
@@ -449,20 +460,54 @@ async function handleUpload(request, env) {
   const key = `${slug}/${crypto.randomUUID()}.${ext}`;
   await env.BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
 
-  return json({ ok: true, url: `${url.origin}/files/${key}` });
+  // Ссылка без домена: фото открывается с того же адреса, что и меню (tipagraf.kz и т.п.),
+  // без лишнего соединения с отдельным *.workers.dev — это заметно быстрее на телефоне.
+  return json({ ok: true, url: `/files/${key}` });
 }
 
 /* ---------- GET /files/<slug>/<файл> — публично ---------- */
-async function handleFiles(env, segments) {
+// Файлы лежат в R2 в Европе. Чтобы гость в Уральске не ждал каждый раз дорогу туда и обратно,
+// кладём ответ в кэш ближайшего к нему сервера Cloudflare (Cache API) — следующие гости
+// получают фото оттуда. Видео браузеры просят кусками (Range) — отдаём куски напрямую из R2,
+// иначе Safari на iPhone может вообще не проиграть ролик.
+async function handleFiles(request, env, ctx, segments) {
   const key = segments.join('/');
   if (!key) return new Response('Not found', { status: 404 });
+
+  const range = request.headers.get('range');
+  if (range) {
+    const obj = await env.BUCKET.get(key, { range: request.headers });
+    if (!obj) return new Response('Not found', { status: 404 });
+    const headers = new Headers();
+    obj.writeHttpMetadata(headers);
+    headers.set('etag', obj.httpEtag);
+    headers.set('accept-ranges', 'bytes');
+    headers.set('cache-control', 'public, max-age=31536000, immutable');
+    const r = obj.range;
+    if (!r) return new Response(obj.body, { headers });
+    const offset = 'suffix' in r ? obj.size - r.suffix : (r.offset || 0);
+    const length = 'suffix' in r ? r.suffix : (r.length ?? obj.size - offset);
+    headers.set('content-range', `bytes ${offset}-${offset + length - 1}/${obj.size}`);
+    headers.set('content-length', String(length));
+    return new Response(obj.body, { status: 206, headers });
+  }
+
+  const cache = caches.default;
+  const cacheKey = new Request(new URL(request.url).origin + '/files/' + key);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
   const obj = await env.BUCKET.get(key);
   if (!obj) return new Response('Not found', { status: 404 });
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
+  headers.set('accept-ranges', 'bytes');
+  headers.set('content-length', String(obj.size));
   headers.set('cache-control', 'public, max-age=31536000, immutable');
-  return new Response(obj.body, { headers });
+  const res = new Response(obj.body, { headers });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
 }
 
 /* ---------- Маршрутизация ---------- */
@@ -481,9 +526,9 @@ export default {
         const segments = p.slice('/admin/api/'.length).split('/').filter(Boolean);
         return await handleAdminApi(request, env, segments);
       }
-      if (p.startsWith('/files/')) {
+      if (p.startsWith('/files/') && (method === 'GET' || method === 'HEAD')) {
         const segments = p.slice('/files/'.length).split('/').filter(Boolean);
-        return await handleFiles(env, segments);
+        return await handleFiles(request, env, ctx, segments);
       }
     } catch (err) {
       return json({ error: 'server_error', message: String(err) }, { status: 500 });
