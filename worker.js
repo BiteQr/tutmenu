@@ -474,6 +474,27 @@ async function handleFiles(request, env, ctx, segments) {
   const key = segments.join('/');
   if (!key) return new Response('Not found', { status: 404 });
 
+  // Диагностика: /files/...?info=1 — размер, тип и какой кодек внутри (для разбора «видео не играет»).
+  // Файлы и так публичные, тут только их техническое описание.
+  if (new URL(request.url).searchParams.has('info')) {
+    const head = await env.BUCKET.head(key);
+    if (!head) return json({ error: 'not_found' }, { status: 404 });
+    const take = Math.min(head.size, 2 * 1024 * 1024);
+    const first = new Uint8Array(await (await env.BUCKET.get(key, { range: { offset: 0, length: take } })).arrayBuffer());
+    const lastOff = Math.max(0, head.size - take);
+    const last = new Uint8Array(await (await env.BUCKET.get(key, { range: { offset: lastOff, length: head.size - lastOff } })).arrayBuffer());
+    const str = (b) => { let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return s; };
+    const a = str(first), z = str(last);
+    const has = (t) => a.includes(t) || z.includes(t);
+    return json({
+      size: head.size, contentType: head.httpMetadata?.contentType || '', uploaded: head.uploaded,
+      ftypBrand: a.slice(8, 12), firstBoxes: [...a.slice(0, 64).matchAll(/(ftyp|moov|moof|mdat|free|wide|EBML)/g)].map((m) => m[0]),
+      moovAt: a.includes('moov') ? 'start' : z.includes('moov') ? 'end' : 'unknown',
+      fragmented: has('moof'), avc1: has('avc1'), hvc1: has('hvc1') || has('hev1'), vp09: has('vp09'), av01: has('av01'),
+      webm: a.startsWith('\x1a\x45\xdf\xa3'), mp4a: has('mp4a'), opus: has('Opus') || has('opus')
+    });
+  }
+
   const range = request.headers.get('range');
   if (range) {
     const obj = await env.BUCKET.get(key, { range: request.headers });
