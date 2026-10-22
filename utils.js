@@ -106,5 +106,32 @@ window.App = window.App || {};
     closeAll() { $$('.overlay:not([hidden])').forEach(overlay.close); }
   };
 
-  App.utils = { $, $$, esc, safeUrl, money, norm, debounce, store, img, toast, bump, lockScroll, overlay, PLACEHOLDER };
+  /** Лёгкая вибрация при нажатии.
+   *  Android и др.: navigator.vibrate. iPhone (Safari не умеет vibrate): клик по скрытому
+   *  системному переключателю <input switch> даёт родной «тик» Taptic Engine (iOS 18+). */
+  let hapticLabel = null;
+  const haptic = (ms = 8) => {
+    try {
+      if (typeof navigator.vibrate === 'function') { navigator.vibrate(ms); return; }
+      if (!hapticLabel) {
+        const box = document.createElement('div');
+        box.setAttribute('aria-hidden', 'true');
+        box.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none;z-index:-1';
+        box.innerHTML = '<input type="checkbox" switch id="hapticSwitch" tabindex="-1"><label for="hapticSwitch"></label>';
+        box.addEventListener('click', (e) => e.stopPropagation());
+        document.body.append(box);
+        hapticLabel = box.querySelector('label');
+      }
+      hapticLabel.click();
+    } catch {}
+  };
+
+  // Вибрация на любые нажимаемые элементы меню
+  const TAPPABLE = 'button, a[href], [role="button"], .item, .pill, .rec-card, [data-open-rec], select';
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest?.(TAPPABLE);
+    if (el && !el.disabled) haptic();
+  }, true);
+
+  App.utils = { $, $$, esc, safeUrl, money, norm, debounce, store, img, toast, bump, lockScroll, overlay, haptic, PLACEHOLDER };
 })(window.App);
