@@ -486,7 +486,15 @@ async function handleFiles(request, env, ctx, segments) {
     const str = (b) => { let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return s; };
     const a = str(first), z = str(last);
     const has = (t) => a.includes(t) || z.includes(t);
+    // Самопроверка ответа на запрос куском (так видео запрашивает iPhone): ?info=1&range=bytes=0-1
+    const rt = new URL(request.url).searchParams.get('range');
+    let rangeTest = null;
+    if (rt) {
+      const r = await handleFiles(new Request(new URL(request.url).origin + '/files/' + key, { headers: { range: rt } }), env, ctx, segments);
+      rangeTest = { status: r.status, bodyBytes: (await r.arrayBuffer()).byteLength, headers: Object.fromEntries(r.headers) };
+    }
     return json({
+      rangeTest,
       size: head.size, contentType: head.httpMetadata?.contentType || '', uploaded: head.uploaded,
       ftypBrand: a.slice(8, 12), firstBoxes: [...a.slice(0, 64).matchAll(/(ftyp|moov|moof|mdat|free|wide|EBML)/g)].map((m) => m[0]),
       moovAt: a.includes('moov') ? 'start' : z.includes('moov') ? 'end' : 'unknown',
