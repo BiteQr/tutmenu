@@ -1461,7 +1461,13 @@ async function transcodeVideo(file, { onProgress, types } = {}) {
       v.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true });
       v.addEventListener('error', () => { clearTimeout(t); rej(new Error('decode')); }, { once: true });
     });
-    await once('loadeddata');
+    // iPhone не грузит видео, пока его не запустить (preload там игнорируется) — запускаем
+    // без звука, ждём первые данные, ставим на паузу и возвращаемся в начало
+    const loaded = once('loadeddata');
+    v.play().catch(() => {});
+    await loaded;
+    v.pause();
+    if (v.currentTime > 0.05) { const sk = once('seeked'); v.currentTime = 0; await sk; }
     const dur = v.duration;
     const vw = v.videoWidth, vh = v.videoHeight;
     if (!vw || !vh) throw new Error('no video track');

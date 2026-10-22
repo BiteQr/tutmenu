@@ -503,20 +503,33 @@ async function handleFiles(request, env, ctx, segments) {
     });
   }
 
+  // Запрос куском (Range) — так видео грузит Safari на iPhone, и без правильного ответа 206
+  // он видео не проигрывает вовсе. Разбираем заголовок сами и сами считаем границы.
   const range = request.headers.get('range');
-  if (range) {
-    const obj = await env.BUCKET.get(key, { range: request.headers });
+  const rm = range && range.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (rm && (rm[1] !== '' || rm[2] !== '')) {
+    let r2range;
+    if (rm[1] === '') r2range = { suffix: Number(rm[2]) };                          // bytes=-500
+    else if (rm[2] === '') r2range = { offset: Number(rm[1]) };                     // bytes=100-
+    else r2range = { offset: Number(rm[1]), length: Number(rm[2]) - Number(rm[1]) + 1 }; // bytes=0-1
+    const meta = await env.BUCKET.head(key);
+    if (!meta) return new Response('Not found', { status: 404 });
+    const size = meta.size;
+    let start, endByte;
+    if ('suffix' in r2range) { start = Math.max(0, size - r2range.suffix); endByte = size - 1; }
+    else { start = r2range.offset; endByte = r2range.length ? Math.min(size - 1, start + r2range.length - 1) : size - 1; }
+    if (!(start >= 0) || start >= size || endByte < start) {
+      return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+    }
+    const length = endByte - start + 1;
+    const obj = await env.BUCKET.get(key, { range: { offset: start, length } });
     if (!obj) return new Response('Not found', { status: 404 });
     const headers = new Headers();
     obj.writeHttpMetadata(headers);
     headers.set('etag', obj.httpEtag);
     headers.set('accept-ranges', 'bytes');
     headers.set('cache-control', 'public, max-age=31536000, immutable');
-    const r = obj.range;
-    if (!r) return new Response(obj.body, { headers });
-    const offset = 'suffix' in r ? obj.size - r.suffix : (r.offset || 0);
-    const length = 'suffix' in r ? r.suffix : (r.length ?? obj.size - offset);
-    headers.set('content-range', `bytes ${offset}-${offset + length - 1}/${obj.size}`);
+    headers.set('content-range', `bytes ${start}-${endByte}/${size}`);
     headers.set('content-length', String(length));
     return new Response(obj.body, { status: 206, headers });
   }
