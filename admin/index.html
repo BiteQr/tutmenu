@@ -55,7 +55,15 @@ a{color:inherit;}
 .panel-head h2{margin:0;}
 
 /* ---------- list of rows ---------- */
-.rows{display:flex;flex-direction:column;gap:10px;}
+.rows{display:flex;flex-direction:column;gap:10px;position:relative;}
+/* Перетаскивание порядка: тянем за ручку ⠿ слева. touch-action:none — чтобы на телефоне палец
+   двигал строку, а не прокручивал страницу. */
+.drag-handle{flex:none;width:30px;height:44px;margin:-4px -4px -4px -2px;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:7px;}
+.drag-handle:hover{background:var(--bg);color:var(--text);}
+.drag-handle svg{width:14px;height:20px;pointer-events:none;}
+.row-card.dragging{position:relative;z-index:5;background:var(--panel);border-color:var(--dark);box-shadow:0 10px 28px rgba(0,0,0,.18);}
+body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none !important;-webkit-user-select:none !important;}
+.reorder-hint{font-size:13px;color:var(--muted);margin:-6px 0 14px;}
 .row-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;flex-wrap:wrap;}
 .menu-group{margin-bottom:20px;}
 .menu-group__title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:2px 2px 9px;}
@@ -239,7 +247,6 @@ const SCHEMAS = {
       { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
       { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
       { key: 'title_en', type: 'text', label: 'Название (англ)' },
-      { key: 'sort', type: 'number', label: 'Порядок (меньше — выше)', default: 0 }
     ],
     rowTitle: (r) => r.title_ru || '(без названия)',
     rowImage: (r) => r.image
@@ -255,7 +262,6 @@ const SCHEMAS = {
       { key: 'subtitle_ru', type: 'textarea', label: 'Подзаголовок (рус)' },
       { key: 'subtitle_kk', type: 'textarea', label: 'Подзаголовок (қаз)' },
       { key: 'subtitle_en', type: 'textarea', label: 'Подзаголовок (англ)' },
-      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
     ],
     rowTitle: (r) => r.title_ru || '(без названия)',
     rowSub: (r) => catLabel(r.category_id)
@@ -273,7 +279,6 @@ const SCHEMAS = {
       { key: 'description_kk', type: 'textarea', label: 'Описание (қаз)' },
       { key: 'description_en', type: 'textarea', label: 'Описание (англ)' },
       { key: 'item_id', type: 'select', label: 'Кнопка ведёт к блюду (необязательно)', ref: 'menuItems', labelKey: 'title_ru', allowEmpty: true },
-      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
     ],
     rowTitle: (r) => r.title_ru || '(без названия)',
     rowImage: (r) => r.image
@@ -288,7 +293,6 @@ const SCHEMAS = {
       { key: 'title_kk', type: 'text', label: 'Текст (қаз)' },
       { key: 'title_en', type: 'text', label: 'Текст (англ)' },
       { key: 'url', type: 'text', label: 'Ссылка / id категории / телефон' },
-      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
     ],
     rowTitle: (r) => r.title_ru || '(без текста)',
     rowSub: (r) => r.type
@@ -303,7 +307,6 @@ const SCHEMAS = {
       { key: 'title_ru', type: 'text', label: 'Название (рус)', required: true },
       { key: 'title_kk', type: 'text', label: 'Название (қаз)' },
       { key: 'title_en', type: 'text', label: 'Название (англ)' },
-      { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
     ],
     rowTitle: (r) => `${r.icon ? r.icon + ' ' : ''}${r.title_ru || '(без названия)'}`
   }
@@ -424,6 +427,124 @@ function renderTab() {
 }
 
 /* =========================================================
+   ПЕРЕТАСКИВАНИЕ ПОРЯДКА
+   Вместо ручного ввода «Порядок» — зажимаешь ручку ⠿ слева у строки и тянешь
+   вверх/вниз. Работает и мышью, и пальцем (Pointer Events), у краёв экрана
+   страница сама прокручивается. Новый порядок уходит на сервер одним запросом.
+   ========================================================= */
+const DRAG_HANDLE = `<span class="drag-handle" title="Зажми и перетащи" aria-label="Перетащить"><svg viewBox="0 0 14 20" fill="currentColor"><circle cx="4" cy="4" r="1.6"/><circle cx="10" cy="4" r="1.6"/><circle cx="4" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="4" cy="16" r="1.6"/><circle cx="10" cy="16" r="1.6"/></svg></span>`;
+const REORDER_HINT = `<p class="reorder-hint">Чтобы поменять порядок — зажми ⠿ слева и перетащи строку.</p>`;
+
+/** Следующее значение sort для новой записи — чтобы она вставала в конец списка, а не в начало */
+function nextSort(rows) {
+  return rows.reduce((m, r) => Math.max(m, Number(r.sort) || 0), 0) + 10;
+}
+
+async function saveOrder(endpoint, key, ids) {
+  try {
+    await api(`/${endpoint}/reorder?restaurant=${state.slug}`, { method: 'PUT', body: { ids } });
+    ids.forEach((id, i) => {
+      const r = state[key].find((x) => String(x.id) === String(id));
+      if (r) r.sort = (i + 1) * 10;
+    });
+    state[key].sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0));
+    toast('Порядок сохранён');
+  } catch (err) {
+    toast('Не сохранилось: ' + err.message);
+    await reloadTable(key, endpoint);
+    renderTab(); // возвращаем на экран порядок, который реально лежит в базе
+  }
+}
+
+function makeSortable(list, onReorder) {
+  if (!list) return;
+  list.querySelectorAll(':scope > .row-card > .drag-handle').forEach((handle) => {
+    handle.addEventListener('pointerdown', (e) => startRowDrag(e, handle, list, onReorder));
+  });
+}
+
+function startRowDrag(e, handle, list, onReorder) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+  const row = handle.closest('.row-card');
+  const rowsOf = () => [...list.children].filter((el) => el.classList.contains('row-card'));
+  const idsBefore = rowsOf().map((el) => el.dataset.id);
+
+  // Где именно внутри строки за неё взялись — чтобы строка ехала ровно под пальцем
+  const grabOffset = e.clientY - row.getBoundingClientRect().top;
+  let pointerY = e.clientY;
+
+  row.classList.add('dragging');
+  document.body.classList.add('is-dragging');
+  try { navigator.vibrate?.(8); } catch { /* ignore */ }
+
+  // Строка «едет» за пальцем через transform, а остальные плавно расступаются (FLIP).
+  // Решение «куда вставить» считаем по offsetTop — он не зависит от transform, поэтому
+  // строки не дёргаются туда-сюда, пока идёт анимация.
+  const followPointer = () => {
+    const listTop = list.getBoundingClientRect().top;
+    const dy = (pointerY - grabOffset) - (listTop + row.offsetTop);
+    row.style.transform = `translateY(${dy}px)`;
+  };
+
+  const reposition = () => {
+    const y = pointerY - list.getBoundingClientRect().top; // позиция пальца внутри списка
+    const others = rowsOf().filter((el) => el !== row);
+    let target = null;
+    for (const el of others) {
+      if (y < el.offsetTop + el.offsetHeight / 2) { target = el; break; }
+    }
+    const needsMove = target ? row.nextElementSibling !== target : rowsOf().at(-1) !== row;
+    if (needsMove) {
+      const first = new Map(others.map((el) => [el, el.offsetTop]));
+      if (target) list.insertBefore(row, target); else list.appendChild(row);
+      others.forEach((el) => {
+        const d = first.get(el) - el.offsetTop;
+        if (!d) return;
+        el.style.transition = 'none';
+        el.style.transform = `translateY(${d}px)`;
+        requestAnimationFrame(() => {
+          el.style.transition = 'transform .16s ease';
+          el.style.transform = '';
+        });
+      });
+    }
+    followPointer();
+  };
+
+  // Автопрокрутка, когда тянешь к верхнему/нижнему краю экрана
+  const scrollTimer = setInterval(() => {
+    const edge = 70;
+    let step = 0;
+    if (pointerY < edge) step = -Math.ceil((edge - pointerY) / 5);
+    else if (pointerY > innerHeight - edge) step = Math.ceil((pointerY - (innerHeight - edge)) / 5);
+    if (step) { window.scrollBy(0, step); reposition(); }
+  }, 16);
+
+  // Слушаем движение на всём документе, а не на ручке: когда строка переезжает в DOM,
+  // браузер сбрасывает захват указателя, и на телефоне перетаскивание обрывалось на полпути.
+  const onMove = (ev) => { if (ev.pointerId !== e.pointerId) return; pointerY = ev.clientY; reposition(); };
+  const onEnd = (ev) => {
+    if (ev && ev.pointerId !== e.pointerId) return;
+    clearInterval(scrollTimer);
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onEnd);
+    document.removeEventListener('pointercancel', onEnd);
+    document.body.classList.remove('is-dragging');
+    row.style.transition = 'transform .16s ease';
+    row.style.transform = '';
+    setTimeout(() => { row.classList.remove('dragging'); row.style.transition = ''; }, 170);
+    rowsOf().forEach((el) => { if (el !== row) { el.style.transition = ''; el.style.transform = ''; } });
+
+    const idsAfter = rowsOf().map((el) => el.dataset.id);
+    if (idsAfter.join(',') !== idsBefore.join(',')) onReorder(idsAfter);
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onEnd);
+  document.addEventListener('pointercancel', onEnd);
+}
+
+/* =========================================================
    УНИВЕРСАЛЬНАЯ ФОРМА (категории / разделы / акции / кнопки)
    ========================================================= */
 function refOptions(field, v) {
@@ -473,9 +594,11 @@ function renderGenericTab(container, tabKey, schema) {
   container.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h2>${schema.title}</h2><button class="btn btn-dark btn-sm" id="addBtn">+ Добавить</button></div>
+      ${rows.length > 1 ? REORDER_HINT : ''}
       <div class="rows" id="rows">${rows.length ? rows.map((r) => rowCardHTML(r, schema)).join('') : `<p class="empty-hint">Пока пусто</p>`}</div>
     </div>`;
   document.getElementById('addBtn').onclick = () => openEntityModal(tabKey, schema, null);
+  makeSortable(document.getElementById('rows'), (ids) => saveOrder(schema.endpoint, tabKey, ids));
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openEntityModal(tabKey, schema, r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity(tabKey, schema, r);
@@ -503,7 +626,8 @@ function rowCardHTML(r, schema) {
   const img = schema.rowImage ? schema.rowImage(r) : null;
   const thumb = img ? `<img class="row-thumb" src="${esc(img)}">` : '';
   return `
-    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+    <div class="row-card ${r.active === false ? 'inactive' : ''}" data-id="${r.id}">
+      ${DRAG_HANDLE}
       ${toggleHTML(r)}
       ${thumb}
       <div class="row-body">
@@ -535,7 +659,7 @@ function openEntityModal(tabKey, schema, row) {
       schema.fields.forEach((f) => { payload[f.key] = readField(f); });
       try {
         if (row) await api(`/${schema.endpoint}/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
-        else await api(`/${schema.endpoint}?restaurant=${state.slug}`, { method: 'POST', body: payload });
+        else await api(`/${schema.endpoint}?restaurant=${state.slug}`, { method: 'POST', body: { ...payload, sort: nextSort(state[tabKey]) } });
         closeModal();
         await reloadTable(tabKey, schema.endpoint);
         renderTab();
@@ -568,7 +692,6 @@ const MENU_TEXT_FIELDS = [
   { key: 'description_ru', type: 'textarea', label: 'Описание (рус)' },
   { key: 'description_kk', type: 'textarea', label: 'Описание (қаз)' },
   { key: 'description_en', type: 'textarea', label: 'Описание (англ)' },
-  { key: 'sort', type: 'number', label: 'Порядок', default: 0 }
 ];
 
 function renderMenuItemsTab(container) {
@@ -584,25 +707,30 @@ function renderMenuItemsTab(container) {
         </div>
       </div>
       <input type="text" id="menuSearch" placeholder="🔍 Найти блюдо по названию…" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;margin-bottom:16px;">
-      <div id="menuGroups">${renderMenuGroupsHTML(rows)}</div>
+      ${rows.length > 1 ? REORDER_HINT.replace('</p>', ' Блюда переставляются внутри своего раздела. Во время поиска перетаскивание выключено.</p>') : ''}
+      <div id="menuGroups">${renderMenuGroupsHTML(rows, true)}</div>
     </div>`;
   document.getElementById('addBtn').onclick = () => openMenuItemModal(null);
   document.getElementById('bulkSectionBtn').onclick = openBulkSectionModal;
   document.getElementById('dedupBtn').onclick = openDedupModal;
   wireMenuRowButtons(rows);
+  wireMenuSortable();
 
   document.getElementById('menuSearch').oninput = (e) => {
     const q = e.target.value.trim().toLowerCase();
     const filtered = q ? rows.filter((r) => (r.title_ru || '').toLowerCase().includes(q)) : rows;
-    document.getElementById('menuGroups').innerHTML = renderMenuGroupsHTML(filtered);
+    // В отфильтрованном списке видна только часть блюд раздела — переставлять их там нельзя,
+    // иначе порядок скрытых блюд перепутался бы. Поэтому ручки показываем только без поиска.
+    document.getElementById('menuGroups').innerHTML = renderMenuGroupsHTML(filtered, !q);
     wireMenuRowButtons(filtered);
+    if (!q) wireMenuSortable();
   };
 }
 
 /** Список блюд, сгруппированный по разделам (в том же порядке, что и в самом меню) —
  *  искать конкретное блюдо среди многих сотен гораздо проще, чем листать один длинный
  *  список подряд, особенно на телефоне. */
-function renderMenuGroupsHTML(rows) {
+function renderMenuGroupsHTML(rows, sortable = false) {
   if (!rows.length) return `<p class="empty-hint">Ничего не найдено</p>`;
   const bySection = new Map();
   rows.forEach((r) => {
@@ -620,7 +748,7 @@ function renderMenuGroupsHTML(rows) {
     return `
       <div class="menu-group">
         <div class="menu-group__title">${esc(label)} <span class="menu-group__count">${items.length}</span></div>
-        <div class="rows">${items.map(menuRowHTML).join('')}</div>
+        <div class="rows" data-menu-group>${items.map((it) => menuRowHTML(it, sortable)).join('')}</div>
       </div>`;
   }).join('');
 }
@@ -633,6 +761,13 @@ function wireMenuRowButtons(rows) {
   });
 }
 const SCHEMAS_MENU = { endpoint: 'menu-items', rowTitle: (r) => r.title_ru || '(без названия)' };
+
+/** Каждый раздел блюд — свой отдельный список: блюдо переставляется только внутри раздела
+ *  (перенести в другой раздел — через «Изменить» или «Массово поменять раздел»). */
+function wireMenuSortable() {
+  document.querySelectorAll('#menuGroups [data-menu-group]').forEach((list) =>
+    makeSortable(list, (ids) => saveOrder('menu-items', 'menuItems', ids)));
+}
 
 /** Находит задвоенные разделы (одинаковое название в одной категории) и задвоенные
  *  блюда (одинаковое название в одном разделе — считая раздел уже после склейки).
@@ -804,11 +939,12 @@ function badgeIcons(badgeIds) {
   if (!badgeIds || !badgeIds.length) return '';
   return badgeIds.map((id) => state.badges.find((b) => String(b.id) === String(id))?.icon).filter(Boolean).join(' ');
 }
-function menuRowHTML(r) {
+function menuRowHTML(r, sortable = true) {
   const thumb = r.image ? `<img class="row-thumb" src="${esc(r.image)}">` : '<div class="row-thumb"></div>';
   const icons = badgeIcons(r.badgeIds);
   return `
-    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+    <div class="row-card ${r.active === false ? 'inactive' : ''}" data-id="${r.id}">
+      ${sortable ? DRAG_HANDLE : ''}
       ${toggleHTML(r)}
       ${thumb}
       <div class="row-body">
@@ -847,6 +983,7 @@ function renderBadgesTab(container) {
       <div class="rows" id="rows">${rows.length ? rows.map(badgeRowHTML).join('') : `<p class="empty-hint">Пока нет ни одной метки</p>`}</div>
     </div>`;
   document.getElementById('addBtn').onclick = () => openEntityModal('badges', SCHEMAS.badges, null);
+  makeSortable(document.getElementById('rows'), (ids) => saveOrder('badges', 'badges', ids));
   rows.forEach((r) => {
     document.getElementById('edit_' + r.id).onclick = () => openEntityModal('badges', SCHEMAS.badges, r);
     document.getElementById('del_' + r.id).onclick = () => deleteEntity('badges', SCHEMAS.badges, r);
@@ -856,7 +993,8 @@ function renderBadgesTab(container) {
 
 function badgeRowHTML(r) {
   return `
-    <div class="row-card ${r.active === false ? 'inactive' : ''}">
+    <div class="row-card ${r.active === false ? 'inactive' : ''}" data-id="${r.id}">
+      ${DRAG_HANDLE}
       <div class="row-body">
         <span class="badge-preview" style="${badgePreviewStyle(r)}">${esc((r.icon ? r.icon + ' ' : '') + (r.title_ru || '(без названия)'))}</span>
       </div>
@@ -1006,7 +1144,7 @@ function openMenuItemModal(row) {
 
       try {
         if (row) await api(`/menu-items/${row.id}?restaurant=${state.slug}`, { method: 'PUT', body: payload });
-        else await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: payload });
+        else await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: { ...payload, sort: nextSort(state.menuItems) } });
         closeModal();
         await reloadTable('menuItems', 'menu-items');
         renderTab();

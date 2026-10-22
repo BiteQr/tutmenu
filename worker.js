@@ -391,6 +391,18 @@ async function handleAdminApi(request, env, segments) {
     return json({ ok: true, id: res.meta.last_row_id });
   }
 
+  // PUT /admin/api/<таблица>/reorder { ids: [...] } — новый порядок после перетаскивания в админке.
+  // Одним batch-запросом проставляем sort = 10, 20, 30… в присланной последовательности, чтобы
+  // порядок сохранялся целиком и сразу, а не N отдельными запросами (половина могла бы не дойти).
+  if (idStr === 'reorder' && method === 'PUT') {
+    const { ids } = await request.json();
+    if (!Array.isArray(ids) || !ids.length) return json({ error: 'no_ids' }, { status: 400 });
+    const stmts = ids.map((rid, i) =>
+      env.DB.prepare(`UPDATE ${def.table} SET sort = ? WHERE id = ? AND restaurant_id = ?`).bind((i + 1) * 10, Number(rid), slug));
+    await env.DB.batch(stmts);
+    return json({ ok: true });
+  }
+
   const id = Number(idStr);
   if (!id) return json({ error: 'no_id' }, { status: 400 });
 
