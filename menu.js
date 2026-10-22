@@ -71,6 +71,19 @@
     return photoHTML(p.image, cls, I18n.f(p, 'title'), eager);
   }
 
+  // Если видео акции не может проиграться на этом телефоне (старый формат, нет кодека) —
+  // вместо чёрного прямоугольника показываем обложку (или заглушку). 'error' у <video>
+  // не всплывает, поэтому ловим на этапе погружения.
+  document.addEventListener('error', (e) => {
+    const v = e.target;
+    if (!v || v.tagName !== 'VIDEO' || v.dataset.failed) return;
+    if (!v.closest('#promos, #promoModal')) return;
+    v.dataset.failed = '1';
+    const tmp = document.createElement('div');
+    tmp.innerHTML = photoHTML(v.getAttribute('poster') || '', v.className, '', true);
+    if (tmp.firstElementChild) v.replaceWith(tmp.firstElementChild);
+  }, true);
+
   function renderPromos() {
     els.promos.hidden = !data.promos.length;
     els.promos.innerHTML = data.promos.map((p, i) =>

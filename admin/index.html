@@ -701,7 +701,7 @@ function renderMenuItemsTab(container) {
       <div class="panel-head">
         <h2>Блюда</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" id="recompressBtn">⚡ Сжать фото</button>
+          <button class="btn btn-outline btn-sm" id="recompressBtn">⚡ Сжать фото и видео</button>
           <button class="btn btn-outline btn-sm" id="dedupBtn">🧹 Склеить дубликаты</button>
           <button class="btn btn-outline btn-sm" id="bulkSectionBtn">🔀 Массово поменять раздел</button>
           <button class="btn btn-dark btn-sm" id="addBtn">+ Добавить блюдо</button>
@@ -1425,6 +1425,97 @@ async function compressImage(file, maxSide = 1280) {
   }
 }
 
+/* =========================================================
+   ПЕРЕКОДИРОВАНИЕ ВИДЕО В БРАУЗЕРЕ
+   Видео с iPhone — это обычно HEVC в .mov и 4K: на многих Android и в Chrome оно не играет
+   вовсе или грузится минутами. Прогоняем ролик через canvas + MediaRecorder и получаем
+   обычный MP4 (H.264) до 1280px и ~2.5 Мбит/с — играет везде и весит в разы меньше.
+   Попутно снимаем первый кадр как обложку. Перекодирование идёт в реальном времени
+   (ролик 15 сек ≈ 15 сек). Если браузер не умеет писать MP4 или что-то сломалось —
+   отдаём оригинал, загрузка не ломается.
+   ========================================================= */
+const VIDEO_MAX_SIDE = 1280;
+const VIDEO_MAX_SECONDS = 90;
+
+async function transcodeVideo(file, { onProgress, types } = {}) {
+  let url;
+  try {
+    if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) return { file };
+    const prefer = types || ['video/mp4;codecs=avc1.42E01F', 'video/mp4;codecs=avc1', 'video/mp4'];
+    const mime = prefer.find((t) => MediaRecorder.isTypeSupported(t));
+
+    url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    // На iOS/Safari невидимое видео иногда не декодирует кадры — держим его в DOM, но за экраном
+    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;';
+    document.body.appendChild(v);
+    const once = (ev, ms = 20000) => new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('timeout ' + ev)), ms);
+      v.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true });
+      v.addEventListener('error', () => { clearTimeout(t); rej(new Error('decode')); }, { once: true });
+    });
+    await once('loadeddata');
+    const dur = v.duration;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if (!vw || !vh) throw new Error('no video track');
+
+    const scale = Math.min(1, VIDEO_MAX_SIDE / Math.max(vw, vh));
+    const w = Math.round((vw * scale) / 2) * 2, h = Math.round((vh * scale) / 2) * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+
+    ctx.drawImage(v, 0, 0, w, h);
+    const posterBlob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
+    const poster = posterBlob ? new File([posterBlob], 'poster.jpg', { type: 'image/jpeg' }) : null;
+
+    if (!mime || !isFinite(dur) || dur <= 0 || dur > VIDEO_MAX_SECONDS) { v.remove(); return { file, poster }; }
+
+    const stream = canvas.captureStream(30);
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((r) => { rec.onstop = r; });
+
+    let raf = 0;
+    const draw = () => {
+      ctx.drawImage(v, 0, 0, w, h);
+      onProgress?.(Math.min(1, v.currentTime / dur));
+      raf = requestAnimationFrame(draw);
+    };
+    rec.start(1000);
+    draw();
+    await v.play();
+    await once('ended', (dur + 20) * 1000);
+    cancelAnimationFrame(raf);
+    rec.stop();
+    await stopped;
+    v.remove();
+
+    const blob = new Blob(chunks, { type: mime.split(';')[0] });
+    if (blob.size < 10 * 1024) return { file, poster }; // что-то пошло не так — лучше оригинал
+    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const out = new File([blob], (file.name || 'video').replace(/\.[^.]+$/, '') + '.' + ext, { type: blob.type });
+    return { file: out, poster };
+  } catch {
+    return { file };
+  } finally {
+    if (url) URL.revokeObjectURL(url);
+  }
+}
+
+/** HEVC (H.265) с iPhone бывает и в .mp4 — ищем в файле метку кодека hvc1/hev1 */
+async function isHevc(blob) {
+  try {
+    const b = new Uint8Array(await blob.arrayBuffer());
+    for (let i = 0; i < b.length - 4; i++) {
+      if (b[i] === 0x68 && ((b[i + 1] === 0x76 && b[i + 2] === 0x63 && b[i + 3] === 0x31) || (b[i + 1] === 0x65 && b[i + 2] === 0x76 && b[i + 3] === 0x31))) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 /** Разово пережать уже загруженные фото (блюда, категории, акции, фон). Новое фото
  *  загружается рядом, в записи меняется ссылка; если сжатие не дало выигрыша — запись не трогаем. */
 async function recompressExistingPhotos(onProgress) {
@@ -1434,8 +1525,48 @@ async function recompressExistingPhotos(onProgress) {
   state.categories.forEach((r) => isOurs(r.image) && jobs.push({ endpoint: 'categories', id: r.id, field: 'image', url: r.image }));
   state.promos.forEach((r) => isOurs(r.image) && jobs.push({ endpoint: 'promos', id: r.id, field: 'image', url: r.image }));
   if (isOurs(state.settings.bg_image)) jobs.push({ endpoint: 'restaurants', field: 'bg_image', url: state.settings.bg_image, maxSide: 2000 });
+  // Видео: перекодируем .mov (почти всегда HEVC с iPhone) и всё тяжелее 8 МБ
+  const videoJobs = [];
+  state.promos.forEach((r) => isOurs(r.video) && videoJobs.push({ endpoint: 'promos', id: r.id, field: 'video', posterField: r.image ? null : 'image', url: r.video }));
+  if (isOurs(state.settings.bg_video)) videoJobs.push({ endpoint: 'restaurants', field: 'bg_video', posterField: state.settings.bg_image ? null : 'bg_image', url: state.settings.bg_video });
 
   let done = 0, shrunk = 0, savedBytes = 0;
+  const total = jobs.length + videoJobs.length;
+  const targetOf = (job) => job.endpoint === 'restaurants'
+    ? `/restaurants?restaurant=${state.slug}`
+    : `/${job.endpoint}/${job.id}?restaurant=${state.slug}`;
+  const uploadFile = async (f) => {
+    const form = new FormData();
+    form.append('file', f);
+    return (await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true })).url;
+  };
+
+  for (const job of videoJobs) {
+    try {
+      const path = job.url.replace(/^https?:\/\/[^/]+/, '');
+      const res = await fetch(path);
+      if (res.ok) {
+        const blob = await res.blob();
+        const isMov = /\.mov$/i.test(path) || /quicktime/i.test(blob.type);
+        if (isMov || blob.size > 8 * 1024 * 1024 || await isHevc(blob)) {
+          const name = path.split('/').pop() || 'video.mp4';
+          const r = await transcodeVideo(new File([blob], name, { type: blob.type || 'video/mp4' }), {
+            onProgress: (x) => onProgress?.(done, total, `видео ${Math.round(x * 100)}%`)
+          });
+          const body = {};
+          if (r.file.size !== blob.size || r.file.type !== blob.type) {
+            body[job.field] = await uploadFile(r.file);
+            shrunk++; savedBytes += Math.max(0, blob.size - r.file.size);
+          }
+          if (r.poster && job.posterField) body[job.posterField] = await uploadFile(await compressImage(r.poster, 1280));
+          if (Object.keys(body).length) await api(targetOf(job), { method: 'PUT', body });
+        }
+      }
+    } catch { /* одно битое видео не должно останавливать остальные */ }
+    done++;
+    onProgress?.(done, total);
+  }
+
   for (const job of jobs) {
     try {
       // Берём файл с этого же домена: /files/... отдаёт тот же воркер на любом адресе
@@ -1447,28 +1578,22 @@ async function recompressExistingPhotos(onProgress) {
           const name = path.split('/').pop() || 'photo.jpg';
           const small = await compressImage(new File([blob], name, { type: blob.type }), job.maxSide || 1280);
           if (small.size < blob.size * 0.8) {
-            const form = new FormData();
-            form.append('file', small);
-            const up = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });
-            const target = job.endpoint === 'restaurants'
-              ? `/restaurants?restaurant=${state.slug}`
-              : `/${job.endpoint}/${job.id}?restaurant=${state.slug}`;
-            await api(target, { method: 'PUT', body: { [job.field]: up.url } });
+            await api(targetOf(job), { method: 'PUT', body: { [job.field]: await uploadFile(small) } });
             shrunk++; savedBytes += blob.size - small.size;
           }
         }
       }
     } catch { /* одно битое фото не должно останавливать остальные */ }
     done++;
-    onProgress?.(done, jobs.length);
+    onProgress?.(done, total);
   }
-  return { total: jobs.length, shrunk, savedMB: Math.round(savedBytes / 1024 / 1024) };
+  return { total, shrunk, savedMB: Math.round(savedBytes / 1024 / 1024) };
 }
 
 function openRecompressModal() {
-  openModal('Сжать фото', `
-    <p style="font-size:14px;margin-bottom:10px;">Пройдусь по всем уже загруженным фото и пережму тяжёлые — меню у гостей начнёт открываться заметно быстрее. Новые фото и так сжимаются сами при загрузке.</p>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Не закрывай вкладку, пока идёт процесс — это займёт пару минут.</p>
+  openModal('Сжать фото и видео', `
+    <p style="font-size:14px;margin-bottom:10px;">Пройдусь по всем уже загруженным фото и видео: тяжёлые фото пережму, видео акций переделаю в формат, который играет на любом телефоне, и добавлю обложку. Новые файлы и так обрабатываются сами при загрузке.</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Не закрывай и не переключай вкладку, пока идёт процесс — это займёт несколько минут (видео перекодируется в реальном времени).</p>
     <p id="recompressProgress" style="font-size:14px;font-weight:600;"></p>
     <div class="form-actions">
       <button type="button" class="btn btn-outline" id="cancelBtn">Отмена</button>
@@ -1480,14 +1605,14 @@ function openRecompressModal() {
       const cancel = document.getElementById('cancelBtn');
       btn.disabled = true; cancel.disabled = true;
       const prog = document.getElementById('recompressProgress');
-      const r = await recompressExistingPhotos((d, t) => { prog.textContent = `Обработано ${d} из ${t}…`; });
+      const r = await recompressExistingPhotos((d, t, extra) => { prog.textContent = `Обработано ${d} из ${t}…${extra ? ' (' + extra + ')' : ''}`; });
       await reloadTable('menuItems', 'menu-items');
       await reloadTable('categories', 'categories');
       await reloadTable('promos', 'promos');
       try { state.settings = (await api(`/restaurants?restaurant=${state.slug}`)).restaurant; } catch { /* ignore */ }
       closeModal();
       renderTab();
-      toast(r.shrunk ? `Готово: сжато ${r.shrunk} фото из ${r.total}, сэкономлено ~${r.savedMB} МБ` : 'Все фото уже лёгкие — сжимать нечего');
+      toast(r.shrunk ? `Готово: обработано файлов — ${r.shrunk} из ${r.total}, сэкономлено ~${r.savedMB} МБ` : 'Всё уже лёгкое — сжимать нечего');
     };
   });
 }
@@ -1549,23 +1674,49 @@ function attachUploader(rawKey, kind) {
     }
   }
 
+  wrap._setPreview = setPreview; // чтобы видео-загрузчик мог подставить обложку в соседнее поле фото
+
   const doUpload = async (file) => {
     if (!file) return;
     clearError();
-    wrap.querySelector('.txt').textContent = kind === 'image' ? 'Сжимаю и загружаю…' : 'Загружаю…';
+    const txt = wrap.querySelector('.txt');
+    txt.textContent = kind === 'image' ? 'Сжимаю и загружаю…' : 'Загружаю…';
+    // Пока файл готовится — «Сохранить» недоступна, иначе запись сохранилась бы без фото/видео
+    const submitBtn = wrap.closest('form')?.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
+      let poster = null;
       // Фото с телефона весят 3–8 МБ — гость в меню ждал бы каждую карточку по несколько секунд.
       // Ужимаем прямо в браузере до разумного размера, ещё до отправки на сервер.
       if (kind === 'image') file = await compressImage(file, rawKey === 'bg_image' ? 2000 : 1280);
+      if (kind === 'video') {
+        txt.textContent = 'Готовлю видео… не закрывай и не переключай вкладку';
+        const r = await transcodeVideo(file, { onProgress: (x) => { txt.textContent = `Готовлю видео… ${Math.round(x * 100)}% — не переключай вкладку`; } });
+        file = r.file; poster = r.poster;
+        txt.textContent = 'Загружаю…';
+      }
       const form = new FormData();
       form.append('file', file);
       const res = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: form, isForm: true });
       setPreview(res.url);
-      wrap.querySelector('.txt').textContent = 'Готово — перетащи новый файл, чтобы заменить';
+
+      // Обложка из первого кадра — если поле фото рядом пустое. Гость видит картинку сразу,
+      // пока видео ещё грузится, и она же остаётся, если видео на его телефоне не заиграет.
+      const posterKey = rawKey === 'video' ? 'image' : rawKey === 'bg_video' ? 'bg_image' : null;
+      const posterInput = posterKey && document.getElementById('f_' + posterKey);
+      if (poster && posterInput && !posterInput.dataset.url) {
+        const pf = new FormData();
+        pf.append('file', await compressImage(poster, 1280));
+        const pr = await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: pf, isForm: true });
+        document.getElementById('u_' + posterKey)?._setPreview?.(pr.url);
+      }
+      txt.textContent = 'Готово — перетащи новый файл, чтобы заменить';
     } catch (err) {
       showError('Не загрузилось: ' + err.message);
       toast('Не загрузилось: ' + err.message);
-      wrap.querySelector('.txt').textContent = 'Перетащи файл сюда или нажми, чтобы выбрать';
+      txt.textContent = 'Перетащи файл сюда или нажми, чтобы выбрать';
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   };
 
