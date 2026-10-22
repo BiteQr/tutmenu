@@ -1438,7 +1438,7 @@ const VIDEO_MAX_SIDE = 1280;
 const VIDEO_MAX_SECONDS = 90;
 
 async function transcodeVideo(file, { onProgress, types } = {}) {
-  let url;
+  let url, box;
   try {
     if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) return { file };
     const prefer = types || ['video/mp4;codecs=avc1.42E01F', 'video/mp4;codecs=avc1', 'video/mp4'];
@@ -1447,9 +1447,15 @@ async function transcodeVideo(file, { onProgress, types } = {}) {
     url = URL.createObjectURL(file);
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
-    // На iOS/Safari невидимое видео иногда не декодирует кадры — держим его в DOM, но за экраном
-    v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;';
-    document.body.appendChild(v);
+    // ВАЖНО: Safari не обновляет кадры у видео, которое спрятано или вне экрана (экономит батарею) —
+    // тогда в запись попадает одна застывшая картинка. Поэтому на время обработки показываем
+    // видео в маленьком окошке в углу экрана, реально видимым.
+    box = document.createElement('div');
+    box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10000;width:220px;padding:10px;background:#fff;border:1px solid #ddd;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.2);font:13px/1.3 -apple-system,system-ui,sans-serif;color:#333;';
+    box.innerHTML = '<div style="margin-bottom:6px;font-weight:600;">Готовлю видео…</div>';
+    v.style.cssText = 'display:block;width:100%;height:auto;border-radius:8px;background:#000;';
+    box.appendChild(v);
+    document.body.appendChild(box);
     const once = (ev, ms = 20000) => new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('timeout ' + ev)), ms);
       v.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true });
@@ -1470,7 +1476,7 @@ async function transcodeVideo(file, { onProgress, types } = {}) {
     const posterBlob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
     const poster = posterBlob ? new File([posterBlob], 'poster.jpg', { type: 'image/jpeg' }) : null;
 
-    if (!mime || !isFinite(dur) || dur <= 0 || dur > VIDEO_MAX_SECONDS) { v.remove(); return { file, poster }; }
+    if (!mime || !isFinite(dur) || dur <= 0 || dur > VIDEO_MAX_SECONDS) return { file, poster };
 
     const stream = canvas.captureStream(30);
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
@@ -1478,20 +1484,44 @@ async function transcodeVideo(file, { onProgress, types } = {}) {
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     const stopped = new Promise((r) => { rec.onstop = r; });
 
-    let raf = 0;
-    const draw = () => {
+    // Следим, что кадры реально меняются: берём крошечный отпечаток картинки раз в ~0.4 сек.
+    // Если за весь ролик он не менялся — браузер отдавал застывший кадр, такой результат не берём.
+    const probe = document.createElement('canvas');
+    probe.width = 16; probe.height = 9;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    const prints = new Set();
+    let lastProbe = -1;
+    const fingerprint = () => {
+      pctx.drawImage(canvas, 0, 0, 16, 9);
+      const d = pctx.getImageData(0, 0, 16, 9).data;
+      let hsh = 0;
+      for (let i = 0; i < d.length; i += 4) hsh = (hsh * 31 + (d[i] >> 3) + (d[i + 1] >> 3) * 7 + (d[i + 2] >> 3) * 13) | 0;
+      prints.add(hsh);
+    };
+
+    let raf = 0, stopDraw = false;
+    const paint = () => {
       ctx.drawImage(v, 0, 0, w, h);
       onProgress?.(Math.min(1, v.currentTime / dur));
-      raf = requestAnimationFrame(draw);
+      if (v.currentTime - lastProbe >= 0.4) { lastProbe = v.currentTime; fingerprint(); }
     };
+    // requestVideoFrameCallback — рисуем ровно когда пришёл новый кадр (есть в Safari и Chrome);
+    // где его нет — обычный цикл по requestAnimationFrame
+    const useRvfc = typeof v.requestVideoFrameCallback === 'function';
+    const loopRvfc = () => { if (stopDraw) return; paint(); v.requestVideoFrameCallback(loopRvfc); };
+    const loopRaf = () => { if (stopDraw) return; paint(); raf = requestAnimationFrame(loopRaf); };
+
     rec.start(1000);
-    draw();
+    paint();
     await v.play();
+    if (useRvfc) v.requestVideoFrameCallback(loopRvfc); else loopRaf();
     await once('ended', (dur + 20) * 1000);
+    stopDraw = true;
     cancelAnimationFrame(raf);
     rec.stop();
     await stopped;
-    v.remove();
+
+    if (dur > 1.5 && prints.size < 2) return { file, poster, frozen: true }; // кадры не менялись — берём оригинал
 
     const blob = new Blob(chunks, { type: mime.split(';')[0] });
     if (blob.size < 10 * 1024) return { file, poster }; // что-то пошло не так — лучше оригинал
@@ -1501,6 +1531,7 @@ async function transcodeVideo(file, { onProgress, types } = {}) {
   } catch {
     return { file };
   } finally {
+    box?.remove();
     if (url) URL.revokeObjectURL(url);
   }
 }
@@ -1693,6 +1724,7 @@ function attachUploader(rawKey, kind) {
         txt.textContent = 'Готовлю видео… не закрывай и не переключай вкладку';
         const r = await transcodeVideo(file, { onProgress: (x) => { txt.textContent = `Готовлю видео… ${Math.round(x * 100)}% — не переключай вкладку`; } });
         file = r.file; poster = r.poster;
+        if (r.frozen) toast('Этот браузер не смог перекодировать видео — загружаю как есть. Если не будет играть, попробуй загрузить из Chrome');
         txt.textContent = 'Загружаю…';
       }
       const form = new FormData();
