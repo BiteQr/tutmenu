@@ -147,16 +147,21 @@
     const withItems = (s) => (itemsBySec.get(s.id) || []).length > 0;
     const catIds = new Set(data.categories.map((c) => c.id));
 
+    // Карточки категорий — в порядке вкладки «Категории» (только те, где есть блюда)
     const tree = data.categories.map((cat) => ({
       cat,
       sections: data.sections.filter((s) => s.categoryId === cat.id && withItems(s))
     })).filter((g) => g.sections.length);
 
-    // Разделы без категории — в конец
-    const orphans = data.sections.filter((s) => !catIds.has(s.categoryId) && withItems(s));
-    if (orphans.length) tree.push({ cat: null, sections: orphans });
+    // Разделы (ленточка и сами блюда) — ровно в порядке вкладки «Разделы» в админке,
+    // независимо от категории. Так, например, «Детское меню» можно поставить среди
+    // основных разделов, а карточку категории «Детское меню» — после «Барного».
+    // Нажатие на карточку категории всё равно ведёт к её первому разделу, где бы он ни стоял.
+    const ordered = data.sections
+      .filter(withItems)
+      .map((s) => ({ s, catId: catIds.has(s.categoryId) ? s.categoryId : '' }));
 
-    return { tree, itemsBySec };
+    return { tree, ordered, itemsBySec };
   }
 
   function variantHTML(v) {
@@ -219,7 +224,7 @@
   }
 
   function renderBody() {
-    const { tree, itemsBySec } = buildTree();
+    const { tree, ordered, itemsBySec } = buildTree();
 
     els.cats.hidden = tree.filter((g) => g.cat).length < 2;
     els.cats.innerHTML = tree.filter((g) => g.cat).map(({ cat }) =>
@@ -228,21 +233,19 @@
          <span class="cat__title">${esc(I18n.f(cat, 'title'))}</span>
        </button>`).join('');
 
-    els.pills.innerHTML = tree.flatMap((g) => g.sections).map((s) =>
+    els.pills.innerHTML = ordered.map(({ s }) =>
       `<button type="button" class="pill" data-sec="${esc(s.id)}">${esc(I18n.f(s, 'title'))}</button>`
     ).join('');
 
-    els.sections.innerHTML = tree.map((g) =>
-      g.sections.map((s) => {
+    els.sections.innerHTML = ordered.map(({ s, catId }) => {
         const sub = I18n.f(s, 'subtitle');
         return `
-          <section class="section" id="sec-${esc(s.id)}" data-sec="${esc(s.id)}" data-cat="${esc(g.cat ? g.cat.id : '')}">
+          <section class="section" id="sec-${esc(s.id)}" data-sec="${esc(s.id)}" data-cat="${esc(catId)}">
             <h2 class="section__title">${esc(I18n.f(s, 'title'))}</h2>
             ${sub ? `<p class="section__sub">${esc(sub)}</p>` : ''}
             <div class="items">${itemsBySec.get(s.id).map((it) => itemHTML(it, I18n.f(s, 'title'))).join('')}</div>
           </section>`;
-      }).join('')
-    ).join('');
+      }).join('');
 
     sectionEls = $$('.section', els.sections);
     activeSec = activeCat = null;
