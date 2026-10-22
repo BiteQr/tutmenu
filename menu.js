@@ -255,11 +255,12 @@
   const LANG_PROMPT_KEY = 'menu_lang_asked_v1';
   let langPromptDone = false;
 
+  /** true — если окно выбора языка сейчас показано (тогда уведомление покажем после выбора языка) */
   function maybeShowLangPrompt() {
-    if (langPromptDone) return;
+    if (langPromptDone) return false;
     let asked = null;
     try { asked = sessionStorage.getItem(LANG_PROMPT_KEY); } catch { /* приватный режим — просто спросим ещё раз, не страшно */ }
-    if (asked) { langPromptDone = true; return; }
+    if (asked) { langPromptDone = true; return false; }
     langPromptDone = true;
 
     const el = document.createElement('div');
@@ -279,13 +280,19 @@
         try { sessionStorage.setItem(LANG_PROMPT_KEY, '1'); } catch { /* ignore */ }
         I18n.set(btn.dataset.pickLang);
         el.remove();
+        App.Welcome.maybeShowNotice(); // уведомление — уже на выбранном языке
       };
     });
+    return true;
   }
 
   // Срабатывает в момент, когда экран меню РЕАЛЬНО становится видимым — неважно,
   // пришёл ли гость по клику, кнопке «назад» в браузере или прямой ссылке на #/menu.
-  new MutationObserver(() => { if (!root.hidden) maybeShowLangPrompt(); })
+  // Сначала язык (если ещё не спрашивали), потом уведомление владельца — по очереди, не друг на друге.
+  new MutationObserver(() => {
+    if (root.hidden) return;
+    if (!maybeShowLangPrompt()) App.Welcome.maybeShowNotice();
+  })
     .observe(root, { attributes: true, attributeFilter: ['hidden'] });
 
   /* ---------------------------------------------------------

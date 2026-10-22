@@ -100,28 +100,20 @@
     }).join('');
   }
 
-  /** Простой хэш текста — чтобы попап показался заново, если владелец поменяет текст уведомления */
-  function simpleHash(s) {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-    return (h >>> 0).toString(36);
-  }
-
-  /** Всплывающее уведомление с кнопкой «Согласен(-на)» — показывается в момент перехода
-   *  в меню (клик по кнопке «Меню» или по категории), не на самом Welcome-экране.
-   *  Один раз на устройство; показывается заново только если владелец изменит текст.
-   *  Если текст пустой — не показывается вообще. */
+  /** Всплывающее уведомление с кнопкой «Согласен(-на)» (например «Обслуживание +10%»).
+   *  Показывается КАЖДЫЙ раз, когда страница загружена/обновлена и гость попадает на экран
+   *  меню — неважно, по кнопке, по категории или сразу по ссылке на #/menu. В рамках одной
+   *  загрузки страницы — один раз (вернулся на главную и снова в меню — не дёргаем повторно).
+   *  Вызывается из menu.js, когда экран меню становится видимым. Пустой текст — не показываем. */
+  let noticeShownThisLoad = false;
   function maybeShowNotice() {
+    if (noticeShownThisLoad) return;
     if (document.querySelector('.notice-overlay')) return; // уже показан — не задваиваем
     if (!App.data || !App.data.settings) return;
 
     const text = I18n.f(App.data.settings, 'notice');
     if (!text) return;
-
-    const key = `menu_notice_seen_v1:${App.restaurantId}:${simpleHash(text)}`;
-    let seen = null;
-    try { seen = localStorage.getItem(key); } catch { /* приватный режим — покажем заново в следующий раз, не страшно */ }
-    if (seen) return;
+    noticeShownThisLoad = true;
 
     const el = document.createElement('div');
     el.className = 'notice-overlay';
@@ -137,7 +129,6 @@
     lockScroll('notice', true);
 
     el.querySelector('[data-notice-agree]').onclick = () => {
-      try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
       el.remove();
       lockScroll('notice', false);
     };
@@ -183,12 +174,7 @@
 
     const catLink = e.target.closest('[data-open-cat]');
     if (catLink) App.pendingCategory = catLink.dataset.openCat; // меню откроется на этой категории
-
-    // Любая кнопка, ведущая в меню (основная «Меню» или категория) — показываем уведомление
-    // чуть позже, уже после того как экран меню откроется, а не одновременно с кликом.
-    const menuLink = e.target.closest('a[href="#/menu"]');
-    if (menuLink) setTimeout(maybeShowNotice, 400);
   });
 
-  App.Welcome = { render };
+  App.Welcome = { render, maybeShowNotice };
 })(window.App);
