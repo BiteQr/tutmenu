@@ -339,10 +339,17 @@ async function handleAdminApi(request, env, segments) {
         const set = cols.map((c) => `${c} = ?`).join(', ');
         await env.DB.prepare(`UPDATE restaurants SET ${set} WHERE slug = ?`).bind(...cols.map((c) => toSql(b[c])), qSlug).run();
       }
-      // Назначить/сменить редактора может только владелец, даже если остальные поля правит сам ресторан
-      if (me.role === 'owner' && typeof b.editorEmail === 'string' && b.editorEmail.trim()) {
-        await env.DB.prepare('INSERT OR REPLACE INTO admin_users (email, restaurant_id, role) VALUES (?, ?, ?)')
-          .bind(b.editorEmail.trim().toLowerCase(), qSlug, 'editor').run();
+      // Назначить/сменить/убрать редактора может только владелец, даже если остальные поля правит сам ресторан.
+      // Сперва всегда удаляем прежнего редактора этого ресторана — иначе при смене человека
+      // старый email так и остаётся в admin_users и сохраняет доступ навсегда (повиснет).
+      // Пустая строка — это осознанный «убрать доступ» (сохраняем, не только новый email).
+      if (me.role === 'owner' && typeof b.editorEmail === 'string') {
+        await env.DB.prepare("DELETE FROM admin_users WHERE restaurant_id = ? AND role = 'editor'").bind(qSlug).run();
+        const email = b.editorEmail.trim().toLowerCase();
+        if (email) {
+          await env.DB.prepare('INSERT OR REPLACE INTO admin_users (email, restaurant_id, role) VALUES (?, ?, ?)')
+            .bind(email, qSlug, 'editor').run();
+        }
       }
       return json({ ok: true });
     }

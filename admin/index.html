@@ -1141,15 +1141,17 @@ function renderSettingsTab(container) {
       <div class="panel-head"><h2>Кто ведёт этот ресторан</h2></div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
         Email человека, который должен видеть и редактировать именно этот ресторан в /admin.
-        Не забудь дополнительно добавить этот же email в Cloudflare Access (Zero Trust → Access →
-        приложение /admin → Policies → Include) — без этого шага человек не пройдёт через вход.
+        При входе он получит одноразовый код на почту — больше ничего настраивать не нужно.
       </p>
       <form id="editorForm">
         <div class="field">
           <label>Email редактора</label>
           <input type="text" id="editorEmailInput" placeholder="client@example.com" value="${esc((s.editorEmails && s.editorEmails[0]) || '')}">
         </div>
-        <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить доступ</button></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-dark">Сохранить доступ</button>
+          ${(s.editorEmails && s.editorEmails[0]) ? '<button type="button" class="btn btn-outline" id="removeEditorBtn">Убрать доступ</button>' : ''}
+        </div>
       </form>
     </div>` : ''}`;
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
@@ -1177,9 +1179,22 @@ function renderSettingsTab(container) {
       try {
         await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmail: email } });
         state.settings.editorEmails = [email];
-        toast('Доступ сохранён — не забудь добавить email в Cloudflare Access');
+        toast('Доступ сохранён');
+        renderTab(); // перерисовать — появится кнопка «Убрать доступ»
       } catch (err) { toast('Ошибка: ' + err.message); }
     };
+    const removeBtn = document.getElementById('removeEditorBtn');
+    if (removeBtn) {
+      removeBtn.onclick = async () => {
+        if (!confirm('Убрать доступ у ' + ((s.editorEmails && s.editorEmails[0]) || 'этого человека') + '?')) return;
+        try {
+          await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { editorEmail: '' } });
+          state.settings.editorEmails = [];
+          toast('Доступ убран');
+          renderTab();
+        } catch (err) { toast('Ошибка: ' + err.message); }
+      };
+    }
   }
 }
 
