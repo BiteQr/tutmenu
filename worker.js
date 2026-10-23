@@ -552,6 +552,35 @@ async function handleFiles(request, env, ctx, segments) {
   return res;
 }
 
+/* ---------- /media/*.mp4 — статичное видео с поддержкой Range ---------- */
+async function serveMediaWithRange(request, env, url) {
+  const asset = await env.ASSETS.fetch(new Request(url.toString(), { method: 'GET' }));
+  if (!asset.ok) return asset;
+  const buf = await asset.arrayBuffer();
+  const size = buf.byteLength;
+  const headers = new Headers({
+    'content-type': asset.headers.get('content-type') || 'video/mp4',
+    'accept-ranges': 'bytes',
+    'cache-control': 'public, max-age=86400',
+  });
+  const etag = asset.headers.get('etag'); if (etag) headers.set('etag', etag);
+  const m = /^bytes=(\d*)-(\d*)$/.exec((request.headers.get('range') || '').trim());
+  if (!m || (m[1] === '' && m[2] === '')) {
+    headers.set('content-length', String(size));
+    return new Response(request.method === 'HEAD' ? null : buf, { status: 200, headers });
+  }
+  let start, end;
+  if (m[1] === '') { start = Math.max(0, size - Number(m[2])); end = size - 1; }
+  else { start = Number(m[1]); end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1); }
+  if (start >= size || start > end) {
+    headers.set('content-range', `bytes */${size}`);
+    return new Response(null, { status: 416, headers });
+  }
+  headers.set('content-range', `bytes ${start}-${end}/${size}`);
+  headers.set('content-length', String(end - start + 1));
+  return new Response(request.method === 'HEAD' ? null : buf.slice(start, end + 1), { status: 206, headers });
+}
+
 /* ---------- Маршрутизация ---------- */
 export default {
   async fetch(request, env, ctx) {
@@ -580,6 +609,11 @@ export default {
     // Саму страницу /admin отдаём БЕЗ кэша: это инструмент, которым пользуются
     // с разных устройств, и застрявшая в кэше телефона старая версия после
     // каждого обновления файла — больше не должна быть возможна в принципе.
+    // Видео из файлов сайта: iPhone требует ответы на Range-запросы (206), а статика их не отдаёт
+    if (p.startsWith('/media/') && /\.(mp4|mov|webm)$/i.test(p) && (method === 'GET' || method === 'HEAD')) {
+      return await serveMediaWithRange(request, env, url);
+    }
+
     const res = await env.ASSETS.fetch(request);
     if (p === '/admin' || p === '/admin/' || p === '/admin/index.html') {
       const noCache = new Response(res.body, res);
