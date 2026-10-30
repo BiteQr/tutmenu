@@ -240,7 +240,7 @@
     // Одна строка над списком блюд: фото — для ориентира (только если в меню есть фото)
     const hasPhotos = data.menuItems.some((it) => it.image);
     const photoNote = hasPhotos
-      ? `<p class="menu-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('menuPhotoNote'))}</span></p>` : '';
+      ? `<p class="menu-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('photoNote'))}</span></p>` : '';
 
     els.sections.innerHTML = photoNote + ordered.map(({ s, catId }) => {
         const sub = I18n.f(s, 'subtitle');
