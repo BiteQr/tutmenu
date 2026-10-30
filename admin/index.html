@@ -146,6 +146,10 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .period-switch button.active{background:var(--dark);color:#fff;}
 .stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:4px;}
 .stat-card{padding:16px;border:1px solid var(--line);border-radius:10px;text-align:center;}
+.stat-live { display:flex; align-items:center; gap:8px; margin:-4px 0 12px; font-size:12px; color:#888; }
+.stat-live__dot { width:8px; height:8px; border-radius:50%; background:#22a55b; box-shadow:0 0 0 0 rgba(34,165,91,.6); animation:statPulse 2s infinite; flex:none; }
+@keyframes statPulse { 0%{box-shadow:0 0 0 0 rgba(34,165,91,.55)} 70%{box-shadow:0 0 0 7px rgba(34,165,91,0)} 100%{box-shadow:0 0 0 0 rgba(34,165,91,0)} }
+.stat-card--live .stat-card__n { color:#22a55b; }
 .stat-card__n{font-size:26px;font-weight:800;}
 .stat-card__l{font-size:12px;color:var(--muted);margin-top:4px;}
 .funnel{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;}
@@ -1200,13 +1204,24 @@ function barListHTML(rows, emptyText) {
     </div>`).join('');
 }
 
-async function renderStatsTab(container) {
-  container.innerHTML = `<p class="empty-hint">Загружаю статистику…</p>`;
+// Статистика обновляется сама каждые 30 секунд, пока открыта вкладка «Статистика»
+let statsTimer = null;
+async function renderStatsTab(container, silent = false) {
+  clearTimeout(statsTimer);
+  if (!silent) container.innerHTML = `<p class="empty-hint">Загружаю статистику…</p>`;
   const days = state.statsDays || 7;
+  const slugAtStart = state.slug;
   let d;
   try { d = await api(`/stats?restaurant=${state.slug}&days=${days}`); }
-  catch (err) { container.innerHTML = `<p class="empty-hint">Не получилось загрузить: ${esc(err.message)}</p>`; return; }
+  catch (err) {
+    if (!silent) container.innerHTML = `<p class="empty-hint">Не получилось загрузить: ${esc(err.message)}</p>`;
+    scheduleStatsRefresh(container);
+    return;
+  }
+  // пока грузилось, могли уйти на другую вкладку / ресторан / период
+  if (state.tab !== 'stats' || state.slug !== slugAtStart || (state.statsDays || 7) !== days || !container.isConnected) return;
   state.statsDays = days;
+  const updatedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   const dropMenu = d.funnel.welcome ? Math.round(100 - (d.funnel.menu / d.funnel.welcome) * 100) : 0;
   const dropCart = d.funnel.menu ? Math.round(100 - (d.funnel.cart / d.funnel.menu) * 100) : 0;
@@ -1216,11 +1231,13 @@ async function renderStatsTab(container) {
       <div class="panel-head">
         <h2>Статистика</h2>
         <div class="period-switch" id="periodSwitch">
-          ${[7, 30, 90].map((n) => `<button type="button" class="${n === days ? 'active' : ''}" data-days="${n}">${n} дн.</button>`).join('')}
+          ${[1, 7, 30, 90].map((n) => `<button type="button" class="${n === days ? 'active' : ''}" data-days="${n}">${n === 1 ? 'Сутки' : n + ' дн.'}</button>`).join('')}
         </div>
       </div>
+      <p class="stat-live"><span class="stat-live__dot"></span>Обновляется сама каждые 30 сек · последнее обновление ${updatedAt}</p>
 
       <div class="stat-cards">
+        <div class="stat-card stat-card--live"><div class="stat-card__n">${d.online ?? 0}</div><div class="stat-card__l">сейчас на сайте</div></div>
         <div class="stat-card"><div class="stat-card__n">${d.sessions}</div><div class="stat-card__l">гостей открыли сайт</div></div>
         <div class="stat-card"><div class="stat-card__n">${d.orders.count}</div><div class="stat-card__l">заказов оформлено</div></div>
         <div class="stat-card"><div class="stat-card__n">${money(d.orders.revenue)}</div><div class="stat-card__l">на сумму</div></div>
@@ -1252,7 +1269,22 @@ async function renderStatsTab(container) {
   document.querySelectorAll('#periodSwitch button').forEach((btn) => {
     btn.onclick = () => { state.statsDays = Number(btn.dataset.days); renderTab(); };
   });
+  scheduleStatsRefresh(container);
 }
+
+function scheduleStatsRefresh(container) {
+  clearTimeout(statsTimer);
+  statsTimer = setTimeout(() => {
+    if (state.tab !== 'stats' || !container.isConnected) return;
+    if (document.hidden) { scheduleStatsRefresh(container); return; } // свернули вкладку — не дёргаем сервер
+    renderStatsTab(container, true);
+  }, 30000);
+}
+document.addEventListener('visibilitychange', () => {
+  // вернулись в админку — сразу свежие цифры
+  const c = document.querySelector('#periodSwitch')?.closest('.panel')?.parentElement;
+  if (!document.hidden && state.tab === 'stats' && c) renderStatsTab(c, true);
+});
 
 function renderSettingsTab(container) {
   const s = state.settings;

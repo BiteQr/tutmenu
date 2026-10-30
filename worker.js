@@ -201,12 +201,21 @@ async function handleMenu(request, env) {
 }
 
 /* ---------- POST /api/orders — публично ---------- */
+/** Гость может прислать и slug («tipagraf»), и домен («tipagraf.kz», если меню открыто по своему домену).
+ *  Статистика и заказы всегда пишутся под slug — иначе админка их не видит. Неизвестные — отбрасываем. */
+async function resolveSlug(env, raw) {
+  const id = normId(raw);
+  if (!id) return '';
+  const row = await env.DB.prepare('SELECT slug FROM restaurants WHERE slug = ?1 OR domain = ?1 LIMIT 1').bind(id).first();
+  return row ? row.slug : '';
+}
+
 async function handleOrders(request, env) {
   let body;
   try { body = await request.json(); }
   catch { return json({ ok: false, error: 'bad_json' }, { status: 400 }); }
 
-  const slug = normId(body.restaurantId);
+  const slug = await resolveSlug(env, body.restaurantId);
   if (!slug) return json({ ok: false, error: 'no_restaurant' }, { status: 400 });
 
   await env.DB.prepare(
@@ -226,7 +235,7 @@ async function handleTrack(request, env) {
   try { body = await request.json(); }
   catch { return json({ ok: false }, { status: 400 }); } // тихо — гостю ошибка аналитики не важна
 
-  const slug = normId(body.restaurantId);
+  const slug = await resolveSlug(env, body.restaurantId);
   const sessionId = String(body.sessionId || '').slice(0, 64);
   const type = String(body.type || '');
   if (!slug || !sessionId || !EVENT_TYPES.has(type)) return json({ ok: false }, { status: 400 });
@@ -261,7 +270,9 @@ async function handleAdminApi(request, env, segments) {
     const days = Math.min(90, Math.max(1, Number(url2.searchParams.get('days')) || 7));
     const since = `datetime('now', '-${days} days')`;
 
-    const [sessions, hits, addToCart, categories, orders, duration] = await Promise.all([
+    const [online, sessions, hits, addToCart, categories, orders, duration] = await Promise.all([
+      // «Сейчас на сайте» — гости, от которых было любое действие за последние 5 минут
+      env.DB.prepare(`SELECT COUNT(DISTINCT session_id) n FROM events WHERE restaurant_id=? AND type<>'session_end' AND created_at >= datetime('now', '-5 minutes')`).bind(slug).first(),
       env.DB.prepare(`SELECT COUNT(DISTINCT session_id) n FROM events WHERE restaurant_id=? AND created_at >= ${since}`).bind(slug).first(),
       env.DB.prepare(`SELECT path, COUNT(DISTINCT session_id) n FROM events WHERE restaurant_id=? AND type='hit' AND created_at >= ${since} GROUP BY path`).bind(slug).all(),
       env.DB.prepare(`SELECT ref_title title, COUNT(*) n FROM events WHERE restaurant_id=? AND type='add_to_cart' AND created_at >= ${since} GROUP BY ref_title ORDER BY n DESC LIMIT 8`).bind(slug).all(),
@@ -273,6 +284,7 @@ async function handleAdminApi(request, env, segments) {
     const hitMap = Object.fromEntries(hits.results.map((r) => [r.path, r.n]));
     return json({
       days,
+      online: online.n || 0,
       sessions: sessions.n || 0,
       funnel: { welcome: hitMap.welcome || 0, menu: hitMap.menu || 0, cart: hitMap.cart || 0 },
       topAddedToCart: addToCart.results,
