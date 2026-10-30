@@ -237,7 +237,12 @@
       `<button type="button" class="pill" data-sec="${esc(s.id)}">${esc(I18n.f(s, 'title'))}</button>`
     ).join('');
 
-    els.sections.innerHTML = ordered.map(({ s, catId }) => {
+    // Одна строка над списком блюд: фото — для ориентира (только если в меню есть фото)
+    const hasPhotos = data.menuItems.some((it) => it.image);
+    const photoNote = hasPhotos
+      ? `<p class="menu-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('menuPhotoNote'))}</span></p>` : '';
+
+    els.sections.innerHTML = photoNote + ordered.map(({ s, catId }) => {
         const sub = I18n.f(s, 'subtitle');
         return `
           <section class="section" id="sec-${esc(s.id)}" data-sec="${esc(s.id)}" data-cat="${esc(catId)}">
@@ -544,7 +549,8 @@
 
     $('.overlay__content', modal).innerHTML = `
       ${photoHTML(it.image, 'item-detail__img', title, true)}
-      <div class="promo-full__body">
+      ${it.image ? `<p class="dish-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('photoNote'))}</span></p>` : ''}
+      <div class="promo-full__body${it.image ? ' promo-full__body--after-note' : ''}">
         ${badgesHTML(it.badges)}
         <h3 class="promo-full__title">${esc(title)}</h3>
         ${desc ? `<p class="promo-full__desc">${esc(desc)}</p>` : ''}

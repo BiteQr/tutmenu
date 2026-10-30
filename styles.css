@@ -593,6 +593,12 @@ body.is-locked { overflow: hidden; }
 
 .promo-full__img { width: 100%; aspect-ratio: 2 / 1.1; object-fit: cover; background: var(--surface); }
 .promo-full__body { padding: 20px var(--pad) 4px; }
+/* «Внешний вид блюда может отличаться от фото» — под фото в окне блюда и одной строкой над меню */
+.dish-photo-note, .menu-photo-note { display: flex; gap: 6px; margin: 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
+.dish-photo-note svg, .menu-photo-note svg { flex: none; margin-top: 1px; opacity: .8; }
+.dish-photo-note { align-items: flex-start; padding: 8px var(--pad) 0; }
+.promo-full__body--after-note { padding-top: 10px; }
+.menu-photo-note { align-items: flex-start; padding: 14px var(--pad) 0; }
 .promo-full__title { font-family: var(--font-display); font-size: 24px; font-weight: 800; line-height: 1.2; }
 .promo-full__desc { margin-top: 10px; font-size: 16px; line-height: 1.45; color: var(--muted-2); white-space: pre-line; }
 .notice__text { font-size: 15px; line-height: 1.55; white-space: pre-line; }
