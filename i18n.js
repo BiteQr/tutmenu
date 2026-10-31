@@ -8,7 +8,7 @@
   const DICT = {
     ru: {
       back: 'Назад', up: 'Наверх', cart: 'Корзина', close: 'Закрыть',
-      search: 'Поиск или «хочу что-то лёгкое»', aiPickBtn: 'Подобрать с ИИ', aiPickHint: 'Опишите словами, чего хочется — ИИ предложит блюда из меню', aiLoading: 'Подбираю блюда…', aiNote: 'Подбирает ИИ и может ошибаться. Об аллергиях уточните у официанта.', aiEmpty: 'Не получилось подобрать. Попробуйте описать по-другому.', aiError: 'ИИ сейчас недоступен — воспользуйтесь обычным поиском.', aiTitle: 'Подборка для вас', notFound: 'Ничего не нашлось. Попробуйте другое название.',
+      search: 'Поиск или «хочу что-то лёгкое»', aiPickBtn: 'Подобрать с ИИ', aiPickHint: 'Опишите словами, чего хочется — ИИ предложит блюда из меню', aiLoading: 'Подбираю блюда…', aiNote: 'Подбирает ИИ и может ошибаться. Об аллергиях уточните у официанта.', aiEmpty: 'Не получилось подобрать. Попробуйте описать по-другому.', aiError: 'ИИ сейчас недоступен — воспользуйтесь обычным поиском.', aiTitle: 'Подборка для вас', aiFocusHint: 'Напишите, чего хочется, и нажмите «✨ Подобрать с ИИ»', aiPressHint: 'Нажмите — ИИ подберёт блюда по вашему запросу', aiTry: 'Например:', aiExamples: ['что-то к пиву', 'лёгкое без мяса', 'сладкое к кофе', 'сытное на двоих'], notFound: 'Ничего не нашлось. Попробуйте другое название.',
       cartTitle: 'Ваш заказ', total: 'Итого', positions: 'Позиций',
       order: 'Заказать', addToOrder: 'Добавить к заказу?',
       emptyCart: 'В заказе пока пусто', toMenu: 'Открыть меню',
@@ -25,7 +25,7 @@
     },
     kk: {
       back: 'Артқа', up: 'Жоғары', cart: 'Себет', close: 'Жабу',
-      search: 'Іздеу немесе «жеңіл бірдеңе»', aiPickBtn: 'ЖИ арқылы таңдау', aiPickHint: 'Не қалайтыныңызды жазыңыз — ЖИ мәзірден тағам ұсынады', aiLoading: 'Тағамдарды таңдап жатырмын…', aiNote: 'ЖИ таңдайды және қателесуі мүмкін. Аллергия туралы даяшыдан сұраңыз.', aiEmpty: 'Таңдау мүмкін болмады. Басқаша сипаттап көріңіз.', aiError: 'ЖИ қазір қолжетімсіз — кәдімгі іздеуді пайдаланыңыз.', aiTitle: 'Сізге арналған таңдау', notFound: 'Ештеңе табылмады. Басқа атауды жазып көріңіз.',
+      search: 'Іздеу немесе «жеңіл бірдеңе»', aiPickBtn: 'ЖИ арқылы таңдау', aiPickHint: 'Не қалайтыныңызды жазыңыз — ЖИ мәзірден тағам ұсынады', aiLoading: 'Тағамдарды таңдап жатырмын…', aiNote: 'ЖИ таңдайды және қателесуі мүмкін. Аллергия туралы даяшыдан сұраңыз.', aiEmpty: 'Таңдау мүмкін болмады. Басқаша сипаттап көріңіз.', aiError: 'ЖИ қазір қолжетімсіз — кәдімгі іздеуді пайдаланыңыз.', aiTitle: 'Сізге арналған таңдау', aiFocusHint: 'Не қалайтыныңызды жазып, «✨ ЖИ арқылы таңдау» батырмасын басыңыз', aiPressHint: 'Басыңыз — ЖИ сұранысыңыз бойынша тағам таңдайды', aiTry: 'Мысалы:', aiExamples: ['сыраға бірдеңе', 'етсіз жеңіл тағам', 'кофеге тәтті', 'екі адамға тойымды'], notFound: 'Ештеңе табылмады. Басқа атауды жазып көріңіз.',
       cartTitle: 'Сіздің тапсырысыңыз', total: 'Барлығы', positions: 'Позиция',
       order: 'Тапсырыс беру', addToOrder: 'Тапсырысқа қосасыз ба?',
       emptyCart: 'Тапсырыс әзірге бос', toMenu: 'Мәзірді ашу',
@@ -42,7 +42,7 @@
     },
     en: {
       back: 'Back', up: 'Back to top', cart: 'Cart', close: 'Close',
-      search: 'Search or “something light”', aiPickBtn: 'Ask AI to pick', aiPickHint: 'Describe what you feel like — AI will suggest dishes from the menu', aiLoading: 'Picking dishes…', aiNote: 'Picked by AI and may be wrong. Ask your waiter about allergies.', aiEmpty: 'Couldn’t find a match. Try describing it differently.', aiError: 'AI is unavailable right now — please use the regular search.', aiTitle: 'Picked for you', notFound: 'Nothing found. Try another name.',
+      search: 'Search or “something light”', aiPickBtn: 'Ask AI to pick', aiPickHint: 'Describe what you feel like — AI will suggest dishes from the menu', aiLoading: 'Picking dishes…', aiNote: 'Picked by AI and may be wrong. Ask your waiter about allergies.', aiEmpty: 'Couldn’t find a match. Try describing it differently.', aiError: 'AI is unavailable right now — please use the regular search.', aiTitle: 'Picked for you', aiFocusHint: 'Type what you feel like and tap “✨ Ask AI to pick”', aiPressHint: 'Tap — AI will pick dishes for your request', aiTry: 'For example:', aiExamples: ['snacks for beer', 'light, no meat', 'sweet with coffee', 'hearty for two'], notFound: 'Nothing found. Try another name.',
       cartTitle: 'Your order', total: 'Total', positions: 'Items',
       order: 'Place order', addToOrder: 'Add to your order?',
       emptyCart: 'Your order is empty', toMenu: 'Open menu',

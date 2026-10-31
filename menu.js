@@ -24,6 +24,7 @@
     sections: $('#sections'),
     notFound: $('#notFound'),
     aiPick: $('#aiPick'),
+    searchBar: $('#searchBar'),
     fabTop: $('.fab-top', root),
     fabCart: $('.fab-cart', root),
     promoModal: $('#promoModal'),
@@ -321,7 +322,7 @@
   /* ---------------------------------------------------------
      СКРОЛЛ: навигация и scroll-spy
      --------------------------------------------------------- */
-  const stickyOffset = () => els.topbar.offsetHeight + els.pills.offsetHeight + 8;
+  const stickyOffset = () => els.topbar.offsetHeight + els.searchBar.offsetHeight + els.pills.offsetHeight + 8;
 
   function scrollToEl(el, smooth = true) {
     const top = el.getBoundingClientRect().top + window.scrollY - stickyOffset();
@@ -442,6 +443,8 @@
   function updateAiPick(found) {
     const raw = els.search.value.replace(/\s+/g, ' ').trim();
     const words = raw.split(' ').filter(Boolean).length;
+    // Поле в фокусе и пустое — учим: «напишите и нажмите ✨», плюс примеры, которые сразу запускают подбор
+    if (!raw && document.activeElement === els.search) { ai.status = 'hint'; ai.q = ''; renderAiPick(); return; }
     if (raw.length < 3 || (words < 2 && found > 0)) { ai.status = 'idle'; ai.q = ''; els.aiPick.hidden = true; return; }
     if (ai.q === raw && ai.status !== 'idle') { renderAiPick(); return; } // уже показаны результаты/загрузка по этой фразе
     ai.status = 'offer'; ai.q = raw; ai.data = null;
@@ -453,11 +456,21 @@
     box.hidden = false;
     // Пока ИИ подбирает или уже подобрал — «Ничего не нашлось» под подборкой только путает
     if (ai.status === 'offer' || ai.status === 'loading' || ai.status === 'done') els.notFound.hidden = true;
+    if (ai.status === 'hint') {
+      const ex = I18n.t('aiExamples');
+      box.innerHTML = `
+        <div class="ai-pick__panel ai-pick__hint">
+          <div class="ai-pick__head"><span class="ai-pick__icon">${SPARK}</span><span>${esc(I18n.t('aiFocusHint'))}</span></div>
+          <div class="ai-chips"><span class="ai-chips__label">${esc(I18n.t('aiTry'))}</span>${(Array.isArray(ex) ? ex : []).map((x) =>
+            `<button type="button" class="ai-chip" data-ai-example="${esc(x)}">«${esc(x)}»</button>`).join('')}</div>
+        </div>`;
+      return;
+    }
     if (ai.status === 'offer') {
       box.innerHTML = `
         <button type="button" class="ai-pick__offer" data-action="ai-pick">
           <span class="ai-pick__icon">${SPARK}</span>
-          <span class="ai-pick__text"><b>${esc(I18n.t('aiPickBtn'))}</b><small>${esc(I18n.t('aiPickHint'))}</small></span>
+          <span class="ai-pick__text"><b>${esc(I18n.t('aiPickBtn'))}</b><small>${esc(I18n.t('aiPressHint'))}</small></span>
           <svg class="ai-pick__go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>`;
       return;
@@ -761,6 +774,8 @@
     if (act === 'open-cart') { App.go('#/cart'); return; }
     if (act === 'clear-search') { els.search.value = ''; applySearch(); els.search.focus(); return; }
     if (act === 'ai-pick') { els.search.blur(); runAiPick(); return; }
+    const aiEx = t.closest('[data-ai-example]');
+    if (aiEx) { els.search.value = aiEx.dataset.aiExample; els.search.blur(); applySearch(); runAiPick(); return; }
 
     const promo = t.closest('[data-promo]');
     if (promo) { openPromo(+promo.dataset.promo); return; }
@@ -824,6 +839,18 @@
   });
 
   els.search.addEventListener('input', debounce(applySearch, 120));
+  // Поиск «липкий»: гость может начать поиск из середины меню. Подсказка и подборка живут прямо под полем,
+  // поэтому при фокусе подкручиваем страницу так, чтобы они были видны.
+  els.search.addEventListener('focus', () => {
+    // естественное место строки поиска — сразу под акциями (сама строка «липкая», поэтому меряем по блоку выше)
+    const top = els.promos.getBoundingClientRect().bottom + window.scrollY - els.topbar.offsetHeight;
+    if (window.scrollY > top + 4) window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    if (!els.search.value.trim()) updateAiPick(0);
+  });
+  els.search.addEventListener('blur', () => {
+    // задержка — чтобы успел сработать тап по примеру
+    setTimeout(() => { if (ai.status === 'hint' && document.activeElement !== els.search) { ai.status = 'idle'; els.aiPick.hidden = true; } }, 250);
+  });
   els.search.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     els.search.blur();

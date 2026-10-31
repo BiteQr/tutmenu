@@ -23,6 +23,7 @@
   --shadow-s: 0 8px 12px -10px rgba(0, 0, 0, .22);
 
   --header-h: 60px;
+  --searchbar-h: 64px;     /* липкая строка поиска: 48px поле + отступы */
   --pad: 20px;
   --maxw: 640px;
 
@@ -218,7 +219,13 @@ body.is-locked { overflow: hidden; }
 .promo:active img { transform: scale(.98); }
 
 /* Поиск */
-.search { position: relative; display: block; margin: 18px 0 16px; }
+/* Поиск «липкий»: едет под шапкой при прокрутке, разделы — под ним */
+.search-bar {
+  position: sticky; top: var(--header-h); z-index: 25;
+  margin: 10px calc(-1 * var(--pad)) 8px; padding: 8px var(--pad);
+  background: var(--bg);
+}
+.search { position: relative; display: block; margin: 0; }
 .search input {
   width: 100%; height: 48px;
   padding: 0 44px 0 46px;
@@ -255,7 +262,7 @@ body.is-locked { overflow: hidden; }
 
 /* Пилюли разделов (липкие) */
 .pills {
-  position: sticky; top: var(--header-h); z-index: 20;
+  position: sticky; top: calc(var(--header-h) + var(--searchbar-h)); z-index: 20;
   display: flex; gap: 8px;
   overflow-x: auto; scrollbar-width: none;
   margin: 18px calc(-1 * var(--pad)) 0; padding: 10px var(--pad) 12px;
@@ -708,7 +715,7 @@ body.is-locked { overflow: hidden; }
 :root[data-preset="bold"] .welcome__name { letter-spacing: .02em; }
 
 /* ===== Умный поиск (ИИ) ===== */
-.ai-pick { margin: -4px 0 16px; }
+.ai-pick { margin: 0 0 16px; }
 .menu__main.is-searching .menu-photo-note { display: none; }
 .ai-pick__offer {
   width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
@@ -747,3 +754,16 @@ body.is-locked { overflow: hidden; }
 .ai-pick__panel.is-loading .ai-pick__icon { animation: aiPulse 1.2s infinite ease-in-out; }
 @keyframes aiShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes aiPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+
+/* Подсказка при фокусе на поиске + примеры */
+.ai-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ai-chips__label { font-size: 13px; color: var(--muted); margin-right: 2px; }
+.ai-chip { padding: 9px 14px; border-radius: var(--pill); background: color-mix(in srgb, var(--dark) 8%, var(--bg)); color: var(--dark); font: inherit; font-size: 14px; font-weight: 500; }
+.ai-chip:active { transform: scale(.96); }
+/* Кнопка «Подобрать с ИИ» мягко пульсирует — видно, что её надо нажать */
+.ai-pick__offer { animation: aiOfferPulse 1.8s ease-in-out infinite; }
+@keyframes aiOfferPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dark) 28%, transparent); }
+  50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--dark) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .ai-pick__offer { animation: none; } }
