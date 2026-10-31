@@ -144,6 +144,11 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .period-switch{display:flex;gap:6px;}
 .period-switch button{padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);background:var(--bg);}
 .period-switch button.active{background:var(--dark);color:#fff;}
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+.qr-box{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:10px;}
+.qr-box__title{margin:0;font-size:15px;}
+.qr-box__url{margin:0;font-size:13px;color:var(--muted);word-break:break-all;}
+.qr-box__code{background:#fff;padding:8px;border-radius:6px;}
 .stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:4px;}
 .stat-card{padding:16px;border:1px solid var(--line);border-radius:10px;text-align:center;}
 .stat-live { display:flex; align-items:center; gap:8px; margin:-4px 0 12px; font-size:12px; color:#888; }
@@ -1300,11 +1305,20 @@ function renderSettingsTab(container) {
     </div>
 
     <div class="panel">
-      <div class="panel-head"><h2>QR-код для столов</h2></div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;word-break:break-all;">Ссылка в коде: ${esc(url)}</p>
-      <div id="qrHolder"></div>
-      <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
-        <button type="button" class="btn btn-dark btn-sm" id="downloadQrBtn">Скачать PNG для печати</button>
+      <div class="panel-head"><h2>QR-коды</h2></div>
+      <div class="qr-grid">
+        <div class="qr-box">
+          <h3 class="qr-box__title">Главный экран с видео</h3>
+          <p class="qr-box__url" id="qrHomeUrl">${esc(homeUrl())}</p>
+          <div class="qr-box__code" id="qrHomeHolder"></div>
+          <button type="button" class="btn btn-dark btn-sm" id="downloadQrHomeBtn">Скачать PNG для печати</button>
+        </div>
+        <div class="qr-box">
+          <h3 class="qr-box__title">Сразу меню</h3>
+          <p class="qr-box__url" id="qrMenuUrl">${esc(url)}</p>
+          <div class="qr-box__code" id="qrHolder"></div>
+          <button type="button" class="btn btn-dark btn-sm" id="downloadQrBtn">Скачать PNG для печати</button>
+        </div>
       </div>
     </div>
 
@@ -1335,8 +1349,9 @@ function renderSettingsTab(container) {
     </div>` : ''}`;
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
   SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
-  renderQR(url);
-  document.getElementById('downloadQrBtn').onclick = () => downloadQR(url);
+  renderAllQR();
+  document.getElementById('downloadQrBtn').onclick = () => downloadQR(menuUrl(), 'menu');
+  document.getElementById('downloadQrHomeBtn').onclick = () => downloadQR(homeUrl(), 'home');
 
   document.getElementById('settingsForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1346,7 +1361,7 @@ function renderSettingsTab(container) {
       await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: payload });
       Object.assign(state.settings, payload);
       toast('Сохранено');
-      renderQR(menuUrl()); // домен мог поменяться — код должен вести на актуальный адрес
+      renderAllQR(); // домен мог поменяться — коды должны вести на актуальный адрес
     } catch (err) { toast('Ошибка: ' + err.message); }
   };
 
@@ -1391,23 +1406,43 @@ function menuUrl() {
   return s.domain ? `https://${s.domain}/#/menu` : `${location.origin}/?r=${state.slug}#/menu`;
 }
 
-function renderQR(url) {
-  const holder = document.getElementById('qrHolder');
+/** Ссылка на главный экран (с видео) — просто домен ресторана, без #/menu */
+function homeUrl() {
+  const s = state.settings;
+  return s.domain ? `https://${s.domain}/` : `${location.origin}/?r=${state.slug}`;
+}
+
+function renderAllQR() {
+  renderQR(menuUrl(), 'qrHolder');
+  renderQR(homeUrl(), 'qrHomeHolder');
+  const mu = document.getElementById('qrMenuUrl'); if (mu) mu.textContent = menuUrl();
+  const hu = document.getElementById('qrHomeUrl'); if (hu) hu.textContent = homeUrl();
+}
+
+function renderQR(url, holderId = 'qrHolder') {
+  const holder = document.getElementById(holderId);
   if (!holder) return;
   holder.innerHTML = '';
   if (typeof QRCode === 'undefined') { holder.innerHTML = '<p class="empty-hint">QR-библиотека не загрузилась — проверь интернет и обнови страницу</p>'; return; }
   new QRCode(holder, { text: url, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
 }
 
-function downloadQR(url) {
+function downloadQR(url, kind = 'menu') {
   if (typeof QRCode === 'undefined') { toast('QR-библиотека не загрузилась'); return; }
   const holder = document.createElement('div');
   new QRCode(holder, { text: url, width: 1000, height: 1000, correctLevel: QRCode.CorrectLevel.M });
   const canvas = holder.querySelector('canvas');
   if (!canvas) { toast('Не получилось создать QR-код для скачивания'); return; }
+  // Белая рамка вокруг кода: без неё телефоны плохо считывают распечатанный QR на тёмном фоне
+  const pad = 100;
+  const out = document.createElement('canvas');
+  out.width = canvas.width + pad * 2; out.height = canvas.height + pad * 2;
+  const g = out.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, out.width, out.height);
+  g.drawImage(canvas, pad, pad);
   const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = `qr-${state.slug}.png`;
+  a.href = out.toDataURL('image/png');
+  a.download = `qr-${state.slug}-${kind === 'home' ? 'glavnyj-ekran' : 'menu'}.png`;
   document.body.appendChild(a); a.click(); a.remove();
 }
 
