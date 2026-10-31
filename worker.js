@@ -260,7 +260,8 @@ async function handleAiSearch(request, env, ctx) {
   }).join('\n');
 
   const cache = caches.default;
-  const cacheKey = new Request(`https://ai-search.cache/${slug}/${lang}/${await sha256(menuText + '\n#' + q.toLowerCase())}`);
+  const AI_PROMPT_VERSION = 'v2'; // поменяли инструкции — старые ответы из кэша не берём
+  const cacheKey = new Request(`https://ai-search.cache/${AI_PROMPT_VERSION}/${slug}/${lang}/${await sha256(menuText + '\n#' + q.toLowerCase())}`);
   const hit = await cache.match(cacheKey);
   if (hit) return new Response(hit.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'x-ai-cache': 'hit' } });
 
@@ -269,7 +270,9 @@ Pick 3 to 5 items from the MENU below that best match the request.
 Rules:
 - Use ONLY ids from the MENU. Never invent dishes.
 - Respect every constraint (e.g. "not too fatty", "no meat", "not spicy", budget, "for two", "with beer"). If the guest asks for food, do not suggest drinks unless they ask; if they ask for a drink, suggest drinks.
-- You may combine a main dish with a side or drink when it clearly helps.
+- "Something WITH / FOR a drink" (e.g. "something sweet with coffee", "snacks for beer") means FOOD that goes with that drink — do not suggest the drink itself.
+- Never suggest alcohol unless the guest clearly asks for alcohol.
+- You may combine a main dish with a side when it clearly helps.
 - For each item write one short reason (max 12 words) in ${AI_LANG_NAME[lang]}, explaining why it fits this request. Do not repeat the dish name.
 - Never promise anything about allergens or dietary safety.
 - "message": one short friendly sentence in ${AI_LANG_NAME[lang]} introducing the picks (max 15 words).
@@ -312,7 +315,7 @@ ${menuText}`;
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
-const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end']);
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search']);
 
 async function handleTrack(request, env) {
   let body;
