@@ -89,6 +89,7 @@ window.App.track = window.App.track || function () {};
         else if (goal === 'view_promo') { extra.refId = params.id; extra.refTitle = lookupTitle('promo', params.id); }
         else if (goal === 'view_category') { extra.refId = params.id; extra.refTitle = lookupTitle('category', params.id); }
         else if (goal === 'order_placed') { extra.value = params.total; }
+        else if (goal === 'ai_search') { extra.refTitle = String(params.q || '').slice(0, 200); }
         sendEvent(extra);
         if (window.__ymId) { try { window.ym(window.__ymId, 'reachGoal', goal, params); } catch { /* ignore */ } }
       } catch { /* ignore */ }

@@ -23,6 +23,7 @@
     pills: $('#pills'),
     sections: $('#sections'),
     notFound: $('#notFound'),
+    aiPick: $('#aiPick'),
     fabTop: $('.fab-top', root),
     fabCart: $('.fab-cart', root),
     promoModal: $('#promoModal'),
@@ -423,8 +424,109 @@
 
     els.notFound.hidden = found > 0;
     els.notFound.textContent = I18n.t('notFound');
+    updateAiPick(found);
     activeSec = null;
     onScroll();
+  }
+
+
+  /* ---------------------------------------------------------
+     УМНЫЙ ПОИСК: гость пишет словами («хочу жирное, но не слишком»),
+     ИИ на сервере подбирает 3–5 блюд из меню (/api/ai-search)
+     --------------------------------------------------------- */
+  const SPARK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
+  const ai = { q: '', status: 'idle', data: null, seq: 0 };
+  const curLang = () => document.documentElement.lang || 'ru';
+
+  /** Показываем кнопку «Подобрать с ИИ», когда гость пишет фразу (2+ слова) или обычный поиск ничего не нашёл */
+  function updateAiPick(found) {
+    const raw = els.search.value.replace(/\s+/g, ' ').trim();
+    const words = raw.split(' ').filter(Boolean).length;
+    if (raw.length < 3 || (words < 2 && found > 0)) { ai.status = 'idle'; ai.q = ''; els.aiPick.hidden = true; return; }
+    if (ai.q === raw && ai.status !== 'idle') { renderAiPick(); return; } // уже показаны результаты/загрузка по этой фразе
+    ai.status = 'offer'; ai.q = raw; ai.data = null;
+    renderAiPick();
+  }
+
+  function renderAiPick() {
+    const box = els.aiPick;
+    box.hidden = false;
+    // Пока ИИ подбирает или уже подобрал — «Ничего не нашлось» под подборкой только путает
+    if (ai.status === 'offer' || ai.status === 'loading' || ai.status === 'done') els.notFound.hidden = true;
+    if (ai.status === 'offer') {
+      box.innerHTML = `
+        <button type="button" class="ai-pick__offer" data-action="ai-pick">
+          <span class="ai-pick__icon">${SPARK}</span>
+          <span class="ai-pick__text"><b>${esc(I18n.t('aiPickBtn'))}</b><small>${esc(I18n.t('aiPickHint'))}</small></span>
+          <svg class="ai-pick__go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>`;
+      return;
+    }
+    if (ai.status === 'loading') {
+      box.innerHTML = `
+        <div class="ai-pick__panel is-loading">
+          <div class="ai-pick__head"><span class="ai-pick__icon">${SPARK}</span><span>${esc(I18n.t('aiLoading'))}</span></div>
+          ${'<div class="ai-card ai-card--skeleton"><span></span><i></i></div>'.repeat(3)}
+        </div>`;
+      return;
+    }
+    if (ai.status === 'error' || ai.status === 'empty') {
+      const msg = ai.status === 'error' ? I18n.t('aiError') : (ai.data?.message || I18n.t('aiEmpty'));
+      box.innerHTML = `<div class="ai-pick__panel"><div class="ai-pick__head"><span class="ai-pick__icon">${SPARK}</span><span>${esc(msg)}</span></div></div>`;
+      return;
+    }
+    // done
+    const cards = ai.data.items.map(({ id, reason }) => {
+      const it = Cart.getItem(id);
+      if (!it) return '';
+      const title = I18n.f(it, 'title');
+      const price = it.variants.length ? it.variants[0].price : it.price;
+      return `
+        <div class="ai-card" data-ai-open="${esc(it.id)}">
+          ${photoHTML(it.image, 'ai-card__img', title)}
+          <div class="ai-card__body">
+            <div class="ai-card__title">${esc(title)}</div>
+            ${reason ? `<div class="ai-card__reason">${esc(reason)}</div>` : ''}
+            ${price ? `<div class="ai-card__price">${money(price)}</div>` : ''}
+          </div>
+          <button type="button" class="add-btn ai-card__add" data-add="${esc(it.id)}" aria-label="+ ${esc(title)}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="ai-pick__panel">
+        <div class="ai-pick__head">
+          <span class="ai-pick__icon">${SPARK}</span>
+          <span><b>${esc(I18n.t('aiTitle'))}</b>${ai.data.message ? `<small>${esc(ai.data.message)}</small>` : ''}</span>
+        </div>
+        ${cards}
+        <p class="ai-pick__note">${esc(I18n.t('aiNote'))}</p>
+      </div>`;
+  }
+
+  async function runAiPick() {
+    const q = els.search.value.replace(/\s+/g, ' ').trim();
+    if (q.length < 3) return;
+    const my = ++ai.seq;
+    ai.q = q; ai.status = 'loading'; ai.data = null;
+    renderAiPick();
+    App.track('ai_search', { q });
+    try {
+      const res = await fetch('/api/ai-search', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ restaurantId: App.restaurantId, q, lang: curLang() })
+      });
+      const data = await res.json();
+      if (my !== ai.seq || ai.q !== q) return; // гость уже поменял запрос
+      if (!res.ok) throw new Error(data.error || res.status);
+      ai.data = data;
+      ai.status = (data.items || []).some((x) => Cart.getItem(x.id)) ? 'done' : 'empty';
+    } catch {
+      if (my !== ai.seq) return;
+      ai.status = 'error';
+    }
+    renderAiPick();
   }
 
   /* ---------------------------------------------------------
@@ -658,6 +760,7 @@
     if (act === 'to-top') { e.preventDefault(); spyLockUntil = 0; window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     if (act === 'open-cart') { App.go('#/cart'); return; }
     if (act === 'clear-search') { els.search.value = ''; applySearch(); els.search.focus(); return; }
+    if (act === 'ai-pick') { els.search.blur(); runAiPick(); return; }
 
     const promo = t.closest('[data-promo]');
     if (promo) { openPromo(+promo.dataset.promo); return; }
@@ -670,6 +773,9 @@
 
     const add = t.closest('[data-add]');
     if (add) { handleAdd(add.dataset.add, add); return; }
+
+    const aiCard = t.closest('[data-ai-open]');
+    if (aiCard) { const it = Cart.getItem(aiCard.dataset.aiOpen); if (it) openItemDetail(it); return; }
 
     // Тап по самой карточке блюда (не по кнопке «+») — открыть подробности,
     // как уже открываются акции. Кнопка «+» перехватывается чуть выше и сюда не доходит.
@@ -718,7 +824,11 @@
   });
 
   els.search.addEventListener('input', debounce(applySearch, 120));
-  els.search.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.search.blur(); });
+  els.search.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    els.search.blur();
+    if (ai.status === 'offer') runAiPick(); // Enter на фразе — сразу спрашиваем ИИ
+  });
 
   Cart.subscribe(() => {
     updateBadges();
