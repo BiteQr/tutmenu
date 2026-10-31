@@ -225,6 +225,90 @@ async function handleOrders(request, env) {
   return json({ ok: true });
 }
 
+/* ---------- POST /api/ai-search — «умный поиск»: гость пишет словами, ИИ подбирает блюда ----------
+   Тело: { restaurantId, q, lang }  →  { items: [{ id, reason }], message }
+   Модель: Gemma 4 на Workers AI (бесплатно до 10 000 нейронов в день). Повторные запросы — из кэша. */
+const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const AI_LANG_NAME = { ru: 'Russian', kk: 'Kazakh', en: 'English' };
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleAiSearch(request, env, ctx) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+  const slug = await resolveSlug(env, body.restaurantId);
+  const q = String(body.q || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const lang = AI_LANG_NAME[body.lang] ? body.lang : 'ru';
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  if (q.length < 3) return json({ error: 'too_short' }, { status: 400 });
+  if (!env.AI) return json({ error: 'ai_unavailable' }, { status: 503 });
+
+  const rows = (await env.DB.prepare(
+    `SELECT i.id, i.title_ru, i.description_ru, i.price, s.title_ru AS sec
+       FROM menu_items i JOIN sections s ON s.id = i.section_id AND s.active = 1
+      WHERE i.restaurant_id = ? AND i.active = 1 ORDER BY s.sort, i.sort`
+  ).bind(slug).all()).results;
+  if (!rows.length) return json({ items: [], message: '' });
+
+  // Компактный список: id | раздел | название | цена | короткое описание
+  const menuText = rows.map((r) => {
+    const d = String(r.description_ru || '').replace(/\s+/g, ' ').trim();
+    return `${r.id} | ${r.sec} | ${r.title_ru} | ${Math.round(r.price || 0)} ₸ | ${d.length > 110 ? d.slice(0, 107) + '…' : d}`;
+  }).join('\n');
+
+  const cache = caches.default;
+  const cacheKey = new Request(`https://ai-search.cache/${slug}/${lang}/${await sha256(menuText + '\n#' + q.toLowerCase())}`);
+  const hit = await cache.match(cacheKey);
+  if (hit) return new Response(hit.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'x-ai-cache': 'hit' } });
+
+  const system = `You are a friendly waiter at a restaurant. A guest describes in their own words what they feel like eating or drinking.
+Pick 3 to 5 items from the MENU below that best match the request.
+Rules:
+- Use ONLY ids from the MENU. Never invent dishes.
+- Respect every constraint (e.g. "not too fatty", "no meat", "not spicy", budget, "for two", "with beer"). If the guest asks for food, do not suggest drinks unless they ask; if they ask for a drink, suggest drinks.
+- You may combine a main dish with a side or drink when it clearly helps.
+- For each item write one short reason (max 12 words) in ${AI_LANG_NAME[lang]}, explaining why it fits this request. Do not repeat the dish name.
+- Never promise anything about allergens or dietary safety.
+- "message": one short friendly sentence in ${AI_LANG_NAME[lang]} introducing the picks (max 15 words).
+- If the request is not about food or drinks, return an empty "items" list and a polite "message" in ${AI_LANG_NAME[lang]}.
+Answer with JSON only: {"message": "...", "items": [{"id": 123, "reason": "..."}]}
+
+MENU (id | section | dish | price | description):
+${menuText}`;
+
+  let out;
+  try {
+    out = await env.AI.run(AI_MODEL, {
+      messages: [{ role: 'system', content: system }, { role: 'user', content: q }],
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 500,
+      temperature: 0.3,
+    });
+  } catch (err) {
+    return json({ error: 'ai_failed', message: String(err).slice(0, 200) }, { status: 502 });
+  }
+
+  const text = out?.choices?.[0]?.message?.content ?? out?.response ?? '';
+  let parsed = null;
+  try { parsed = typeof text === 'object' ? text : JSON.parse(String(text).match(/\{[\s\S]*\}/)?.[0] || ''); } catch { /* ниже — пустой ответ */ }
+  const valid = new Set(rows.map((r) => String(r.id)));
+  const seen = new Set();
+  const items = (Array.isArray(parsed?.items) ? parsed.items : [])
+    .map((x) => ({ id: String(x?.id ?? ''), reason: String(x?.reason || '').slice(0, 160) }))
+    .filter((x) => valid.has(x.id) && !seen.has(x.id) && seen.add(x.id))
+    .slice(0, 5);
+  const result = JSON.stringify({ items, message: String(parsed?.message || '').slice(0, 200), usage: out?.usage || null });
+
+  if (items.length) {
+    ctx.waitUntil(cache.put(cacheKey, new Response(result, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'max-age=86400' } })));
+  }
+  return new Response(result, { headers: { 'content-type': 'application/json; charset=utf-8' } });
+}
+
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
@@ -604,6 +688,7 @@ export default {
       if (p === '/api/menu' && method === 'GET') return await handleMenu(request, env);
       if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
       if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
+      if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p.startsWith('/admin/api/')) {
         const segments = p.slice('/admin/api/'.length).split('/').filter(Boolean);

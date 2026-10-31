@@ -17,6 +17,9 @@
     { "binding": "DB", "database_name": "tutmenu", "database_id": "936a5fca-c65d-4bc9-82e7-f3dc5ebd2808" }
   ],
 
+  // Workers AI — умный поиск блюд (/api/ai-search)
+  "ai": { "binding": "AI" },
+
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "tutmenu-files" }
   ]
