@@ -236,8 +236,9 @@
        </button>`).join('');
 
     els.pills.innerHTML = ordered.map(({ s }) =>
-      `<button type="button" class="pill" data-sec="${esc(s.id)}">${esc(I18n.f(s, 'title'))}</button>`
-    ).join('');
+      `<button type="button" class="pill" data-sec="${esc(s.id)}"><span>${esc(I18n.f(s, 'title'))}</span></button>`
+    ).join('') + '<span class="pills__ind" aria-hidden="true"></span>';
+    pillInd = null; // новая разметка — капсулу ставим заново без анимации
 
     // Одна строка над списком блюд: фото — для ориентира (только если в меню есть фото)
     const hasPhotos = data.menuItems.some((it) => it.image);
@@ -255,6 +256,7 @@
       }).join('');
 
     sectionEls = $$('.section', els.sections);
+    observeReveal();
     activeSec = activeCat = null;
     applySearch();
     updateBadges();
@@ -315,6 +317,8 @@
   // Сначала язык (если ещё не спрашивали), потом уведомление владельца — по очереди, не друг на друге.
   new MutationObserver(() => {
     if (root.hidden) return;
+    if (revealPending) observeReveal();
+    requestAnimationFrame(() => movePillInd(true));
     if (!maybeShowLangPrompt()) App.Welcome.maybeShowNotice();
   })
     .observe(root, { attributes: true, attributeFilter: ['hidden'] });
@@ -325,6 +329,9 @@
   const stickyOffset = () => els.topbar.offsetHeight + els.searchBar.offsetHeight + els.pills.offsetHeight + 8;
 
   function scrollToEl(el, smooth = true) {
+    // прыжок к разделу: карточки цели и следующего раздела показываем сразу, без ожидания проявления
+    const sec = el.closest ? (el.closest('.section') || el) : el;
+    [sec, sec && sec.nextElementSibling].forEach((x) => x && $$('.reveal', x).concat(x.classList && x.classList.contains('reveal') ? [x] : []).forEach((r) => r.classList.add('is-in')));
     const top = el.getBoundingClientRect().top + window.scrollY - stickyOffset();
     spyLockUntil = Date.now() + 900;
     window.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
@@ -337,6 +344,79 @@
     row.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
   }
 
+  /* ---------------------------------------------------------
+     АНИМАЦИИ: «капсула» активного раздела, появление при прокрутке, полёт в корзину
+     --------------------------------------------------------- */
+  const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let pillInd = null;
+
+  /** Тёмная капсула плавно переезжает под активный раздел (вместо мгновенного перекрашивания) */
+  function movePillInd(instant) {
+    const ind = $('.pills__ind', els.pills);
+    const pill = $('.pill.is-active:not([hidden])', els.pills);
+    if (!ind) return;
+    if (!pill) { ind.style.opacity = '0'; return; }
+    const first = pillInd !== ind;           // первая установка — без анимации
+    pillInd = ind;
+    ind.classList.toggle('no-anim', first || !!instant || reduceMotion);
+    ind.style.opacity = '1';
+    ind.style.width = pill.offsetWidth + 'px';
+    ind.style.height = pill.offsetHeight + 'px';
+    ind.style.transform = `translate(${pill.offsetLeft}px, ${pill.offsetTop}px)`;
+    if (first || instant) requestAnimationFrame(() => ind.classList.remove('no-anim'));
+  }
+  window.addEventListener('resize', () => movePillInd(true));
+
+  /** Заголовки разделов и карточки мягко проявляются снизу при первой прокрутке до них */
+  let revealObs = null, revealPending = false;
+  function observeReveal() {
+    if (reduceMotion || !('IntersectionObserver' in window)) return;
+    if (root.hidden) { revealPending = true; return; } // меню ещё не на экране — запустим при показе
+    revealPending = false;
+    if (revealObs) revealObs.disconnect();
+    revealObs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('is-in');
+        revealObs.unobserve(e.target);
+      });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    const vh = window.innerHeight;
+    $$('.section__title, .item', els.sections).forEach((el, i) => {
+      if (el.getBoundingClientRect().top < vh) return; // то, что уже на экране, не прячем
+      el.classList.add('reveal');
+      if (el.classList.contains('item')) el.style.setProperty('--reveal-delay', ((i % 2) * 70) + 'ms');
+      revealObs.observe(el);
+    });
+  }
+
+  /** Фото блюда «улетает» в корзину */
+  function flyToCart(sourceBtn) {
+    if (reduceMotion || !sourceBtn || !sourceBtn.isConnected) return;
+    const card = sourceBtn.closest('.item, .ai-card, .rec-card, .item-detail-overlay');
+    const img = card && $('img', card);
+    if (!img) return;
+    const from = img.getBoundingClientRect();
+    if (!from.width) return;
+    requestAnimationFrame(() => {
+      const to = els.fabCart.getBoundingClientRect();
+      const tx = to.width ? to.left + to.width / 2 : window.innerWidth - 60;
+      const ty = to.width ? to.top + to.height / 2 : window.innerHeight - 60;
+      const size = Math.min(from.width, from.height, 120);
+      const ghost = img.cloneNode();
+      ghost.className = 'fly-ghost';
+      Object.assign(ghost.style, { left: (from.left + from.width / 2 - size / 2) + 'px', top: (from.top + from.height / 2 - size / 2) + 'px', width: size + 'px', height: size + 'px' });
+      document.body.appendChild(ghost);
+      const dx = tx - (from.left + from.width / 2), dy = ty - (from.top + from.height / 2);
+      const anim = ghost.animate([
+        { transform: 'translate(0,0) scale(1)', opacity: 1 },
+        { transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 60}px) scale(.6)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.15)`, opacity: 0.6 }
+      ], { duration: 650, easing: 'cubic-bezier(.45,0,.2,1)' });
+      anim.onfinish = () => { ghost.remove(); bump(els.fabCart); };
+    });
+  }
+
   function setActive(secEl) {
     const secId = secEl ? secEl.dataset.sec : null;
     const catId = secEl ? secEl.dataset.cat : null;
@@ -344,6 +424,7 @@
     if (secId !== activeSec) {
       activeSec = secId;
       $$('.pill', els.pills).forEach((p) => p.classList.toggle('is-active', p.dataset.sec === secId));
+      movePillInd();
       centerInRow(els.pills, $(`.pill.is-active`, els.pills));
     }
     if (catId !== activeCat) {
@@ -422,6 +503,7 @@
       const pill = $(`.pill[data-sec="${CSS.escape(sec.dataset.sec)}"]`, els.pills);
       if (pill) pill.hidden = sec.hidden;
     });
+    movePillInd(true);
 
     els.notFound.hidden = found > 0;
     els.notFound.textContent = I18n.t('notFound');
@@ -551,6 +633,7 @@
     if (item.variants.length > 1) { openVariantSheet(item); return; }
     Cart.add(id, item.variants.length === 1 ? 0 : -1);
     bump(sourceBtn);
+    flyToCart(sourceBtn);
     toast(I18n.t('added'));
     App.track('add_to_cart', { id: item.id, title: I18n.f(item, 'title') });
   }
@@ -655,7 +738,7 @@
       </div>`;
   }
 
-  function openItemDetail(it) {
+  function openItemDetail(it, origin) {
     const modal = getItemDetailModal();
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
@@ -684,8 +767,38 @@
           </button>`}
         ${recsHTML(it)}
       </div>`;
-    $('.overlay__panel', modal).scrollTop = 0;
+    const panel = $('.overlay__panel', modal);
+    panel.scrollTop = 0;
+    const wasOpen = !modal.hidden;
     overlay.open(modal);
+    animateDetailOpen(modal, panel, origin, wasOpen);
+  }
+
+  /** Открытие карточки: окно «вырастает» из фото блюда, на котором нажали, потом текст поднимается снизу */
+  function animateDetailOpen(modal, panel, origin, wasOpen) {
+    if (reduceMotion || !panel.animate) return;
+    const body = $('.promo-full__body', modal);
+    const photo = $('.item-detail__img', modal);
+    const ease = 'cubic-bezier(.2,.9,.25,1)';
+    const srcEl = origin && $('.item__img, .ai-card__img, .rec-card img, img', origin);
+    const src = srcEl ? srcEl.getBoundingClientRect() : null;
+    requestAnimationFrame(() => {
+      const dst = panel.getBoundingClientRect();
+      if (src && src.width && dst.width && !wasOpen) {
+        const k = src.width / dst.width;
+        panel.animate([
+          { transformOrigin: '0 0', transform: `translate(${src.left - dst.left}px, ${src.top - dst.top}px) scale(${k})`, opacity: 0.85 },
+          { transformOrigin: '0 0', transform: 'none', opacity: 1 }
+        ], { duration: 460, easing: ease });
+        photo && photo.animate([{ transform: 'scale(1.08)' }, { transform: 'none' }], { duration: 700, easing: ease });
+      } else {
+        // открыли из рекомендации внутри окна — мягкая смена содержимого
+        panel.animate([{ opacity: 0.4, transform: 'scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: ease });
+      }
+      if (body) [...body.children].forEach((el, i) => el.animate(
+        [{ opacity: 0, transform: 'translateY(16px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 420, delay: 160 + Math.min(i, 5) * 60, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' }));
+    });
   }
 
   /* ---------------------------------------------------------
@@ -790,7 +903,7 @@
     if (add) { handleAdd(add.dataset.add, add); return; }
 
     const aiCard = t.closest('[data-ai-open]');
-    if (aiCard) { const it = Cart.getItem(aiCard.dataset.aiOpen); if (it) openItemDetail(it); return; }
+    if (aiCard) { const it = Cart.getItem(aiCard.dataset.aiOpen); if (it) openItemDetail(it, aiCard); return; }
 
     // Тап по самой карточке блюда (не по кнопке «+») — открыть подробности,
     // как уже открываются акции. Кнопка «+» перехватывается чуть выше и сюда не доходит.
@@ -798,7 +911,7 @@
     if (itemCard) {
       const id = itemCard.id.replace(/^item-/, '');
       const it = Cart.getItem(id);
-      if (it) openItemDetail(it);
+      if (it) openItemDetail(it, itemCard);
     }
   });
 
