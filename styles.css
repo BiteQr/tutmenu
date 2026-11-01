@@ -276,7 +276,8 @@ body.is-locked { overflow: hidden; }
   flex: 0 0 auto; position: relative;
   padding: 11px 20px; border-radius: var(--pill);
   background: transparent; font-size: 16px; white-space: nowrap;
-  transition: color .3s var(--ease);
+  /* цвет текста меняется, когда капля уже ушла/пришла, а не в момент нажатия */
+  transition: color .22s var(--ease) .2s;
 }
 .pill::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--surface); z-index: -1; }
 .pill > span { position: relative; z-index: 1; }
@@ -285,9 +286,8 @@ body.is-locked { overflow: hidden; }
 .pills__ind {
   position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
   border-radius: var(--pill); background: var(--dark); opacity: 0;
-  transition: transform .45s cubic-bezier(.2,.9,.25,1), width .45s cubic-bezier(.2,.9,.25,1), opacity .2s;
+  transform-origin: 50% 50%; transition: opacity .2s;
 }
-.pills__ind.no-anim { transition: none; }
 
 /* Разделы */
 .section { padding-top: 30px; }

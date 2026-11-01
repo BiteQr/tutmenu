@@ -350,7 +350,10 @@
   const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   let pillInd = null;
 
-  /** Тёмная капсула плавно переезжает под активный раздел (вместо мгновенного перекрашивания) */
+  /** Тёмная капсула переезжает под активный раздел как капля:
+   *  передний край убегает вперёд, задний догоняет, капля вытягивается и слегка сплющивается,
+   *  потом собирается на новом месте с небольшим пружинящим «бульком». */
+  let pillAnim = null;
   function movePillInd(instant) {
     const ind = $('.pills__ind', els.pills);
     const pill = $('.pill.is-active:not([hidden])', els.pills);
@@ -358,12 +361,36 @@
     if (!pill) { ind.style.opacity = '0'; return; }
     const first = pillInd !== ind;           // первая установка — без анимации
     pillInd = ind;
-    ind.classList.toggle('no-anim', first || !!instant || reduceMotion);
+    const x1 = pill.offsetLeft, y = pill.offsetTop, w1 = pill.offsetWidth, h = pill.offsetHeight;
+    // где капля сейчас (в том числе посреди предыдущего перелёта)
+    let x0 = x1, w0 = w1;
+    if (!first) {
+      const cs = getComputedStyle(ind);
+      const m = new DOMMatrixReadOnly(cs.transform === 'none' ? undefined : cs.transform);
+      x0 = m.m41; w0 = parseFloat(cs.width) || w1;
+    }
+    if (pillAnim) { pillAnim.cancel(); pillAnim = null; }
     ind.style.opacity = '1';
-    ind.style.width = pill.offsetWidth + 'px';
-    ind.style.height = pill.offsetHeight + 'px';
-    ind.style.transform = `translate(${pill.offsetLeft}px, ${pill.offsetTop}px)`;
-    if (first || instant) requestAnimationFrame(() => ind.classList.remove('no-anim'));
+    ind.style.width = w1 + 'px';
+    ind.style.height = h + 'px';
+    ind.style.transform = `translate(${x1}px, ${y}px)`;
+    if (first || instant || reduceMotion || !ind.animate || Math.abs(x1 - x0) < 2) return;
+
+    const right = x1 > x0;
+    const left0 = x0, right0 = x0 + w0, left1 = x1, right1 = x1 + w1;
+    // середина пути: капля растянута от «хвоста» до «головы»
+    const midL = right ? left0 + (left1 - left0) * 0.12 : left1;
+    const midR = right ? right1 : right0 - (right0 - right1) * 0.12;
+    const over = right ? 5 : -5;              // лёгкий перелёт вперёд
+    const T = (x, w, sy, sx = 1) => ({ transform: `translate(${x}px, ${y}px) scale(${sx}, ${sy})`, width: w + 'px' });
+    pillAnim = ind.animate([
+      { ...T(left0, w0, 1), offset: 0 },
+      { ...T(midL, midR - midL, 0.78), offset: 0.42, easing: 'cubic-bezier(.4,0,.2,1)' },
+      { ...T(left1 + over, w1 - Math.abs(over) * 0.4, 1.1, 1.03), offset: 0.74, easing: 'cubic-bezier(.3,.6,.3,1)' },
+      { ...T(left1 - over * 0.3, w1, 0.96), offset: 0.88 },
+      { ...T(left1, w1, 1), offset: 1 }
+    ], { duration: 620, easing: 'cubic-bezier(.3,.7,.2,1)' });
+    pillAnim.onfinish = () => { pillAnim = null; };
   }
   window.addEventListener('resize', () => movePillInd(true));
 
