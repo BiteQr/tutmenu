@@ -98,8 +98,16 @@
     try {
       return (await fresh).data;
     } catch (err) {
-      console.warn('[menu] бэкенд недоступен, показываю demo-данные:', err);
-      return normalize(window.MOCK_DATA);
+      // Демо-меню (mock-data.js) — только для локального просмотра файла на компьютере.
+      // На настоящем сайте его показывать нельзя: поисковики однажды проиндексировали «DALA».
+      const local = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+      if (local && window.MOCK_DATA) { console.warn('[menu] бэкенд недоступен, показываю demo-данные:', err); return normalize(window.MOCK_DATA); }
+      // ещё две попытки с паузой — сеть могла моргнуть
+      for (const wait of [800, 2000]) {
+        await new Promise((r) => setTimeout(r, wait));
+        try { const raw = await fetchRemote(); store.set(cacheKey, raw); return normalize(raw); } catch { /* следующая попытка */ }
+      }
+      throw err;
     }
   }
 

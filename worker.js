@@ -680,6 +680,99 @@ async function serveMediaWithRange(request, env, url) {
   return new Response(request.method === 'HEAD' ? null : buf.slice(start, end + 1), { status: 206, headers });
 }
 
+/* ---------- SEO: главная страница с данными ресторана для поисковиков ----------
+   Меню рисуется скриптом, поэтому поисковики без JS видели только «Меню». Здесь сервер
+   сам вписывает в index.html название, описание, превью для соцсетей, разметку Restaurant
+   и текстовую версию меню (<noscript>) — под тот ресторан, чей это домен. */
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function seoRestaurant(env, url) {
+  const id = normId(url.searchParams.get('r') || url.hostname);
+  return env.DB.prepare('SELECT * FROM restaurants WHERE (slug = ?1 OR domain = ?1) AND active = 1').bind(id).first();
+}
+
+function seoUrls(rest, url) {
+  const origin = rest.domain ? `https://${rest.domain}` : url.origin;
+  const canonical = rest.domain ? `${origin}/` : `${origin}/?r=${encodeURIComponent(rest.slug)}`;
+  const abs = (u) => {
+    u = String(u || '').trim();
+    if (!u) return '';
+    u = u.replace(/^https?:\/\/[^/]+\.workers\.dev(?=\/)/i, origin);
+    return u.startsWith('/') ? origin + u : u;
+  };
+  return { origin, canonical, abs };
+}
+
+async function serveIndexWithSeo(request, env, url) {
+  const page = await env.ASSETS.fetch(new Request(new URL('/', url).toString(), { headers: request.headers }));
+  if (!page.ok || !(page.headers.get('content-type') || '').includes('text/html')) return page;
+  const rest = await seoRestaurant(env, url).catch(() => null);
+  if (!rest) return page;
+
+  const slug = rest.slug;
+  const [sections, items] = await Promise.all([
+    env.DB.prepare('SELECT id, title_ru FROM sections WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
+    env.DB.prepare('SELECT section_id, title_ru, description_ru, price FROM menu_items WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all()
+  ]);
+  const { canonical, abs } = seoUrls(rest, url);
+  const name = rest.name || slug;
+  const title = rest.seo_title || `${name} — онлайн-меню${rest.tagline_ru ? ' · ' + rest.tagline_ru : ''}`;
+  const desc = rest.seo_description || `Онлайн-меню ${name}: блюда с фото, описаниями и ценами на казахском, русском и английском.`;
+  const image = abs(rest.bg_image) || abs(rest.logo_welcome);
+  const ld = {
+    '@context': 'https://schema.org', '@type': 'Restaurant', name, url: canonical, description: desc,
+    ...(image ? { image } : {}), hasMenu: canonical, acceptsReservations: true
+  };
+  const head = `
+    <meta name="description" content="${escHtml(desc)}">
+    <link rel="canonical" href="${escHtml(canonical)}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="${escHtml(name)}">
+    <meta property="og:title" content="${escHtml(title)}">
+    <meta property="og:description" content="${escHtml(desc)}">
+    <meta property="og:url" content="${escHtml(canonical)}">
+    <meta property="og:locale" content="ru_RU">
+    ${image ? `<meta property="og:image" content="${escHtml(image)}">` : ''}
+    <meta name="twitter:card" content="summary_large_image">
+    <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
+
+  const bySec = new Map();
+  for (const it of items.results) {
+    const k = String(it.section_id);
+    if (!bySec.has(k)) bySec.set(k, []);
+    bySec.get(k).push(it);
+  }
+  const money = (v) => Math.round(Number(v) || 0).toLocaleString('ru-RU').replace(/\u00a0/g, ' ') + ' ₸';
+  const menuHtml = sections.results.filter((sec) => bySec.has(String(sec.id))).map((sec) => `
+      <h2>${escHtml(sec.title_ru)}</h2>
+      <ul>${bySec.get(String(sec.id)).map((it) => `<li>${escHtml(it.title_ru)}${it.price ? ' — ' + money(it.price) : ''}${it.description_ru ? '. ' + escHtml(String(it.description_ru).slice(0, 160)) : ''}</li>`).join('')}</ul>`).join('');
+  const noscript = `<noscript><main class="seo-menu"><h1>${escHtml(title)}</h1><p>${escHtml(desc)}</p>${menuHtml}</main></noscript>`;
+
+  const out = new HTMLRewriter()
+    .on('html', { element(el) { el.setAttribute('lang', 'ru'); } })
+    .on('title', { element(el) { el.setInnerContent(title); } })
+    .on('head', { element(el) { el.append(head, { html: true }); } })
+    .on('body', { element(el) { el.prepend(noscript, { html: true }); } })
+    .transform(page);
+  const res = new Response(out.body, out);
+  res.headers.set('cache-control', 'public, max-age=60');
+  return res;
+}
+
+async function serveRobots(env, url) {
+  const rest = await seoRestaurant(env, url).catch(() => null);
+  const { origin } = rest ? seoUrls(rest, url) : { origin: url.origin };
+  return new Response(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: ${origin}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+
+async function serveSitemap(env, url) {
+  const rest = await seoRestaurant(env, url).catch(() => null);
+  if (!rest) return new Response('Not found', { status: 404 });
+  const { canonical } = seoUrls(rest, url);
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${escHtml(canonical)}</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n</urlset>\n`;
+  return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8' } });
+}
+
 /* ---------- Маршрутизация ---------- */
 export default {
   async fetch(request, env, ctx) {
@@ -709,6 +802,15 @@ export default {
     // Саму страницу /admin отдаём БЕЗ кэша: это инструмент, которым пользуются
     // с разных устройств, и застрявшая в кэше телефона старая версия после
     // каждого обновления файла — больше не должна быть возможна в принципе.
+    // Главная — с SEO-данными ресторана; robots.txt и sitemap.xml — под домен ресторана
+    if (method === 'GET' || method === 'HEAD') {
+      try {
+        if (p === '/' || p === '/index.html') return await serveIndexWithSeo(request, env, url);
+        if (p === '/robots.txt') return await serveRobots(env, url);
+        if (p === '/sitemap.xml') return await serveSitemap(env, url);
+      } catch (err) { /* при любой ошибке отдаём обычную страницу ниже */ }
+    }
+
     // Видео из файлов сайта: iPhone требует ответы на Range-запросы (206), а статика их не отдаёт
     if (p.startsWith('/media/') && /\.(mp4|mov|webm)$/i.test(p) && (method === 'GET' || method === 'HEAD')) {
       return await serveMediaWithRange(request, env, url);
