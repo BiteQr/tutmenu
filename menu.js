@@ -301,24 +301,34 @@
     if (asked) { langPromptDone = true; return false; }
     langPromptDone = true;
 
+    const st = App.data?.settings || {};
+    const dark = document.documentElement.dataset.langStyle === 'dark' || /^#/.test(getComputedStyle(document.documentElement).getPropertyValue('--lang-fg').trim()) && getComputedStyle(document.documentElement).getPropertyValue('--lang-fg').trim().toLowerCase() !== '#1c1c1e';
+    const logo = dark ? (st.logoWelcome || st.logoHeader) : (st.logoHeader || st.logoWelcome);
+    const ARROW = '<svg class="lang-overlay__go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
     const el = document.createElement('div');
-    el.className = 'lang-overlay';
+    el.className = 'lang-overlay' + (dark ? ' is-dark' : '');
     el.innerHTML = `
-      <div class="overlay__panel">
-        <div class="lang-overlay__body">
-          <div class="lang-overlay__icon">🌐</div>
-          ${I18n.langs.map((l) => `<button type="button" class="lang-overlay__btn" data-pick-lang="${l}">${esc(I18n.FULL[l])}</button>`).join('')}
+      <div class="lang-overlay__panel" role="dialog" aria-modal="true" aria-label="Language">
+        ${logo ? `<img class="lang-overlay__logo" src="${esc(safeUrl(logo))}" alt="${esc(st.name || '')}">` : `<div class="lang-overlay__name">${esc(st.name || '')}</div>`}
+        <div class="lang-overlay__title"><b>Тілді таңдаңыз</b><span>Выберите язык · Choose language</span></div>
+        <div class="lang-overlay__list">
+          ${I18n.langs.map((l, i) => `<button type="button" class="lang-overlay__btn" data-pick-lang="${l}" style="--i:${i}">
+            ${FLAG[l] || ''}<span class="lang-overlay__lbl"><b>${esc(I18n.FULL[l])}</b>${SUB[l] !== I18n.FULL[l] ? `<small>${SUB[l]}</small>` : ''}</span>${ARROW}${CHECK}
+          </button>`).join('')}
         </div>
       </div>`;
     document.body.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('is-open'));
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-open')));
 
     el.querySelectorAll('[data-pick-lang]').forEach((btn) => {
       btn.onclick = () => {
+        if (el.classList.contains('is-closing')) return;
         try { sessionStorage.setItem(LANG_PROMPT_KEY, '1'); } catch { /* ignore */ }
+        btn.classList.add('is-picked');
         I18n.set(btn.dataset.pickLang);
-        el.remove();
-        App.Welcome.maybeShowNotice(); // уведомление — уже на выбранном языке
+        // короткая галочка на выбранном языке, потом окно плавно уходит
+        setTimeout(() => el.classList.add('is-closing'), 260);
+        setTimeout(() => { el.remove(); App.Welcome.maybeShowNotice(); }, 560); // уведомление — уже на выбранном языке
       };
     });
     return true;
