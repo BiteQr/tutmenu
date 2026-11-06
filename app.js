@@ -63,6 +63,19 @@
     const accent = String(s.accentColor || '').trim();
     if (/^#[0-9a-f]{6}$/i.test(accent)) document.documentElement.style.setProperty('--dark', accent);
     else document.documentElement.style.removeProperty('--dark');
+
+    // Выбор языка: стиль (card / dark / sheet) и свой цвет карточки; цвет текста — по яркости фона
+    const root = document.documentElement;
+    root.dataset.langStyle = ['card', 'dark', 'sheet'].includes(s.langStyle) ? s.langStyle : 'card';
+    const lc = String(s.langColor || '').trim();
+    if (/^#[0-9a-f]{6}$/i.test(lc)) {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(lc.slice(i, i + 2), 16) / 255);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const dark = lum < 0.55;
+      root.style.setProperty('--lang-bg', lc);
+      root.style.setProperty('--lang-fg', dark ? '#f6efe4' : '#1c1c1e');
+      root.style.setProperty('--lang-check', dark ? '#e9c98f' : 'var(--dark)');
+    } else ['--lang-bg', '--lang-fg', '--lang-check'].forEach((v) => root.style.removeProperty(v));
   }
 
   function applyData(data) {

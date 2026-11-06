@@ -183,14 +183,14 @@ body.is-locked { overflow: hidden; }
 .lang__list {
   position: absolute; right: 0; top: calc(100% + 10px); z-index: 60;
   width: 236px; padding: 8px;
-  background: #fff; border-radius: 18px;
+  background: var(--lang-bg, #fff); color: var(--lang-fg, var(--text, #111)); border-radius: 18px;
   box-shadow: 0 18px 40px -12px rgba(40, 14, 10, .35), 0 0 0 1px rgba(0,0,0,.04);
   transform-origin: calc(100% - 28px) -6px;
   opacity: 0; transform: scale(.92) translateY(-6px);
   transition: opacity .18s ease, transform .22s var(--ease);
 }
 .lang__list.is-open { opacity: 1; transform: none; }
-.lang__title { padding: 6px 12px 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lang__title { padding: 6px 12px 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: currentColor; opacity: .55; }
 .lang__opt {
   position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 10px 12px; border-radius: 12px; text-align: left; color: inherit;
@@ -201,23 +201,20 @@ body.is-locked { overflow: hidden; }
 .lang__opt .flag { width: 28px; height: 28px; }
 .lang__name { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .lang__name b { font-size: 16px; font-weight: 600; }
-.lang__name small { font-size: 12px; color: var(--muted); }
-.lang__check { color: var(--dark); opacity: 0; transform: scale(.5); transition: opacity .2s, transform .3s var(--ease); }
-.lang__opt.is-active { background: color-mix(in srgb, var(--dark) 8%, #fff); }
+.lang__name small { font-size: 12px; opacity: .6; }
+.lang__check { color: var(--lang-check, var(--dark)); opacity: 0; transform: scale(.5); transition: opacity .2s, transform .3s var(--ease); }
+.lang__opt.is-active { background: color-mix(in srgb, currentColor 9%, transparent); }
 .lang__opt.is-active .lang__check { opacity: 1; transform: none; }
 .lang__opt:active { transform: scale(.98); }
 
-/* Вариант B: тёмная премиум-карточка в цвет ресторана */
-[data-lang-style="dark"] .lang__list { background: var(--dark); color: #f4ead7; box-shadow: 0 20px 44px -12px rgba(0,0,0,.55); }
-[data-lang-style="dark"] .lang__title, [data-lang-style="dark"] .lang__name small { color: rgba(244,234,215,.6); }
-[data-lang-style="dark"] .lang__opt.is-active { background: rgba(244,234,215,.12); }
-[data-lang-style="dark"] .lang__check { color: #e9c98f; }
-[data-lang-style="dark"] .lang .flag { box-shadow: 0 0 0 1.5px rgba(244,234,215,.35); }
-[data-lang-style="dark"] .lang__btn .flag { box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+/* Вариант B: тёмная карточка — по умолчанию в цвет акцента ресторана (у Типа Граф бордовый) */
+[data-lang-style="dark"] .lang__list { background: var(--lang-bg, var(--dark)); color: var(--lang-fg, #f4ead7); box-shadow: 0 20px 44px -12px rgba(0,0,0,.55); }
+[data-lang-style="dark"] .lang__check { color: var(--lang-check, #e9c98f); }
+[data-lang-style="dark"] .lang__list .flag { box-shadow: 0 0 0 1.5px rgba(244,234,215,.35); }
 
 /* Вариант C: шторка снизу на весь экран (удобно большим пальцем) */
 [data-lang-style="sheet"] .lang__list {
-  position: fixed; color: var(--text, #111); left: 10px; right: 10px; top: auto; bottom: calc(10px + env(safe-area-inset-bottom)); width: auto;
+  position: fixed; left: 10px; right: 10px; top: auto; bottom: calc(10px + env(safe-area-inset-bottom)); width: auto;
   padding: 14px 10px 10px; border-radius: 26px; transform-origin: 50% 100%;
   transform: translateY(110%); opacity: 1; transition: transform .38s cubic-bezier(.2,.9,.25,1);
   box-shadow: 0 -10px 50px rgba(0,0,0,.25);
@@ -228,7 +225,6 @@ body.is-locked { overflow: hidden; }
 [data-lang-style="sheet"] .lang__opt { padding: 14px 14px; }
 [data-lang-style="sheet"] .lang__opt .flag { width: 34px; height: 34px; }
 [data-lang-style="sheet"] .lang__list .flag { border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
-[data-lang-style="sheet"] .lang__list .lang__opt.is-active { background: color-mix(in srgb, var(--dark) 8%, #fff); }
 [data-lang-style="sheet"] .lang__name b { font-size: 17px; }
 .lang-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.38); opacity: 0; transition: opacity .3s; }
 .lang-backdrop.is-open { opacity: 1; }

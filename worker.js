@@ -156,7 +156,8 @@ async function handleMenu(request, env) {
     bgImage: lu(restaurant.bg_image), bgVideo: lu(restaurant.bg_video),
     notice_ru: restaurant.notice_ru || '', notice_kk: restaurant.notice_kk || '', notice_en: restaurant.notice_en || '',
     hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || '',
-    itemLayout: restaurant.item_layout || 'list'
+    itemLayout: restaurant.item_layout || 'list',
+    langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || ''
   };
 
   const payload = {
@@ -440,7 +441,7 @@ async function handleAdminApi(request, env, segments) {
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color']
         .filter((c) => c in b);
       // Домен чистим тем же способом, что и при поиске по hostname (без https://, www., слэша) —
       // иначе вписанный "с запасом" адрес не совпадёт с реальным при заходе на сайт
