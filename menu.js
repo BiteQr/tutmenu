@@ -53,12 +53,24 @@
       els.logo.hidden = true;
       els.brand.insertAdjacentHTML('beforeend', `<span class="topbar__name">${esc(s.name || '')}</span>`);
     }
-    els.langCur.textContent = I18n.SHORT[I18n.lang];
-    els.langList.innerHTML = I18n.langs.map((l) =>
-      `<button type="button" role="menuitem" data-lang="${l}" class="${l === I18n.lang ? 'is-active' : ''}">
-         <span>${I18n.FULL[l]}</span><span>${I18n.SHORT[l]}</span>
+    els.langBtn.innerHTML = `${FLAG[I18n.lang] || ''}<span class="lang__current">${I18n.SHORT[I18n.lang]}</span>${CHEV}`;
+    els.langList.innerHTML = `<div class="lang__title">${esc(I18n.t('chooseLang'))}</div>` + I18n.langs.map((l, i) =>
+      `<button type="button" role="menuitemradio" aria-checked="${l === I18n.lang}" data-lang="${l}" class="lang__opt${l === I18n.lang ? ' is-active' : ''}" style="--i:${i}">
+         ${FLAG[l] || ''}<span class="lang__name"><b>${I18n.FULL[l]}</b>${SUB[l] !== I18n.FULL[l] ? `<small>${SUB[l]}</small>` : ''}</span>${CHECK}
        </button>`).join('');
   }
+
+  /** Круглые флажки для выбора языка (простые SVG, без внешних картинок) */
+  const FLAG = {
+    ru: '<svg class="flag" viewBox="0 0 24 24" aria-hidden="true"><defs><clipPath id="fc-ru"><circle cx="12" cy="12" r="12"/></clipPath></defs><g clip-path="url(#fc-ru)"><rect width="24" height="8" fill="#fff"/><rect y="8" width="24" height="8" fill="#1c57a7"/><rect y="16" width="24" height="8" fill="#d52b1e"/></g></svg>',
+    kk: '<svg class="flag" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#00afca"/><g fill="#fec50c"><circle cx="12" cy="10.5" r="3.2"/>' +
+      Array.from({ length: 12 }, (_, i) => `<rect x="11.55" y="4.4" width=".9" height="1.6" rx=".3" transform="rotate(${i * 30} 12 10.5)"/>`).join('') +
+      '<path d="M7.2 15.2c1.6.9 3.2 1.3 4.8 1.3s3.2-.4 4.8-1.3c-.5 1.2-2.4 2.2-4.8 2.2s-4.3-1-4.8-2.2z"/></g></svg>',
+    en: '<svg class="flag" viewBox="0 0 24 24" aria-hidden="true"><defs><clipPath id="fc-en"><circle cx="12" cy="12" r="12"/></clipPath></defs><g clip-path="url(#fc-en)"><rect width="24" height="24" fill="#012169"/><path d="M0 0l24 24M24 0L0 24" stroke="#fff" stroke-width="4.4"/><path d="M0 0l24 24M24 0L0 24" stroke="#c8102e" stroke-width="1.6"/><path d="M12 0v24M0 12h24" stroke="#fff" stroke-width="6"/><path d="M12 0v24M0 12h24" stroke="#c8102e" stroke-width="3.4"/></g></svg>'
+  };
+  const CHECK = '<svg class="lang__check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const CHEV = '<svg class="lang__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+  const SUB = { ru: 'Russian', kk: 'Kazakh', en: 'English' };
 
   /* ---------------------------------------------------------
      RENDER: акции
@@ -893,11 +905,48 @@
   /* ---------------------------------------------------------
      СОБЫТИЯ
      --------------------------------------------------------- */
+  let langCloseTimer = null;
   function toggleLangList(force) {
-    const open = force ?? els.langList.hidden;
-    els.langList.hidden = !open;
+    const isOpen = els.langList.classList.contains('is-open');
+    const open = force ?? !isOpen;
+    if (open === isOpen) return;
+    clearTimeout(langCloseTimer);
     els.langBtn.setAttribute('aria-expanded', String(open));
+    const wrap = root.querySelector('.lang');
+    wrap.classList.toggle('is-open', open);
+    const sheet = document.documentElement.dataset.langStyle === 'sheet';
+    if (open) {
+      // шторка снизу: шапка с размытием фона «запирает» fixed-элементы, поэтому выносим список на уровень страницы
+      if (sheet) {
+        if (!langBackdrop) {
+          langBackdrop = document.createElement('div');
+          langBackdrop.className = 'lang-backdrop';
+          langBackdrop.addEventListener('click', () => toggleLangList(false));
+        }
+        document.body.append(langBackdrop, els.langList);
+        requestAnimationFrame(() => langBackdrop.classList.add('is-open'));
+      }
+      els.langList.hidden = false;
+      requestAnimationFrame(() => els.langList.classList.add('is-open'));
+    } else {
+      els.langList.classList.remove('is-open');
+      if (langBackdrop) langBackdrop.classList.remove('is-open');
+      langCloseTimer = setTimeout(() => {
+        els.langList.hidden = true;
+        if (els.langList.parentNode !== wrap) wrap.append(els.langList);
+        if (langBackdrop) langBackdrop.remove();
+      }, sheet ? 380 : 220); // даём доиграть анимации закрытия
+    }
   }
+  let langBackdrop = null;
+  // выбор языка — прямо на списке, чтобы работало и когда шторка вынесена из меню
+  els.langList.addEventListener('click', (e) => {
+    const opt = e.target.closest('[data-lang]');
+    if (!opt) return;
+    e.stopPropagation();
+    I18n.set(opt.dataset.lang);
+    toggleLangList(false);
+  });
 
   root.addEventListener('click', (e) => {
     const t = e.target;
