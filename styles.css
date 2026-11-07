@@ -283,6 +283,7 @@ body.is-locked { overflow: hidden; }
 .lunch__badge.is-live { background: rgba(52,199,89,.14); color: #1f8a3e; }
 .lunch__badge i { width: 7px; height: 7px; border-radius: 50%; background: #34c759; animation: lunchPulse 1.8s ease-in-out infinite; }
 
+.lunch.is-dark .lunch__badge { background: rgba(255,255,255,.14); }
 .lunch.is-dark .lunch__badge.is-live { background: rgba(52,199,89,.2); color: #6fe08b; }
 @keyframes lunchPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(52,199,89,.5); } 50% { box-shadow: 0 0 0 5px rgba(52,199,89,0); } }
 .lunch__list { list-style: none; margin: 12px 0 0; padding: 0; }
@@ -293,6 +294,13 @@ body.is-locked { overflow: hidden; }
 .lunch__foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(127,127,127,.2); }
 .lunch__price { font-family: var(--font-display); font-size: 20px; font-weight: 800; }
 .lunch__more { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 600; opacity: .6; }
+
+.lunch__card--row { display: flex; align-items: center; gap: 10px; padding: 13px 14px 13px 16px; }
+.lunch__name { font-family: var(--font-display); font-size: 16px; font-weight: 800; white-space: nowrap; }
+.lunch__card--row .lunch__badge { padding: 5px 9px; }
+.lunch__card--row .lunch__price { margin-left: auto; font-size: 16px; white-space: nowrap; }
+.lunch__chev { flex: none; margin-left: -4px; opacity: .6; }
+@media (max-width: 360px) { .lunch__card--row .lunch__badge { display: none; } }
 
 /* Меню ланча на неделю (шторка) */
 .lunch-week { padding: 22px var(--pad) 6px; }

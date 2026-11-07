@@ -338,22 +338,15 @@
     const when = tg.offset === 0 ? I18n.t('lunchToday')
       : tg.offset === 1 ? I18n.t('lunchTomorrow')
       : lunchFill(I18n.t('lunchOn'), { day: full[tg.date.getDay()] });
-    const badge = tg.state === 'live'
+    const status = tg.state === 'live'
       ? `<span class="lunch__badge is-live"><i></i>${esc(lunchFill(I18n.t('lunchLive'), { to: L.to || '15:00' }))}</span>`
-      : tg.state === 'soon'
-        ? `<span class="lunch__badge">${esc(lunchFill(I18n.t('lunchSoon'), { from: L.from || '12:00' }))}</span>`
-        : `<span class="lunch__badge">${esc(tab[tg.date.getDay()])} · ${esc(L.from || '12:00')}–${esc(L.to || '15:00')}</span>`;
+      : `<span class="lunch__badge">${esc(tg.state === 'soon' ? lunchFill(I18n.t('lunchSoon'), { from: L.from || '12:00' }) : when)}</span>`;
     els.lunch.innerHTML = `
-      <button type="button" class="lunch__card" data-lunch-open aria-label="${esc(I18n.t('lunchTitle'))}">
-        <span class="lunch__head">
-          <span class="lunch__title"><small>${esc(when)}</small>${esc(L.title || I18n.t('lunchTitle'))}</span>
-          ${badge}
-        </span>
-        <ul class="lunch__list">${lunchRows(lunchItems(L, tg.date))}</ul>
-        <span class="lunch__foot">
-          <span class="lunch__price">${esc(money(L.price))}</span>
-          <span class="lunch__more">${esc(I18n.t('lunchWeek'))}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
-        </span>
+      <button type="button" class="lunch__card lunch__card--row" data-lunch-open aria-label="${esc(I18n.t('lunchWeek'))}">
+        <span class="lunch__name">${esc(L.title || I18n.t('lunchTitle'))}</span>
+        ${status}
+        <span class="lunch__price">${esc(money(L.price))}</span>
+        <svg class="lunch__chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
       </button>`;
     els.lunch.hidden = false;
   }
