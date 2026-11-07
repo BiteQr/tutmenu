@@ -388,6 +388,7 @@ async function selectRestaurant(slug) {
     api(`/badges?restaurant=${slug}`)
   ]);
   state.settings = settingsRes.restaurant;
+  state.lunchDraft = null;
   state.categories = cats.items;
   state.sections = secs.items;
   state.menuItems = items.items;
@@ -414,6 +415,7 @@ const TABS = [
   ['menuItems', '🍽 Блюда'],
   ['badges', '🏷 Метки'],
   ['promos', '📣 Акции'],
+  ['lunch', '🍱 Бизнес-ланч'],
   ['buttons', '🔘 Кнопки']
 ];
 
@@ -433,6 +435,7 @@ function renderTab() {
   if (state.tab === 'settings') return renderSettingsTab(c);
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
   if (state.tab === 'badges') return renderBadgesTab(c);
+  if (state.tab === 'lunch') return renderLunchTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
 }
 
@@ -1293,6 +1296,118 @@ document.addEventListener('visibilitychange', () => {
   const c = document.querySelector('#periodSwitch')?.closest('.panel')?.parentElement;
   if (!document.hidden && state.tab === 'stats' && c) renderStatsTab(c, true);
 });
+
+/* =========================================================
+   БИЗНЕС-ЛАНЧ — меню по дням, недели крутятся по кругу.
+   Хранится JSON в restaurants.lunch:
+   { enabled, title, price, from, to, days:[1..5], color, start:'YYYY-MM-DD' (пн недели 1),
+     weeks:[ { '1':[{c:'Салат',n:'Оливье'}], … }, … ] }
+   ========================================================= */
+const LUNCH_DAYS = [[1,'Пн'],[2,'Вт'],[3,'Ср'],[4,'Чт'],[5,'Пт'],[6,'Сб'],[0,'Вс']];
+function lunchState() {
+  let L = null;
+  try { L = typeof state.settings.lunch === 'string' ? JSON.parse(state.settings.lunch) : state.settings.lunch; } catch { L = null; }
+  L = L || {};
+  const mon = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+  return {
+    enabled: !!L.enabled, title: L.title || '', price: L.price ?? '', from: L.from || '12:00', to: L.to || '15:00',
+    days: Array.isArray(L.days) && L.days.length ? L.days.map(Number) : [1,2,3,4,5],
+    color: L.color || '', start: L.start || mon,
+    weeks: Array.isArray(L.weeks) && L.weeks.length ? L.weeks : [{}]
+  };
+}
+const lunchToText = (arr) => (arr || []).map((x) => (x.c ? `${x.c}: ` : '') + (x.n || '')).join('\n');
+const lunchFromText = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+  const m = /^([^:]{1,24}):\s*(.+)$/.exec(l);
+  return m ? { c: m[1].trim(), n: m[2].trim() } : { c: '', n: l };
+});
+function lunchCurrentWeek(L) {
+  const st = new Date(L.start + 'T00:00:00'); if (isNaN(st)) return 0;
+  const now = new Date(); const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const diff = Math.round((mon - st) / (7 * 864e5)); const n = L.weeks.length;
+  return ((diff % n) + n) % n;
+}
+function renderLunchTab(container) {
+  const L = state.lunchDraft || lunchState();
+  state.lunchDraft = L;
+  const cur = lunchCurrentWeek(L);
+  const dayList = LUNCH_DAYS.filter(([d]) => L.days.includes(d));
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Бизнес-ланч</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+        На сайте над поиском появится строка «Бизнес-ланч · Идёт до 15:00 · цена». По нажатию гость видит меню на неделю.
+        После окончания ланча и в выходные показывается следующий день. Недели меняются по кругу сами.
+      </p>
+      <form id="lunchForm">
+        <label class="field" style="display:flex;align-items:center;gap:10px;"><input type="checkbox" id="lEnabled" ${L.enabled ? 'checked' : ''}> <b>Показывать бизнес-ланч на сайте</b></label>
+        <div class="field"><label>Название (необязательно)</label><input type="text" id="lTitle" value="${esc(L.title)}" placeholder="Бизнес-ланч"></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div class="field"><label>Цена, ₸</label><input type="number" id="lPrice" value="${esc(String(L.price))}" placeholder="3500"></div>
+          <div class="field"><label>С</label><input type="text" id="lFrom" value="${esc(L.from)}" placeholder="12:00"></div>
+          <div class="field"><label>До</label><input type="text" id="lTo" value="${esc(L.to)}" placeholder="15:00"></div>
+        </div>
+        <div class="field"><label>Дни</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">${LUNCH_DAYS.map(([d, n]) => `<label style="display:flex;align-items:center;gap:4px;font-size:14px;"><input type="checkbox" data-lday="${d}" ${L.days.includes(d) ? 'checked' : ''}>${n}</label>`).join('')}</div>
+        </div>
+        <div class="field"><label>Цвет строки на сайте</label>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="color" id="lColorPick" value="${/^#[0-9a-f]{6}$/i.test(L.color) ? L.color : '#5c1a1e'}" style="width:48px;height:40px;padding:0;border:none;background:none;">
+            <input type="text" id="lColor" value="${esc(L.color)}" placeholder="#5c1a1e — пусто: светло-серая">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="field"><label>Сколько недель в ротации</label>
+            <select id="lWeeks">${[1,2,3,4].map((n) => `<option value="${n}" ${L.weeks.length === n ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+          <div class="field"><label>Понедельник недели 1</label><input type="date" id="lStart" value="${esc(L.start)}"></div>
+        </div>
+        <p style="font-size:13px;margin:-4px 0 14px;">Сейчас идёт <b>неделя ${cur + 1}</b>.</p>
+
+        ${L.weeks.map((w, wi) => `
+          <div class="panel" style="padding:14px;${wi === cur ? 'border-color:var(--dark);' : ''}">
+            <h2 style="margin-bottom:8px;">Неделя ${wi + 1}${wi === cur ? ' · сейчас' : ''}</h2>
+            <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Каждое блюдо с новой строки. Подпись через двоеточие: <code>Суп: Борщ</code></p>
+            ${dayList.map(([d, n]) => `
+              <div class="field"><label>${n}</label>
+                <textarea rows="4" data-lweek="${wi}" data-lday-text="${d}" placeholder="Салат: Оливье&#10;Суп: Борщ&#10;Горячее: Котлета по-киевски&#10;Десерт: Блинчики">${esc(lunchToText(w[String(d)]))}</textarea>
+              </div>`).join('')}
+          </div>`).join('')}
+        <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
+      </form>
+    </div>`;
+
+  const read = () => {
+    L.enabled = document.getElementById('lEnabled').checked;
+    L.title = document.getElementById('lTitle').value.trim();
+    L.price = Number(document.getElementById('lPrice').value) || 0;
+    L.from = document.getElementById('lFrom').value.trim() || '12:00';
+    L.to = document.getElementById('lTo').value.trim() || '15:00';
+    L.days = [...container.querySelectorAll('[data-lday]:checked')].map((x) => Number(x.dataset.lday));
+    L.color = document.getElementById('lColor').value.trim();
+    L.start = document.getElementById('lStart').value || L.start;
+    container.querySelectorAll('[data-lday-text]').forEach((t) => {
+      const w = L.weeks[+t.dataset.lweek]; if (w) w[t.dataset.ldayText] = lunchFromText(t.value);
+    });
+  };
+  document.getElementById('lColorPick').oninput = (e) => { document.getElementById('lColor').value = e.target.value; };
+  document.getElementById('lWeeks').onchange = (e) => {
+    read(); const n = Number(e.target.value);
+    while (L.weeks.length < n) L.weeks.push({}); L.weeks.length = n; renderLunchTab(container);
+  };
+  container.querySelectorAll('[data-lday]').forEach((x) => { x.onchange = () => { read(); renderLunchTab(container); }; });
+  document.getElementById('lunchForm').onsubmit = async (e) => {
+    e.preventDefault(); read();
+    if (L.color && !/^#[0-9a-f]{6}$/i.test(L.color)) { toast('Цвет в формате #rrggbb'); return; }
+    if (!/^\d{1,2}:\d{2}$/.test(L.from) || !/^\d{1,2}:\d{2}$/.test(L.to)) { toast('Время в формате 12:00'); return; }
+    const body = JSON.stringify(L);
+    try {
+      await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { lunch: body } });
+      state.settings.lunch = body;
+      toast('Сохранено');
+      renderLunchTab(container);
+    } catch (err) { toast('Ошибка: ' + err.message); }
+  };
+}
 
 function renderSettingsTab(container) {
   const s = state.settings;

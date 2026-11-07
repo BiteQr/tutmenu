@@ -60,6 +60,12 @@ export async function authorize(env, request, slug) {
 
 /** D1/SQLite не умеет напрямую привязывать JS true/false как параметр — превращаем в 1/0.
  *  Без этого падает КАЖДОЕ сохранение чекбокса "Показывать" в любой форме админки. */
+/** Бизнес-ланч хранится JSON-строкой в restaurants.lunch; битый JSON — просто нет ланча */
+function parseLunch(v) {
+  if (!v) return null;
+  try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch { return null; }
+}
+
 function toSql(v) {
   if (v === true) return 1;
   if (v === false) return 0;
@@ -157,7 +163,8 @@ async function handleMenu(request, env) {
     notice_ru: restaurant.notice_ru || '', notice_kk: restaurant.notice_kk || '', notice_en: restaurant.notice_en || '',
     hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || '',
     itemLayout: restaurant.item_layout || 'list',
-    langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || ''
+    langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
+    lunch: parseLunch(restaurant.lunch)
   };
 
   const payload = {
@@ -316,7 +323,7 @@ ${menuText}`;
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
-const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search']);
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch']);
 
 async function handleTrack(request, env) {
   let body;
@@ -441,8 +448,13 @@ async function handleAdminApi(request, env, segments) {
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch']
         .filter((c) => c in b);
+      if (cols.includes('lunch')) {
+        const v = b.lunch == null || b.lunch === '' ? null : (typeof b.lunch === 'string' ? b.lunch : JSON.stringify(b.lunch));
+        if (v && (v.length > 60000 || !parseLunch(v))) return json({ error: 'bad_lunch' }, { status: 400 });
+        b.lunch = v;
+      }
       // Домен чистим тем же способом, что и при поиске по hostname (без https://, www., слэша) —
       // иначе вписанный "с запасом" адрес не совпадёт с реальным при заходе на сайт
       if (cols.includes('domain')) b.domain = normId(b.domain.replace(/^https?:\/\//i, '')) || null;
