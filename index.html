@@ -61,6 +61,7 @@
 
     <main class="menu__main">
       <div class="hscroll promos" id="promos"></div>
+      <section class="lunch" id="lunch" hidden></section>
 
       <div class="search-bar" id="searchBar">
       <label class="search">
@@ -117,6 +118,15 @@
   <!-- ============ MODALS ============ -->
   <div id="promoModal" class="overlay" hidden>
     <div class="overlay__panel" role="dialog" aria-modal="true">
+      <button class="overlay__close" data-action="close-overlay" data-i18n-aria="close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="overlay__content"></div>
+    </div>
+  </div>
+
+  <div id="lunchSheet" class="overlay" hidden>
+    <div class="overlay__panel overlay__panel--sheet" role="dialog" aria-modal="true">
       <button class="overlay__close" data-action="close-overlay" data-i18n-aria="close">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>

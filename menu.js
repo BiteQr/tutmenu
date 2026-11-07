@@ -28,7 +28,9 @@
     fabTop: $('.fab-top', root),
     fabCart: $('.fab-cart', root),
     promoModal: $('#promoModal'),
-    variantSheet: $('#variantSheet')
+    variantSheet: $('#variantSheet'),
+    lunch: $('#lunch'),
+    lunchSheet: $('#lunchSheet')
   };
 
   let data = null;
@@ -275,11 +277,123 @@
     onScroll();
   }
 
+  /* ---------------------------------------------------------
+     БИЗНЕС-ЛАНЧ: карточка «сегодня / завтра» над поиском + меню недели.
+     Настройка в админке: settings.lunch = {
+       enabled, price, from:'12:00', to:'15:00', days:[1..5],
+       start:'2026-11-02' (понедельник недели 1),
+       weeks:[ { '1':[{c:'Салат',n:'Ачик-чук'},…], '2':[…] }, … ] }
+     Недели крутятся по кругу от даты start.
+     --------------------------------------------------------- */
+  const LUNCH_DAY = 864e5;
+  const hm = (v) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  function lunchCfg() {
+    const L = data && data.settings && data.settings.lunch;
+    if (!L || !L.enabled || !Array.isArray(L.weeks) || !L.weeks.length) return null;
+    return L;
+  }
+  /** Неделя ротации для даты */
+  function lunchWeekFor(L, date) {
+    const st = new Date(String(L.start || '') + 'T00:00:00');
+    if (isNaN(st)) return L.weeks[0];
+    const mon = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+    const diff = Math.round((mon(date) - mon(st)) / (7 * LUNCH_DAY));
+    const n = L.weeks.length;
+    return L.weeks[((diff % n) + n) % n];
+  }
+  const lunchItems = (L, date) => (lunchWeekFor(L, date) || {})[String(date.getDay())] || [];
+  /** Какой день показывать: сегодня (до конца ланча) или ближайший следующий */
+  function lunchTarget(L, now) {
+    const days = (L.days && L.days.length ? L.days : [1, 2, 3, 4, 5]).map(Number);
+    const to = hm(L.to) ?? 15 * 60, from = hm(L.from) ?? 12 * 60;
+    const mins = now.getHours() * 60 + now.getMinutes();
+    for (let i = 0; i < 8; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+      if (!days.includes(d.getDay())) continue;
+      if (i === 0 && mins >= to) continue;
+      if (!lunchItems(L, d).length) continue;
+      const state = i === 0 ? (mins >= from ? 'live' : 'soon') : 'next';
+      return { date: d, offset: i, state };
+    }
+    return null;
+  }
+  function lunchFill(str, o) { return str.replace(/\{(\w+)\}/g, (_, k) => o[k] ?? ''); }
+  function lunchRows(items) {
+    return items.map((x) => `<li><small>${esc(I18n.f(x, 'c') || x.c || '')}</small><b>${esc(I18n.f(x, 'n') || x.n || '')}</b></li>`).join('');
+  }
+  function renderLunch() {
+    const L = lunchCfg();
+    if (!L) { els.lunch.hidden = true; els.lunch.innerHTML = ''; return; }
+    const tg = lunchTarget(L, new Date());
+    if (!tg) { els.lunch.hidden = true; return; }
+    const lc = String(L.color || '').trim();
+    if (/^#[0-9a-f]{6}$/i.test(lc)) {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(lc.slice(i, i + 2), 16) / 255);
+      const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.55;
+      els.lunch.style.setProperty('--lunch-bg', lc);
+      els.lunch.style.setProperty('--lunch-fg', dark ? '#f6efe4' : '#1c1c1e');
+      els.lunch.classList.toggle('is-dark', dark);
+    } else { els.lunch.style.removeProperty('--lunch-bg'); els.lunch.style.removeProperty('--lunch-fg'); els.lunch.classList.remove('is-dark'); }
+    const full = I18n.t('lunchDaysFull'), tab = I18n.t('lunchDaysTab');
+    const when = tg.offset === 0 ? I18n.t('lunchToday')
+      : tg.offset === 1 ? I18n.t('lunchTomorrow')
+      : lunchFill(I18n.t('lunchOn'), { day: full[tg.date.getDay()] });
+    const badge = tg.state === 'live'
+      ? `<span class="lunch__badge is-live"><i></i>${esc(lunchFill(I18n.t('lunchLive'), { to: L.to || '15:00' }))}</span>`
+      : tg.state === 'soon'
+        ? `<span class="lunch__badge">${esc(lunchFill(I18n.t('lunchSoon'), { from: L.from || '12:00' }))}</span>`
+        : `<span class="lunch__badge">${esc(tab[tg.date.getDay()])} · ${esc(L.from || '12:00')}–${esc(L.to || '15:00')}</span>`;
+    els.lunch.innerHTML = `
+      <button type="button" class="lunch__card" data-lunch-open aria-label="${esc(I18n.t('lunchTitle'))}">
+        <span class="lunch__head">
+          <span class="lunch__title"><small>${esc(when)}</small>${esc(L.title || I18n.t('lunchTitle'))}</span>
+          ${badge}
+        </span>
+        <ul class="lunch__list">${lunchRows(lunchItems(L, tg.date))}</ul>
+        <span class="lunch__foot">
+          <span class="lunch__price">${esc(money(L.price))}</span>
+          <span class="lunch__more">${esc(I18n.t('lunchWeek'))}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+        </span>
+      </button>`;
+    els.lunch.hidden = false;
+  }
+  function openLunchWeek(dayIdx) {
+    const L = lunchCfg(); if (!L) return;
+    const tg = lunchTarget(L, new Date());
+    const base = tg ? tg.date : new Date();
+    const days = (L.days && L.days.length ? L.days : [1, 2, 3, 4, 5]).map(Number);
+    const mon = new Date(base.getFullYear(), base.getMonth(), base.getDate() - ((base.getDay() + 6) % 7));
+    const dates = days.map((d) => new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + ((d + 6) % 7)));
+    const sel = dayIdx ?? (tg ? tg.date.getDay() : days[0]);
+    const tab = I18n.t('lunchDaysTab');
+    const today = new Date().getDay();
+    const cur = dates.find((d) => d.getDay() === sel) || dates[0];
+    $('.overlay__content', els.lunchSheet).innerHTML = `
+      <div class="lunch-week">
+        <h3 class="lunch-week__title">${esc(L.title || I18n.t('lunchTitle'))}</h3>
+        <p class="lunch-week__sub">${esc(L.from || '12:00')}–${esc(L.to || '15:00')} · ${esc(money(L.price))}</p>
+        <div class="lunch-week__tabs" role="tablist">${dates.map((d) => `
+          <button type="button" role="tab" data-lunch-day="${d.getDay()}" class="lunch-week__tab${d.getDay() === sel ? ' is-active' : ''}${d.getDay() === today ? ' is-today' : ''}" aria-selected="${d.getDay() === sel}">
+            <b>${esc(tab[d.getDay()])}</b><small>${d.getDate()}</small>
+          </button>`).join('')}</div>
+        <ul class="lunch__list lunch-week__list">${lunchRows(lunchItems(L, cur))}</ul>
+        ${L.note ? `<p class="lunch-week__note">${esc(I18n.f(L, 'note') || L.note)}</p>` : ''}
+      </div>`;
+    if (els.lunchSheet.hidden) { App.track && App.track('view_lunch', {}); overlay.open(els.lunchSheet); }
+  }
+  els.lunchSheet.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t === els.lunchSheet || t.closest('[data-action="close-overlay"]')) { overlay.close(els.lunchSheet); return; }
+    const d = t.closest('[data-lunch-day]');
+    if (d) openLunchWeek(+d.dataset.lunchDay);
+  });
+
   function render(d) {
     data = d;
     els.sections.dataset.itemLayout = d.settings.itemLayout || 'list';
     renderHeader();
     renderPromos();
+    renderLunch();
     renderBody();
     I18n.applyStatic();
     hintPromosScroll();
@@ -975,6 +1089,8 @@
     if (act === 'ai-pick') { els.search.blur(); runAiPick(); return; }
     const aiEx = t.closest('[data-ai-example]');
     if (aiEx) { els.search.value = aiEx.dataset.aiExample; els.search.blur(); applySearch(); runAiPick(); return; }
+
+    if (t.closest('[data-lunch-open]')) { openLunchWeek(); return; }
 
     const promo = t.closest('[data-promo]');
     if (promo) { openPromo(+promo.dataset.promo); return; }
