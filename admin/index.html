@@ -172,6 +172,45 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 
 /* ---------- предпросмотр метки в списке ---------- */
 .badge-preview{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;}
+
+/* ---------- импорт меню ---------- */
+.imp-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:28px 16px;border:2px dashed var(--line);border-radius:var(--r-l);text-align:center;cursor:pointer;}
+.imp-drop b{font-size:15px;} .imp-drop span{font-size:13px;color:var(--muted);}
+.imp-drop.is-over{border-color:var(--dark);background:#fafafa;}
+.imp-pages{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.imp-page{position:relative;width:64px;height:88px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:#f2f2f4;}
+.imp-page img{width:100%;height:100%;object-fit:cover;display:block;}
+.imp-page i{position:absolute;inset:auto 0 0 0;font-style:normal;font-size:11px;font-weight:700;text-align:center;padding:2px 0;background:rgba(255,255,255,.9);}
+.imp-page.is-busy::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%231c1c1e' stroke-width='3' stroke-dasharray='40 20'/%3E%3C/svg%3E") center/22px no-repeat;}
+.imp-page.is-done i{background:var(--ok);color:#fff;} .imp-page.is-err i{background:var(--danger);color:#fff;}
+.imp-progress{height:6px;border-radius:3px;background:#eee;overflow:hidden;margin-top:12px;} .imp-progress div{height:100%;background:var(--dark);transition:width .3s;}
+.imp-sec{border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden;}
+.imp-sec__head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;background:#fafafa;border-bottom:1px solid var(--line);}
+.imp-sec__head input[type=text]{flex:1 1 160px;font-weight:700;}
+.imp-sec__head select{flex:0 1 220px;}
+.imp-row{display:grid;grid-template-columns:22px 1fr 92px;gap:8px;align-items:start;padding:10px 12px;border-top:1px solid var(--line);}
+.imp-row:first-of-type{border-top:0;}
+.imp-row.is-low{background:#fff8e1;} .imp-row.is-off{opacity:.45;}
+.imp-row input[type=checkbox]{margin-top:10px;width:18px;height:18px;}
+.imp-row .imp-main{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.imp-row input[type=text],.imp-row textarea,.imp-row input[type=number],.imp-sec__head input,.imp-sec__head select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:14px;}
+.imp-row textarea{min-height:38px;resize:vertical;font-size:13px;}
+.imp-row .imp-meta{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+.imp-tag{display:inline-block;padding:2px 7px;border-radius:6px;background:#eee;font-size:11px;font-weight:600;color:#555;}
+.imp-tag.warn{background:#ffe08a;color:#6b4e00;}
+.imp-sum{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;margin:0 -20px -20px;border-top:1px solid var(--line);background:var(--panel);border-radius:0 0 var(--r-l) var(--r-l);}
+
+/* ---------- AR в карточке блюда ---------- */
+.ar-help{font-size:12px;color:var(--muted);margin:-2px 0 10px;}
+.ar-row{display:flex;gap:12px;align-items:flex-start;}
+.ar-cut{flex:none;width:112px;height:112px;border-radius:12px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);background:#fff repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/14px 14px;overflow:hidden;}
+.ar-cut img{max-width:100%;max-height:100%;object-fit:contain;}
+.ar-ctrl{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;}
+.ar-ctrl select,.ar-ctrl input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;}
+.ar-spin{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.ar-spin__head{width:100%;font-size:13px;} .ar-spin__head span{color:var(--muted);}
+.ar-spin__list{width:100%;display:flex;gap:4px;flex-wrap:wrap;}
+.ar-spin__list img{width:44px;height:44px;object-fit:cover;border-radius:6px;}
 </style>
 </head>
 <body>
@@ -416,6 +455,7 @@ const TABS = [
   ['badges', '🏷 Метки'],
   ['promos', '📣 Акции'],
   ['lunch', '🍱 Бизнес-ланч'],
+  ['import', '📥 Импорт меню'],
   ['buttons', '🔘 Кнопки']
 ];
 
@@ -436,6 +476,7 @@ function renderTab() {
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
   if (state.tab === 'badges') return renderBadgesTab(c);
   if (state.tab === 'lunch') return renderLunchTab(c);
+  if (state.tab === 'import') return renderImportTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
 }
 
@@ -1080,6 +1121,29 @@ function openMenuItemModal(row) {
         </div>
       </div>
 
+      <div class="field ar-box">
+        <label>AR «На столе» и 360°</label>
+        <p class="ar-help">Гость нажимает «На столе» — и блюдо появляется на его столе через камеру в натуральную величину. Работает на iPhone и Android без приложений.</p>
+        <div class="ar-row">
+          <div class="ar-cut" id="arCut">${row && row.ar_image ? `<img src="${esc(row.ar_image)}" alt="">` : '<span>нет вырезки</span>'}</div>
+          <div class="ar-ctrl">
+            <button type="button" class="btn btn-dark btn-sm" id="arMake">✨ Вырезать из фото</button>
+            <button type="button" class="btn btn-outline btn-sm" id="arClear" ${row && row.ar_image ? '' : 'hidden'}>Убрать AR</button>
+            <select id="arMode">
+              <option value="flat" ${row && row.ar_mode === 'stand' ? '' : 'selected'}>Лежит (фото сверху)</option>
+              <option value="stand" ${row && row.ar_mode === 'stand' ? 'selected' : ''}>Стоит (фото сбоку: напитки, бургеры)</option>
+            </select>
+            <input type="number" id="arSize" min="4" max="120" placeholder="Ширина блюда, см" value="${row && row.ar_size ? esc(row.ar_size) : ''}">
+          </div>
+        </div>
+        <div class="ar-spin">
+          <div class="ar-spin__head"><b>360°</b> <span>8–24 фото по кругу, по порядку имени файла</span></div>
+          <div class="ar-spin__list" id="spinList"></div>
+          <label class="btn btn-outline btn-sm">+ Загрузить фото для 360°<input type="file" id="spinFiles" accept="image/*" multiple hidden></label>
+          <button type="button" class="btn btn-outline btn-sm" id="spinClear" hidden>Очистить</button>
+        </div>
+      </div>
+
       <div class="field">
         <label>Метки (Хит продаж, Веган, Острое…)</label>
         <div class="rec-list" id="badgeList"></div>
@@ -1136,10 +1200,45 @@ function openMenuItemModal(row) {
       chip.onclick = () => { chip.classList.toggle('sel'); const id = chip.dataset.id; chip.classList.contains('sel') ? selected.add(id) : selected.delete(id); };
     });
 
+    // ---- AR и 360° ----
+    let arImage = row?.ar_image || '';
+    let spin = []; try { spin = JSON.parse(row?.spin || '[]') || []; } catch { spin = []; }
+    const arCut = document.getElementById('arCut'), arClear = document.getElementById('arClear'), arMake = document.getElementById('arMake');
+    const showCut = () => { arCut.innerHTML = arImage ? `<img src="${esc(arImage)}" alt="">` : '<span>нет вырезки</span>'; arClear.hidden = !arImage; };
+    arClear.onclick = () => { arImage = ''; showCut(); };
+    arMake.onclick = async () => {
+      const src = document.getElementById('f_image')?.dataset.url || '';
+      if (!src) { toast('Сначала загрузите фото блюда'); return; }
+      arMake.disabled = true; arMake.textContent = 'Вырезаю…';
+      try { const r = await api(`/ar-cutout?restaurant=${state.slug}`, { method: 'POST', body: { image: src } }); arImage = r.url; showCut(); toast('Готово — проверьте края'); }
+      catch (err) { toast('Не получилось: ' + err.message); }
+      arMake.disabled = false; arMake.textContent = '✨ Вырезать заново';
+    };
+    const spinList = document.getElementById('spinList'), spinClear = document.getElementById('spinClear');
+    const showSpin = () => { spinList.innerHTML = spin.map((u) => `<img src="${esc(u)}" alt="">`).join(''); spinClear.hidden = !spin.length; };
+    showSpin();
+    spinClear.onclick = () => { spin = []; showSpin(); };
+    document.getElementById('spinFiles').onchange = async (e) => {
+      const files = [...e.target.files].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })).slice(0, 36);
+      if (!files.length) return;
+      const submitBtn = document.querySelector('#entityForm button[type="submit"]'); submitBtn.disabled = true;
+      const out = [];
+      for (let i = 0; i < files.length; i++) {
+        spinList.innerHTML = `<span style="font-size:13px">Загружаю ${i + 1} из ${files.length}…</span>`;
+        try { const f = new FormData(); f.append('file', await compressImage(files[i], 1080)); out.push((await api(`/upload?restaurant=${state.slug}`, { method: 'POST', body: f, isForm: true })).url); }
+        catch (err) { toast('Не загрузилось: ' + err.message); }
+      }
+      spin = out; showSpin(); submitBtn.disabled = false; e.target.value = '';
+    };
+
     document.getElementById('cancelBtn').onclick = closeModal;
     document.getElementById('entityForm').onsubmit = async (e) => {
       e.preventDefault();
       const payload = {};
+      payload.ar_image = arImage;
+      payload.ar_mode = document.getElementById('arMode').value;
+      payload.ar_size = Number(document.getElementById('arSize').value) || 0;
+      payload.spin = spin.length ? JSON.stringify(spin) : '';
       MENU_TEXT_FIELDS.forEach((f) => { payload[f.key === 'section_id' ? 'section_id' : f.key] = readField(f); });
 
       const useVariants = modeVariants.classList.contains('active');
@@ -1407,6 +1506,239 @@ function renderLunchTab(container) {
       renderLunchTab(container);
     } catch (err) { toast('Ошибка: ' + err.message); }
   };
+}
+
+/* =========================================================
+   ИМПОРТ МЕНЮ ИЗ PDF / ФОТО — AI читает страницы, человек проверяет, потом добавляем.
+   PDF разбираем на картинки прямо в браузере (pdf.js), каждую страницу отдельно
+   отправляем в /admin/api/import-menu. В базу ничего не пишется до нажатия «Добавить».
+   ========================================================= */
+const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
+    const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Не загрузился ' + src));
+    document.head.appendChild(s);
+  });
+}
+/** Картинка → JPEG не больше 1600px по длинной стороне (меньше трафика, модель читает так же) */
+function canvasToJpeg(canvas) { return canvas.toDataURL('image/jpeg', 0.86); }
+async function imageFileToPages(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return [canvasToJpeg(c)];
+  } finally { URL.revokeObjectURL(url); }
+}
+async function pdfFileToPages(file) {
+  await loadScript(PDFJS_URL);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let n = 1; n <= Math.min(pdf.numPages, 30); n++) {
+    const page = await pdf.getPage(n);
+    const v1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(3, 1600 / Math.max(v1.width, v1.height)) });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    out.push(canvasToJpeg(c));
+  }
+  return out;
+}
+
+function renderImportTab(container) {
+  const st = state.imp || (state.imp = { pages: [], status: [], groups: [], busy: false, catId: '', newCat: '' });
+  const cats = state.categories || [];
+  const total = st.groups.reduce((n, g) => n + g.items.filter((x) => x.on).length, 0);
+  const done = st.status.filter((x) => x === 'done' || x === 'err').length;
+  const lows = st.groups.reduce((n, g) => n + g.items.filter((x) => x.on && x.confidence === 'low').length, 0);
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Импорт меню из PDF или фото</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+        Загрузите PDF меню или фото страниц (можно снятые на телефон, до 30 страниц). AI найдёт разделы, блюда, состав, граммовку и цены.
+        Потом всё проверите и поправите здесь — в меню ничего не попадёт, пока не нажмёте «Добавить».
+      </p>
+      <div class="field"><label>В какую категорию добавить</label>
+        <select id="impCat">
+          ${cats.map((c) => `<option value="${c.id}" ${String(st.catId) === String(c.id) ? 'selected' : ''}>${esc(c.title_ru)}</option>`).join('')}
+          <option value="new" ${st.catId === 'new' || !cats.length ? 'selected' : ''}>+ Новая категория…</option>
+        </select>
+        <input type="text" id="impNewCat" placeholder="Название новой категории, например «Основное меню»" value="${esc(st.newCat)}" style="margin-top:8px;${st.catId === 'new' || !cats.length ? '' : 'display:none;'}">
+      </div>
+      <label class="imp-drop" id="impDrop">
+        <b>${st.pages.length ? 'Загрузить другие файлы' : 'Выбрать PDF или фото'}</b>
+        <span>или перетащите файлы сюда · PDF, JPG, PNG</span>
+        <input type="file" id="impFile" accept="application/pdf,image/*" multiple hidden>
+      </label>
+      ${st.pages.length ? `
+        <div class="imp-pages">${st.pages.map((p, i) => `<div class="imp-page is-${st.status[i] || 'wait'}"><img src="${p}" alt=""><i>${i + 1}</i></div>`).join('')}</div>
+        <div class="imp-progress"><div style="width:${Math.round(done / st.pages.length * 100)}%"></div></div>
+        <p style="font-size:13px;margin-top:8px;">${st.busy ? `Читаю страницы… ${done} из ${st.pages.length}` : `Готово: ${done} из ${st.pages.length} страниц${st.status.includes('err') ? ' · <a href="#" id="impRetry">повторить неудачные</a>' : ''}`}</p>` : ''}
+    </div>
+    ${st.groups.length ? `
+    <div class="panel">
+      <div class="panel-head"><h2>Проверьте, что нашёл AI</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Жёлтым — строки, где AI не уверен (цена не читается, текст обрезан). Снимите галочку, если позиция не нужна. Раздел можно добавить в уже существующий.</p>
+      ${st.groups.map((g, gi) => `
+        <div class="imp-sec">
+          <div class="imp-sec__head">
+            <input type="text" value="${esc(g.name)}" data-gname="${gi}" placeholder="Название раздела">
+            <select data-gtarget="${gi}">
+              <option value="">→ новый раздел</option>
+              ${(state.sections || []).map((s) => `<option value="${s.id}" ${String(g.target) === String(s.id) ? 'selected' : ''}>→ в «${esc(s.title_ru)}»</option>`).join('')}
+            </select>
+          </div>
+          ${g.items.map((it, ii) => `
+            <div class="imp-row${it.confidence === 'low' ? ' is-low' : ''}${it.on ? '' : ' is-off'}">
+              <input type="checkbox" data-on="${gi}.${ii}" ${it.on ? 'checked' : ''}>
+              <div class="imp-main">
+                <input type="text" data-f="title" data-k="${gi}.${ii}" value="${esc(it.title)}" placeholder="Название">
+                <textarea data-f="description" data-k="${gi}.${ii}" placeholder="Состав (необязательно)">${esc(it.description)}</textarea>
+                <div class="imp-meta">
+                  ${it.weight ? `<span class="imp-tag">${esc(it.weight)}</span>` : ''}
+                  ${it.variants.length ? `<span class="imp-tag">${it.variants.map((v) => esc(v.label) + ' — ' + v.price + ' ₸').join(' · ')}</span>` : ''}
+                  ${it.alcohol ? '<span class="imp-tag">алкоголь</span>' : ''}
+                  ${it.confidence === 'low' ? '<span class="imp-tag warn">проверьте</span>' : ''}
+                  <span>стр. ${it.page}</span>
+                </div>
+              </div>
+              <input type="number" data-f="price" data-k="${gi}.${ii}" value="${it.price || ''}" placeholder="Цена ₸">
+            </div>`).join('')}
+        </div>`).join('')}
+      <div class="imp-sum">
+        <span style="font-size:14px;"><b>${total}</b> позиций · ${st.groups.filter((g) => g.items.some((x) => x.on)).length} разделов${lows ? ` · <span style="color:#b07d00">${lows} проверить</span>` : ''}</span>
+        <button class="btn btn-dark" id="impSave" ${total && !st.busy ? '' : 'disabled'}>Добавить в меню</button>
+      </div>
+    </div>` : ''}`;
+
+  const sel = document.getElementById('impCat');
+  sel.onchange = () => { st.catId = sel.value; renderImportTab(container); };
+  if (!st.catId) st.catId = sel.value;
+  const nc = document.getElementById('impNewCat'); nc.oninput = () => { st.newCat = nc.value; };
+  const file = document.getElementById('impFile');
+  file.onchange = () => impStart(container, [...file.files]);
+  const drop = document.getElementById('impDrop');
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('is-over'); };
+  drop.ondragleave = () => drop.classList.remove('is-over');
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('is-over'); impStart(container, [...e.dataTransfer.files]); };
+  const retry = document.getElementById('impRetry');
+  if (retry) retry.onclick = (e) => { e.preventDefault(); impRun(container, st.status.map((x, i) => x === 'err' ? i : -1).filter((i) => i >= 0)); };
+
+  container.querySelectorAll('[data-on]').forEach((cb) => { cb.onchange = () => { const [g, i] = cb.dataset.on.split('.'); st.groups[g].items[i].on = cb.checked; renderImportTab(container); }; });
+  container.querySelectorAll('[data-f]').forEach((el) => { el.oninput = () => { const [g, i] = el.dataset.k.split('.'); const it = st.groups[g].items[i]; it[el.dataset.f] = el.dataset.f === 'price' ? Number(el.value) || 0 : el.value; }; });
+  container.querySelectorAll('[data-gname]').forEach((el) => { el.oninput = () => { st.groups[el.dataset.gname].name = el.value; }; });
+  container.querySelectorAll('[data-gtarget]').forEach((el) => { el.onchange = () => { st.groups[el.dataset.gtarget].target = el.value; }; });
+  const save = document.getElementById('impSave');
+  if (save) save.onclick = () => impSave(container);
+}
+
+async function impStart(container, files) {
+  const st = state.imp;
+  if (!files.length || st.busy) return;
+  st.busy = true; st.pages = []; st.status = []; st.groups = []; st.found = [];
+  renderImportTab(container);
+  try {
+    for (const f of files) {
+      const pages = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name) ? await pdfFileToPages(f) : await imageFileToPages(f);
+      st.pages.push(...pages);
+      if (st.pages.length >= 30) { st.pages.length = 30; break; }
+    }
+  } catch (err) { st.busy = false; toast('Не получилось открыть файл: ' + err.message); renderImportTab(container); return; }
+  st.status = st.pages.map(() => 'wait');
+  await impRun(container, st.pages.map((_, i) => i));
+}
+
+async function impRun(container, idxs) {
+  const st = state.imp;
+  st.busy = true; renderImportTab(container);
+  const queue = [...idxs];
+  const worker = async () => {
+    while (queue.length) {
+      const i = queue.shift();
+      st.status[i] = 'busy'; renderImportTab(container);
+      try {
+        const r = await api(`/import-menu?restaurant=${state.slug}`, { method: 'POST', body: { image: st.pages[i], page: i + 1 } });
+        st.found = (st.found || []).filter((x) => x.page !== i + 1).concat(r.items.map((x) => ({ ...x, page: i + 1 })));
+        st.status[i] = 'done';
+      } catch (err) { st.status[i] = 'err'; }
+      impGroup(st); renderImportTab(container);
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  st.busy = false; renderImportTab(container);
+  const n = st.found.length;
+  toast(n ? `Найдено позиций: ${n}` : 'AI ничего не нашёл — попробуйте фото почётче');
+}
+
+/** Собираем найденное по разделам в порядке страниц; повторяющиеся названия в одном разделе склеиваем */
+function impGroup(st) {
+  const prev = new Map(st.groups.flatMap((g) => g.items.map((it) => [it.key, it])));
+  const byName = new Map();
+  const groups = [];
+  const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  [...st.found].sort((a, b) => a.page - b.page).forEach((x, idx) => {
+    const gname = x.section || 'Без раздела';
+    let g = byName.get(norm(gname));
+    if (!g) {
+      const exist = (state.sections || []).find((s) => norm(s.title_ru) === norm(gname));
+      const old = st.groups.find((o) => norm(o.name) === norm(gname));
+      g = { name: old ? old.name : gname, target: old ? old.target : (exist ? String(exist.id) : ''), items: [] };
+      byName.set(norm(gname), g); groups.push(g);
+    }
+    const key = x.page + ':' + norm(x.title);
+    if (g.items.some((it) => it.key === key)) return;
+    const was = prev.get(key);
+    g.items.push(was || { key, on: true, title: x.title, description: x.description, weight: x.weight, price: x.price, variants: x.variants || [], alcohol: x.alcohol, confidence: x.confidence, page: x.page });
+  });
+  st.groups = groups;
+}
+
+async function impSave(container) {
+  const st = state.imp;
+  const groups = st.groups.map((g) => ({ ...g, items: g.items.filter((x) => x.on && String(x.title).trim()) })).filter((g) => g.items.length);
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  if (!total) return;
+  if (!confirm(`Добавить в меню ${total} позиций? Их можно будет поправить или удалить во вкладке «Блюда».`)) return;
+  const btn = document.getElementById('impSave'); btn.disabled = true; btn.textContent = 'Добавляю…';
+  try {
+    let catId = st.catId;
+    if (catId === 'new' || !catId) {
+      const name = (st.newCat || '').trim() || 'Меню';
+      const r = await api(`/categories?restaurant=${state.slug}`, { method: 'POST', body: { title_ru: name, active: 1, sort: nextSort(state.categories || []) } });
+      catId = r.id;
+    }
+    let secSort = nextSort(state.sections || []);
+    let added = 0;
+    for (const g of groups) {
+      let secId = g.target;
+      if (!secId) {
+        const r = await api(`/sections?restaurant=${state.slug}`, { method: 'POST', body: { title_ru: g.name.trim() || 'Без раздела', category_id: catId, active: 1, sort: secSort } });
+        secId = r.id; secSort += 10;
+      }
+      const base = nextSort((state.menuItems || []).filter((m) => String(m.section_id) === String(secId)));
+      for (let i = 0; i < g.items.length; i++) {
+        const it = g.items[i];
+        const desc = [String(it.description || '').trim(), it.weight ? it.weight : ''].filter(Boolean).join(' · ');
+        await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: {
+          section_id: secId, title_ru: String(it.title).trim(), description_ru: desc, price: Number(it.price) || 0,
+          variants: it.variants && it.variants.length ? JSON.stringify(it.variants) : '', active: 1, sort: base + i * 10
+        } });
+        added++; btn.textContent = `Добавляю… ${added} / ${total}`;
+      }
+    }
+    await Promise.all([reloadTable('categories', 'categories'), reloadTable('sections', 'sections'), reloadTable('menuItems', 'menu-items')]);
+    state.imp = null;
+    toast(`Добавлено: ${added}. Фото и переводы — во вкладке «Блюда»`);
+    state.tab = 'menuItems'; renderTabs(); renderTab();
+  } catch (err) {
+    toast('Ошибка: ' + err.message); btn.disabled = false; btn.textContent = 'Добавить в меню';
+  }
 }
 
 function renderSettingsTab(container) {

@@ -838,6 +838,11 @@
       const t = e.target;
       if (t === itemDetailModal || t.closest('[data-action="close-overlay"]')) { overlay.close(itemDetailModal); return; }
 
+      const ar = t.closest('[data-ar]');
+      if (ar) { openArViewer(byId(ar.dataset.ar)); return; }
+      const sp = t.closest('[data-spin]');
+      if (sp) { openSpinViewer(byId(sp.dataset.spin)); return; }
+
       const pick = t.closest('[data-detail-pick]');
       if (pick) {
         Cart.add(pick.dataset.detailPick, +pick.dataset.v);
@@ -894,6 +899,87 @@
       </div>`;
   }
 
+  /* ---------------------------------------------------------
+     AR «НА СТОЛЕ» и 360°
+     arImage — вырезанное фото блюда; /ar/<id>.glb собирает из него 3D-плоскость в натуральную величину.
+     <model-viewer> (Google) открывает её в камере: iPhone — Quick Look, Android — Scene Viewer/WebXR.
+     spin — 8–36 фото по кругу, гость крутит пальцем.
+     --------------------------------------------------------- */
+  const MV_SRC = 'https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js';
+  let mvLoading = null;
+  function loadModelViewer() {
+    if (window.customElements && customElements.get('model-viewer')) return Promise.resolve();
+    if (!mvLoading) mvLoading = new Promise((res, rej) => {
+      const s = document.createElement('script'); s.type = 'module'; s.src = MV_SRC;
+      s.onload = () => customElements.whenDefined('model-viewer').then(res); s.onerror = rej;
+      document.head.appendChild(s);
+    });
+    return mvLoading;
+  }
+  const byId = (id) => (data.menuItems || []).find((x) => String(x.id) === String(id));
+  function viewBtnsHTML(it) {
+    const b = [];
+    if (it.arImage) b.push(`<button type="button" class="view-btn" data-ar="${esc(it.id)}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>${esc(I18n.t('arBtn'))}</button>`);
+    if (it.spin && it.spin.length >= 4) b.push(`<button type="button" class="view-btn" data-spin="${esc(it.id)}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>360°</button>`);
+    return b.length ? `<div class="view-btns">${b.join('')}</div>` : '';
+  }
+  let viewerEl = null;
+  function getViewer() {
+    if (viewerEl) return viewerEl;
+    viewerEl = document.createElement('div');
+    viewerEl.className = 'overlay viewer-overlay';
+    viewerEl.hidden = true;
+    viewerEl.innerHTML = `<div class="overlay__panel viewer"><button type="button" class="overlay__close" data-action="close-overlay" aria-label="Закрыть"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button><div class="overlay__content"></div></div>`;
+    document.body.appendChild(viewerEl);
+    viewerEl.addEventListener('click', (e) => {
+      if (e.target === viewerEl || e.target.closest('[data-action="close-overlay"]')) { $('.overlay__content', viewerEl).innerHTML = ''; overlay.close(viewerEl); }
+    });
+    return viewerEl;
+  }
+  async function openArViewer(it) {
+    if (!it || !it.arImage) return;
+    const v = getViewer(); const box = $('.overlay__content', v);
+    const title = I18n.f(it, 'title');
+    box.innerHTML = `<div class="viewer__stage"><div class="viewer__loading">${esc(I18n.t('arLoading'))}</div></div>
+      <div class="viewer__body"><h3>${esc(title)}</h3><p>${esc(I18n.t('arHint'))}</p></div>`;
+    overlay.open(v);
+    App.track('view_ar', { id: it.id, title: I18n.f(it, 'title') });
+    try { await loadModelViewer(); } catch { $('.viewer__loading', box).textContent = I18n.t('arError'); return; }
+    const mv = document.createElement('model-viewer');
+    mv.setAttribute('src', new URL(`/ar/${encodeURIComponent(it.id)}.glb`, location.href).href);
+    mv.setAttribute('alt', title);
+    mv.setAttribute('ar', ''); mv.setAttribute('ar-modes', 'webxr scene-viewer quick-look'); mv.setAttribute('ar-scale', 'fixed');
+    mv.setAttribute('camera-controls', ''); mv.setAttribute('touch-action', 'pan-y');
+    mv.setAttribute('shadow-intensity', '1'); mv.setAttribute('exposure', '1');
+    // «Стоит» — плоская фигура: сбоку она тонкая как лист, поэтому крутить даём только спереди
+    if (it.arMode === 'stand') { mv.setAttribute('min-camera-orbit', '-45deg 50deg auto'); mv.setAttribute('max-camera-orbit', '45deg 95deg auto'); }
+    else mv.setAttribute('auto-rotate', '');
+    mv.setAttribute('camera-orbit', it.arMode === 'stand' ? '0deg 80deg auto' : '0deg 55deg auto');
+    mv.setAttribute('interaction-prompt', 'none');
+    mv.innerHTML = `<button slot="ar-button" class="viewer__ar">${esc(I18n.t('arPlace'))}</button>`;
+    const stage = $('.viewer__stage', box); stage.innerHTML = ''; stage.appendChild(mv);
+    mv.addEventListener('load', () => { if (!mv.canActivateAR) { const n = document.createElement('div'); n.className = 'viewer__note'; n.textContent = I18n.t('arNoAr'); stage.appendChild(n); } });
+  }
+  function openSpinViewer(it) {
+    if (!it || !it.spin || !it.spin.length) return;
+    const v = getViewer(); const box = $('.overlay__content', v);
+    const frames = it.spin;
+    box.innerHTML = `<div class="viewer__stage viewer__stage--spin">${frames.map((src, i) => `<img src="${esc(src)}" alt="" draggable="false" ${i ? 'hidden' : ''}>`).join('')}<div class="viewer__drag"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 12H3m0 0 3-3m-3 3 3 3M16 12h5m0 0-3-3m3 3-3 3"/></svg>${esc(I18n.t('spinHint'))}</div></div>
+      <div class="viewer__body"><h3>${esc(I18n.f(it, 'title'))}</h3></div>`;
+    overlay.open(v);
+    App.track('view_ar', { id: it.id, title: I18n.f(it, 'title') + ' · 360' });
+    const stage = $('.viewer__stage', box); const imgs = [...stage.querySelectorAll('img')];
+    let cur = 0, startX = 0, startF = 0, drag = false, auto = 0, t0 = 0;
+    const show = (f) => { const n = ((Math.round(f) % frames.length) + frames.length) % frames.length; if (n === cur) return; imgs[cur].hidden = true; imgs[n].hidden = false; cur = n; };
+    // Подсказка-вращение один раз, пока гость не потянул сам
+    const spinHint = (ts) => { if (drag || !stage.isConnected) return; if (!t0) t0 = ts; const k = (ts - t0) / 1800; if (k < 1) { show(Math.sin(k * Math.PI) * frames.length / 4); auto = requestAnimationFrame(spinHint); } else show(0); };
+    auto = requestAnimationFrame(spinHint);
+    stage.addEventListener('pointerdown', (e) => { drag = true; cancelAnimationFrame(auto); startX = e.clientX; startF = cur; stage.setPointerCapture(e.pointerId); stage.classList.add('is-drag'); });
+    stage.addEventListener('pointermove', (e) => { if (drag) show(startF - (e.clientX - startX) / (stage.clientWidth / frames.length / 1.4)); });
+    const end = () => { drag = false; stage.classList.remove('is-drag'); };
+    stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+  }
+
   function openItemDetail(it, origin) {
     const modal = getItemDetailModal();
     const title = I18n.f(it, 'title');
@@ -902,7 +988,7 @@
     markTipSeen(); // гость сам нашёл, что блюдо открывается — подсказка больше не нужна
 
     $('.overlay__content', modal).innerHTML = `
-      ${photoHTML(it.image, 'item-detail__img', title, true)}
+      <div class="item-detail__media">${photoHTML(it.image, 'item-detail__img', title, true)}${viewBtnsHTML(it)}</div>
       ${it.image ? `<p class="dish-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('photoNote'))}</span></p>` : ''}
       <div class="promo-full__body${it.image ? ' promo-full__body--after-note' : ''}">
         ${badgesHTML(it.badges)}

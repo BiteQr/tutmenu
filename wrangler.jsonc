@@ -19,6 +19,7 @@
 
   // Workers AI — умный поиск блюд (/api/ai-search)
   "ai": { "binding": "AI" },
+  "images": { "binding": "IMAGES" },
 
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "tutmenu-files" }

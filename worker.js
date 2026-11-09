@@ -99,7 +99,8 @@ const ADMIN_TABLES = {
   'menu-items': {
     table: 'menu_items',
     cols: ['section_id', 'sort', 'active', 'image', 'title_ru', 'title_kk', 'title_en',
-           'description_ru', 'description_kk', 'description_en', 'price', 'variants', 'recommendations', 'badge_ids']
+           'description_ru', 'description_kk', 'description_en', 'price', 'variants', 'recommendations', 'badge_ids',
+           'ar_image', 'ar_mode', 'ar_size', 'spin']
   },
   'promos': {
     table: 'promos',
@@ -194,6 +195,8 @@ async function handleMenu(request, env) {
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       price: r.price || 0,
       variants: safeVariants(r.variants),
+      arImage: lu(r.ar_image || ''), arMode: r.ar_mode || '', arSize: Number(r.ar_size) || 0,
+      spin: safeVariants(r.spin).map(lu).filter(Boolean).slice(0, 36),
       recommendations: r.recommendations ? r.recommendations.split(',').map((s) => s.trim()).filter(Boolean) : [],
       badges: (r.badge_ids || '').split(',').map((s) => s.trim()).filter(Boolean)
         .map((bid) => badgeMap.get(bid))
@@ -323,7 +326,7 @@ ${menuText}`;
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
-const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch']);
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch', 'view_ar']);
 
 async function handleTrack(request, env) {
   let body;
@@ -543,6 +546,188 @@ async function handleAdminApi(request, env, segments) {
     return json({ ok: true });
   }
   return json({ error: 'method_not_allowed' }, { status: 405 });
+}
+
+/* ---------- POST /admin/api/import-menu?restaurant=slug — AI читает страницу меню ----------
+   Тело: { image: 'data:image/jpeg;base64,…', page: 1 }. Одна страница за запрос — браузер шлёт их по очереди,
+   поэтому большой PDF не упирается в лимиты одного запроса. Ничего не сохраняет: только возвращает
+   найденные позиции, а в меню их добавляет админка после проверки человеком. */
+const IMPORT_MAX_IMAGE = 6 * 1024 * 1024;
+async function handleImportMenu(request, env) {
+  const url = new URL(request.url);
+  const slug = normId(url.searchParams.get('restaurant'));
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  const auth = await authorize(env, request, slug);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  if (!env.AI) return json({ error: 'ai_unavailable' }, { status: 503 });
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+  const image = String(body.image || '');
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) return json({ error: 'bad_image' }, { status: 400 });
+  if (image.length > IMPORT_MAX_IMAGE * 1.37) return json({ error: 'too_large' }, { status: 413 });
+
+  const system = `You read restaurant menu pages (photos or scans, usually Russian/Kazakh/English) and extract every dish or drink as JSON.
+Rules:
+- Extract ONLY what is printed on the page. Never invent dishes, prices or descriptions.
+- "section": the heading the item belongs to on the page (e.g. "Салаты", "Горячие блюда", "Коктейли"). If the page has no heading above an item, reuse the last heading; if none at all, use "".
+- "title": dish name exactly as printed, normal capitalization (not ALL CAPS).
+- "description": ingredients/composition text if printed, else "". Do not include weight or price here.
+- "weight": portion size as printed (e.g. "250 г", "0,5 л", "30 мл"), else "".
+- "price": number in tenge without spaces (e.g. 3500). If several sizes/prices are printed for one item, put the smallest in "price" and list all in "variants" as [{"label": "0,3 л", "price": 1200}, ...]; else "variants": [].
+- "alcohol": true for alcoholic drinks, else false.
+- "confidence": "high" if name and price are clearly readable, "low" if anything is cut off, blurry or guessed.
+- Ignore phone numbers, addresses, slogans, service charge notes, page numbers.
+Answer with JSON only: {"items":[{"section":"","title":"","description":"","weight":"","price":0,"variants":[],"alcohol":false,"confidence":"high"}]}`;
+
+  let out;
+  try {
+    out = await env.AI.run(AI_MODEL, {
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: [
+          { type: 'text', text: 'Extract all menu items from this page.' },
+          { type: 'image_url', image_url: { url: image } }
+        ] }
+      ],
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 6000,
+      temperature: 0.1,
+    });
+  } catch (err) {
+    return json({ error: 'ai_failed', message: String(err).slice(0, 300) }, { status: 502 });
+  }
+  const text = out?.choices?.[0]?.message?.content ?? out?.response ?? '';
+  let parsed = null;
+  try { parsed = typeof text === 'object' ? text : JSON.parse(String(text).match(/\{[\s\S]*\}/)?.[0] || ''); } catch { /* ниже */ }
+  const num = (v) => { const n = Number(String(v ?? '').replace(/[^\d.,]/g, '').replace(',', '.')); return Number.isFinite(n) ? Math.round(n) : 0; };
+  const str = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const items = (Array.isArray(parsed?.items) ? parsed.items : []).map((x) => ({
+    section: str(x?.section, 80),
+    title: str(x?.title, 160),
+    description: str(x?.description, 600),
+    weight: str(x?.weight, 40),
+    price: num(x?.price),
+    variants: (Array.isArray(x?.variants) ? x.variants : []).map((v) => ({ label: str(v?.label, 40), price: num(v?.price) })).filter((v) => v.label && v.price).slice(0, 8),
+    alcohol: !!x?.alcohol,
+    confidence: x?.confidence === 'low' || !num(x?.price) ? 'low' : 'high'
+  })).filter((x) => x.title).slice(0, 200);
+  return json({ page: Number(body.page) || 1, items, usage: out?.usage || null, raw: items.length ? undefined : String(text).slice(0, 500) });
+}
+
+/* =========================================================
+   AR «БЛЮДО НА СТОЛЕ»
+   1) POST /admin/api/ar-cutout?restaurant=slug { image: '/files/…' } — вырезаем блюдо из фото
+      (Cloudflare Images, segment=foreground → PNG с прозрачным фоном) и кладём в R2.
+   2) GET /ar/<id>.glb — из вырезки собираем простую 3D-сцену: фото-плоскость в натуральную величину.
+      ar_mode: 'flat' — лежит на столе (фото сверху), 'stand' — стоит (фото сбоку: напитки, бургеры).
+      Гость открывает её через <model-viewer>: iPhone (Quick Look) и Android (Scene Viewer) — без приложений.
+   ========================================================= */
+async function handleArCutout(request, env) {
+  const url = new URL(request.url);
+  const slug = normId(url.searchParams.get('restaurant'));
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  const auth = await authorize(env, request, slug);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  if (!env.IMAGES) return json({ error: 'images_unavailable', message: 'Не подключены Cloudflare Images' }, { status: 503 });
+  const body = await request.json().catch(() => ({}));
+  const m = String(body.image || '').match(/\/files\/(.+)$/);
+  if (!m) return json({ error: 'bad_image', message: 'Сначала загрузите фото блюда' }, { status: 400 });
+  const key = decodeURIComponent(m[1]);
+  if (!key.startsWith(slug + '/')) return json({ error: 'forbidden' }, { status: 403 });
+  const obj = await env.BUCKET.get(key);
+  if (!obj) return json({ error: 'not_found' }, { status: 404 });
+  let png;
+  try {
+    const res = await env.IMAGES.input(obj.body)
+      .transform({ segment: 'foreground', width: 1024, height: 1024, fit: 'scale-down' })
+      .output({ format: 'image/png' });
+    png = await res.response().arrayBuffer();
+  } catch (err) {
+    return json({ error: 'cutout_failed', message: String(err).slice(0, 200) }, { status: 502 });
+  }
+  const outKey = `${slug}/ar-${crypto.randomUUID()}.png`;
+  await env.BUCKET.put(outKey, png, { httpMetadata: { contentType: 'image/png' } });
+  return json({ ok: true, url: `/files/${outKey}` });
+}
+
+function pngSize(buf) {
+  const v = new DataView(buf);
+  if (v.getUint32(0) !== 0x89504e47) return null;
+  return { w: v.getUint32(16), h: v.getUint32(20) };
+}
+
+/** Минимальный GLB: одна текстурированная плоскость, свет не влияет (KHR_materials_unlit) — цвета как на фото */
+function buildPlaneGlb(png, { w, h }, mode, sizeCm) {
+  const W = Math.max(0.05, Math.min(1.2, (sizeCm || (mode === 'stand' ? 12 : 26)) / 100));
+  const H = W * h / w;
+  const pos = mode === 'stand'
+    ? [-W / 2, 0, 0,  W / 2, 0, 0,  W / 2, H, 0,  -W / 2, H, 0]
+    : [-W / 2, 0.003, H / 2,  W / 2, 0.003, H / 2,  W / 2, 0.003, -H / 2,  -W / 2, 0.003, -H / 2];
+  const nrm = mode === 'stand' ? [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1] : [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+  const uv = [0, 1, 1, 1, 1, 0, 0, 0];
+  const idx = [0, 1, 2, 0, 2, 3];
+  const f32 = (a) => new Uint8Array(new Float32Array(a).buffer);
+  const parts = [f32(pos), f32(nrm), f32(uv), new Uint8Array(new Uint16Array(idx).buffer), new Uint8Array(png)];
+  const views = []; let off = 0; const chunks = [];
+  parts.forEach((p, i) => {
+    const pad = (4 - (p.length % 4)) % 4;
+    views.push({ buffer: 0, byteOffset: off, byteLength: p.length, ...(i < 3 ? { target: 34962 } : i === 3 ? { target: 34963 } : {}) });
+    chunks.push(p, new Uint8Array(pad)); off += p.length + pad;
+  });
+  const bin = new Uint8Array(off); let o = 0; chunks.forEach((c) => { bin.set(c, o); o += c.length; });
+  const gltf = {
+    asset: { version: '2.0', generator: 'tut.menu' },
+    extensionsUsed: ['KHR_materials_unlit'],
+    scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 1 },
+                  alphaMode: 'BLEND', doubleSided: true, extensions: { KHR_materials_unlit: {} } }],
+    textures: [{ source: 0, sampler: 0 }], samplers: [{ magFilter: 9729, minFilter: 9987 }],
+    images: [{ bufferView: 4, mimeType: 'image/png' }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 4, type: 'VEC3', min: [Math.min(...pos.filter((_, i) => i % 3 === 0)), Math.min(...pos.filter((_, i) => i % 3 === 1)), Math.min(...pos.filter((_, i) => i % 3 === 2))], max: [Math.max(...pos.filter((_, i) => i % 3 === 0)), Math.max(...pos.filter((_, i) => i % 3 === 1)), Math.max(...pos.filter((_, i) => i % 3 === 2))] },
+      { bufferView: 1, componentType: 5126, count: 4, type: 'VEC3' },
+      { bufferView: 2, componentType: 5126, count: 4, type: 'VEC2' },
+      { bufferView: 3, componentType: 5123, count: 6, type: 'SCALAR' }
+    ],
+    buffers: [{ byteLength: bin.length }],
+    bufferViews: views
+  };
+  let jsonBytes = new TextEncoder().encode(JSON.stringify(gltf));
+  const jpad = (4 - (jsonBytes.length % 4)) % 4;
+  if (jpad) { const t = new Uint8Array(jsonBytes.length + jpad).fill(0x20); t.set(jsonBytes); jsonBytes = t; }
+  const total = 12 + 8 + jsonBytes.length + 8 + bin.length;
+  const out = new Uint8Array(total); const dv = new DataView(out.buffer);
+  dv.setUint32(0, 0x46546c67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+  dv.setUint32(12, jsonBytes.length, true); dv.setUint32(16, 0x4e4f534a, true); out.set(jsonBytes, 20);
+  const b0 = 20 + jsonBytes.length;
+  dv.setUint32(b0, bin.length, true); dv.setUint32(b0 + 4, 0x004e4942, true); out.set(bin, b0 + 8);
+  return out;
+}
+
+async function handleArGlb(request, env, ctx, idStr) {
+  const id = Number(String(idStr).replace(/\.glb$/i, ''));
+  if (!id) return new Response('Not found', { status: 404 });
+  const row = await env.DB.prepare('SELECT ar_image, ar_mode, ar_size FROM menu_items WHERE id = ? AND active = 1').bind(id).first();
+  const m = row && String(row.ar_image || '').match(/\/files\/(.+)$/);
+  if (!m) return new Response('Not found', { status: 404 });
+  const mode = row.ar_mode === 'stand' ? 'stand' : 'flat';
+  const size = Number(row.ar_size) || 0;
+  const cache = caches.default;
+  const cacheKey = new Request(`https://ar.cache/${id}/${encodeURIComponent(m[1])}/${mode}/${size}.glb`);
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const obj = await env.BUCKET.get(decodeURIComponent(m[1]));
+  if (!obj) return new Response('Not found', { status: 404 });
+  const png = await obj.arrayBuffer();
+  const dim = pngSize(png);
+  if (!dim) return new Response('Bad image', { status: 415 });
+  const glb = buildPlaneGlb(png, dim, mode, size);
+  const res = new Response(glb, { headers: { 'content-type': 'model/gltf-binary', 'cache-control': 'public, max-age=3600', 'access-control-allow-origin': '*' } });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
 }
 
 /* ---------- POST /admin/api/upload — фото/видео в R2 ---------- */
@@ -799,6 +984,9 @@ export default {
       if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
+      if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
+      if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
+      if (p.startsWith('/ar/') && (method === 'GET' || method === 'HEAD')) return await handleArGlb(request, env, ctx, p.slice(4));
       if (p.startsWith('/admin/api/')) {
         const segments = p.slice('/admin/api/'.length).split('/').filter(Boolean);
         return await handleAdminApi(request, env, segments);
