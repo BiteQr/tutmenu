@@ -711,17 +711,27 @@ async function handleArGlb(request, env, ctx, idStr) {
   const id = Number(String(idStr).replace(/\.glb$/i, ''));
   if (!id) return new Response('Not found', { status: 404 });
   const row = await env.DB.prepare('SELECT ar_image, ar_mode, ar_size FROM menu_items WHERE id = ? AND active = 1').bind(id).first();
-  const m = row && String(row.ar_image || '').match(/\/files\/(.+)$/);
-  if (!m) return new Response('Not found', { status: 404 });
+  // Вырезка лежит либо в R2 (/files/… — сделана из админки), либо в файлах сайта (/media/ar/… — подготовлена заранее)
+  const src = row ? String(row.ar_image || '') : '';
+  const m = src.match(/\/files\/(.+)$/);
+  const asset = src.match(/^\/media\/ar\/[\w.-]+\.png$/);
+  if (!m && !asset) return new Response('Not found', { status: 404 });
   const mode = row.ar_mode === 'stand' ? 'stand' : 'flat';
   const size = Number(row.ar_size) || 0;
   const cache = caches.default;
-  const cacheKey = new Request(`https://ar.cache/${id}/${encodeURIComponent(m[1])}/${mode}/${size}.glb`);
+  const cacheKey = new Request(`https://ar.cache/${id}/${encodeURIComponent(src)}/${mode}/${size}.glb`);
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
-  const obj = await env.BUCKET.get(decodeURIComponent(m[1]));
-  if (!obj) return new Response('Not found', { status: 404 });
-  const png = await obj.arrayBuffer();
+  let png;
+  if (m) {
+    const obj = await env.BUCKET.get(decodeURIComponent(m[1]));
+    if (!obj) return new Response('Not found', { status: 404 });
+    png = await obj.arrayBuffer();
+  } else {
+    const r = await env.ASSETS.fetch(new URL(src, request.url));
+    if (!r.ok) return new Response('Not found', { status: 404 });
+    png = await r.arrayBuffer();
+  }
   const dim = pngSize(png);
   if (!dim) return new Response('Bad image', { status: 415 });
   const glb = buildPlaneGlb(png, dim, mode, size);
