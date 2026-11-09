@@ -713,6 +713,12 @@ async function handleArGlb(request, env, ctx, idStr) {
   const row = await env.DB.prepare('SELECT ar_image, ar_mode, ar_size FROM menu_items WHERE id = ? AND active = 1').bind(id).first();
   // Вырезка лежит либо в R2 (/files/… — сделана из админки), либо в файлах сайта (/media/ar/… — подготовлена заранее)
   const src = row ? String(row.ar_image || '') : '';
+  // Готовая 3D-модель (рельеф по фото или модель из сервиса) — отдаём как есть
+  if (/^\/media\/ar\/[\w.-]+\.glb$/.test(src)) {
+    const r = await env.ASSETS.fetch(new URL(src, request.url));
+    if (!r.ok) return new Response('Not found', { status: 404 });
+    return new Response(r.body, { headers: { 'content-type': 'model/gltf-binary', 'cache-control': 'public, max-age=3600', 'access-control-allow-origin': '*' } });
+  }
   const m = src.match(/\/files\/(.+)$/);
   const asset = src.match(/^\/media\/ar\/[\w.-]+\.png$/);
   if (!m && !asset) return new Response('Not found', { status: 404 });

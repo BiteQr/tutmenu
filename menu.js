@@ -953,6 +953,8 @@
     mv.setAttribute('shadow-intensity', '1'); mv.setAttribute('exposure', '1');
     // «Стоит» — плоская фигура: сбоку она тонкая как лист, поэтому крутить даём только спереди
     if (it.arMode === 'stand') { mv.setAttribute('min-camera-orbit', '-45deg 50deg auto'); mv.setAttribute('max-camera-orbit', '45deg 95deg auto'); }
+    // 'relief' — объём восстановлен по одному фото: сзади и сбоку модели нет, поэтому смотрим примерно с той же стороны, что и камера
+    else if (it.arMode === 'relief') { mv.setAttribute('camera-orbit', '0deg 42deg auto'); mv.setAttribute('min-camera-orbit', '-55deg 15deg auto'); mv.setAttribute('max-camera-orbit', '55deg 68deg auto'); }
     else mv.setAttribute('auto-rotate', '');
     mv.setAttribute('camera-orbit', it.arMode === 'stand' ? '0deg 80deg auto' : '0deg 55deg auto');
     mv.setAttribute('interaction-prompt', 'none');
