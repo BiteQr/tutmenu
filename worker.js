@@ -165,6 +165,7 @@ async function handleMenu(request, env) {
     hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || '',
     itemLayout: restaurant.item_layout || 'list',
     langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
+    orderMode: restaurant.order_mode === 'waiter' ? 'waiter' : 'whatsapp',
     lunch: parseLunch(restaurant.lunch)
   };
 
@@ -326,7 +327,7 @@ ${menuText}`;
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
-const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch', 'view_ar']);
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch', 'view_ar', 'show_waiter']);
 
 async function handleTrack(request, env) {
   let body;
@@ -451,7 +452,7 @@ async function handleAdminApi(request, env, segments) {
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode']
         .filter((c) => c in b);
       if (cols.includes('lunch')) {
         const v = b.lunch == null || b.lunch === '' ? null : (typeof b.lunch === 'string' ? b.lunch : JSON.stringify(b.lunch));

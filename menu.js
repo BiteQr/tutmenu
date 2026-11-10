@@ -859,6 +859,8 @@
         return;
       }
       // «С этим берут»: «+» — сразу в заказ, тап по карточке — открыть то блюдо
+      const recDec = t.closest('[data-rec-dec]');
+      if (recDec) { const ls = Cart.lines().filter((l) => l.item.id === recDec.dataset.recDec); if (ls.length) Cart.dec(ls[ls.length - 1].key); return; }
       const recAdd = t.closest('[data-rec-add]');
       if (recAdd) {
         const rec = Cart.getItem(recAdd.dataset.recAdd);
@@ -875,6 +877,29 @@
     return itemDetailModal;
   }
 
+  /* Счётчик у рекомендаций: после добавления вместо «+» — «Добавлено» и «− N +» */
+  const recQty = (id) => Cart.lines().filter((l) => l.item.id === id).reduce((n, l) => n + l.qty, 0);
+  const R_MINUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>';
+  const R_PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+  function recAddHTML(r) {
+    const q = recQty(r.id);
+    if (!q) return `<button type="button" class="rec-card__add" data-rec-add="${esc(r.id)}" aria-label="+ ${esc(I18n.f(r, 'title'))}">${R_PLUS}</button>`;
+    return `<span class="rec-step"><button type="button" data-rec-dec="${esc(r.id)}" aria-label="−">${R_MINUS}</button><b>${q}</b><button type="button" data-rec-add="${esc(r.id)}" aria-label="+">${R_PLUS}</button></span>`;
+  }
+  /** Обновить счётчики рекомендаций в открытой карточке блюда, не перерисовывая её */
+  function refreshDetailRecs() {
+    if (!itemDetailModal || itemDetailModal.hidden) return;
+    itemDetailModal.querySelectorAll('[data-rec-foot]').forEach((foot) => {
+      const r = Cart.getItem(foot.dataset.recFoot); if (!r) return;
+      const q = recQty(r.id);
+      foot.classList.toggle('is-added', !!q);
+      const price = foot.querySelector('.rec-card__price');
+      price.textContent = q ? '✓ ' + I18n.t('recAdded') : (r.variants.length ? `${I18n.t('from')} ${money(Math.min(...r.variants.map((v) => v.price)))}` : money(r.price));
+      const old = foot.querySelector('.rec-card__add, .rec-step'); if (old) old.outerHTML = recAddHTML(r);
+    });
+  }
+  Cart.subscribe(refreshDetailRecs);
+
   /** «С этим берут» — блюда из поля «Рекомендации» в админке, маленькими карточками в ряд.
    *  Нажал на карточку — открывается то блюдо, на «+» — сразу в заказ. */
   function recsHTML(it) {
@@ -888,11 +913,9 @@
             <div class="rec-card" data-open-rec="${esc(r.id)}">
               ${photoHTML(r.image, 'rec-card__img', I18n.f(r, 'title'))}
               <div class="rec-card__title">${esc(I18n.f(r, 'title'))}</div>
-              <div class="rec-card__foot">
-                <span class="rec-card__price">${r.variants.length ? `${esc(I18n.t('from'))} ${money(Math.min(...r.variants.map((v) => v.price)))}` : money(r.price)}</span>
-                <button type="button" class="rec-card__add" data-rec-add="${esc(r.id)}" aria-label="+ ${esc(I18n.f(r, 'title'))}">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
+              <div class="rec-card__foot${recQty(r.id) ? ' is-added' : ''}" data-rec-foot="${esc(r.id)}">
+                <span class="rec-card__price">${recQty(r.id) ? '✓ ' + esc(I18n.t('recAdded')) : r.variants.length ? `${esc(I18n.t('from'))} ${money(Math.min(...r.variants.map((v) => v.price)))}` : money(r.price)}</span>
+                ${recAddHTML(r)}
               </div>
             </div>`).join('')}
         </div>
