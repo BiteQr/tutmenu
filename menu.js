@@ -350,6 +350,22 @@
       </button>`;
     els.lunch.hidden = false;
   }
+  /* Карта гостя: строка-ссылка под бизнес-ланчем, ведёт на отдельную страницу /card */
+  function renderLoyaltyRow() {
+    const el = document.getElementById('loyalRow'); if (!el) return;
+    const L = data && data.settings && data.settings.loyalty;
+    if (!L || !L.programs || !L.programs.length) { el.hidden = true; return; }
+    const r = new URLSearchParams(location.search).get('r');
+    el.href = '/card' + (r ? '?r=' + encodeURIComponent(r) : '');
+    const sub = L.programs.map((p) => `${p.title} ${p.need}+1`).join(' · ');
+    el.innerHTML = `<span class="lunch__card lunch__card--row">
+        <span class="loyal-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/></svg></span>
+        <span class="lunch__name">${esc(I18n.t('loyalTitle'))}</span>
+        <span class="lunch__badge">${esc(sub)}</span>
+        <svg class="lunch__chev" style="margin-left:auto" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </span>`;
+    el.hidden = false;
+  }
   function openLunchWeek(dayIdx) {
     const L = lunchCfg(); if (!L) return;
     const tg = lunchTarget(L, new Date());
@@ -387,6 +403,7 @@
     renderHeader();
     renderPromos();
     renderLunch();
+    renderLoyaltyRow();
     renderBody();
     I18n.applyStatic();
     hintPromosScroll();

@@ -40,7 +40,7 @@ function accessEmail(request) {
  * owner  — видит и правит любого клиента.
  * editor — только свой restaurant_id (slug).
  */
-export async function authorize(env, request, slug) {
+export async function authorize(env, request, slug, { allowStaff = false } = {}) {
   const email = accessEmail(request);
   if (!email) return { ok: false, status: 401, error: 'no_access_email' };
 
@@ -48,6 +48,11 @@ export async function authorize(env, request, slug) {
     .bind(email).first();
   if (!row) return { ok: false, status: 403, error: 'not_registered' };
   if (row.role === 'owner') return { ok: true, email, role: 'owner' };
+  // staff — официант: только карта лояльности своего ресторана, меню и настройки ему закрыты
+  if (row.role === 'staff') {
+    if (row.restaurant_id === slug && allowStaff) return { ok: true, email, role: 'staff' };
+    return { ok: false, status: 403, error: 'staff_only' };
+  }
   if (row.restaurant_id === slug) return { ok: true, email, role: 'editor' };
   return { ok: false, status: 403, error: 'wrong_restaurant' };
 }
@@ -165,7 +170,8 @@ async function handleMenu(request, env) {
     hoursFrom: restaurant.hours_from || '', hoursTo: restaurant.hours_to || '',
     itemLayout: restaurant.item_layout || 'list',
     langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
-    lunch: parseLunch(restaurant.lunch)
+    lunch: parseLunch(restaurant.lunch),
+    loyalty: (() => { const c = loyaltyCfg(restaurant); return c.enabled ? { programs: c.programs.filter((x) => x.active).map((x) => ({ title: x.title, need: x.need, icon: x.icon })) } : null; })()
   };
 
   const payload = {
@@ -448,6 +454,7 @@ async function handleAdminApi(request, env, segments) {
     if (method === 'PUT') {
       if (!qSlug) return json({ error: 'no_slug' }, { status: 400 });
       if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
+      if (me.role === 'staff') return json({ error: 'staff_only' }, { status: 403 });
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
@@ -746,6 +753,186 @@ async function handleArGlb(request, env, ctx, idStr) {
   return res;
 }
 
+/* =========================================================
+   КАРТА ЛОЯЛЬНОСТИ (вместо бумажных карточек «5+1»)
+   Гость: /card — вводит имя и телефон, получает карту с QR. SMS не шлём: отметки ставит только
+   персонал в заведении, поэтому подтверждать номер не нужно — чужой номер ничего не даёт.
+   Персонал: вкладка «Лояльность» в админке — сканирует QR или ищет по номеру, жмёт «+1».
+   restaurants.loyalty — JSON настроек: { enabled, cooldownMin, programs:[{id,title,need,reward,icon}] }
+   ========================================================= */
+const LOYALTY_DEFAULT = {
+  enabled: false, cooldownMin: 120,
+  programs: [
+    { id: 'hookah', title: 'Кальян', need: 5, reward: 'Шестой кальян — в подарок', icon: 'hookah' },
+    { id: 'coffee', title: 'Кофе', need: 5, reward: 'Шестой кофе — в подарок', icon: 'coffee' }
+  ]
+};
+function loyaltyCfg(row) {
+  let c = null; try { c = JSON.parse(row?.loyalty || 'null'); } catch { c = null; }
+  c = c && typeof c === 'object' ? c : {};
+  const programs = (Array.isArray(c.programs) && c.programs.length ? c.programs : LOYALTY_DEFAULT.programs)
+    .map((p) => ({ id: normId(p.id) || 'p', title: String(p.title || '').slice(0, 40), need: Math.max(1, Math.min(20, Number(p.need) || 5)),
+                   reward: String(p.reward || '').slice(0, 80), icon: ['hookah', 'coffee', 'gift', 'cocktail'].includes(p.icon) ? p.icon : 'gift',
+                   active: p.active !== false }))
+    .slice(0, 4);
+  return { enabled: !!c.enabled, cooldownMin: Math.max(0, Math.min(1440, Number(c.cooldownMin ?? LOYALTY_DEFAULT.cooldownMin))), programs };
+}
+const normPhone = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1); if (d.length === 10) d = '7' + d; return d; };
+function newCardCode() {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const b = crypto.getRandomValues(new Uint8Array(12));
+  return [...b].map((x) => abc[x % abc.length]).join('');
+}
+/** Отметки по программам: после погашения счёт начинается заново */
+async function loyaltyCounts(env, cardId, cfg) {
+  const ev = (await env.DB.prepare('SELECT program, kind, created_at FROM loyalty_events WHERE card_id = ? ORDER BY id').bind(cardId).all()).results;
+  const out = {};
+  for (const p of cfg.programs) out[p.id] = { stamps: 0, rewards: 0, last: null };
+  for (const e of ev) {
+    const o = out[e.program]; if (!o) continue;
+    if (e.kind === 'stamp') { o.stamps++; o.last = e.created_at; }
+    else if (e.kind === 'unstamp') o.stamps = Math.max(0, o.stamps - 1);
+    else if (e.kind === 'redeem') { o.stamps = Math.max(0, o.stamps - (cfg.programs.find((p) => p.id === e.program)?.need || 5)); o.rewards++; }
+  }
+  return out;
+}
+function cardOut(card, counts, cfg) {
+  return { code: card.code, name: card.name, phoneTail: String(card.phone).slice(-4), createdAt: card.created_at,
+    programs: cfg.programs.filter((p) => p.active).map((p) => ({ ...p, stamps: counts[p.id]?.stamps || 0, rewards: counts[p.id]?.rewards || 0, ready: (counts[p.id]?.stamps || 0) >= p.need })) };
+}
+
+async function handleLoyaltyPublic(request, env, p) {
+  const url = new URL(request.url);
+  const rest = await env.DB.prepare('SELECT slug, name, logo_header, logo_welcome, lang_color, accent_color, loyalty, whatsapp FROM restaurants WHERE (slug = ?1 OR domain = ?1) AND active = 1')
+    .bind(normId(url.searchParams.get('r') || url.hostname)).first();
+  if (!rest) return json({ error: 'no_restaurant' }, { status: 404 });
+  const cfg = loyaltyCfg(rest);
+  if (!cfg.enabled) return json({ error: 'disabled' }, { status: 404 });
+
+  if (p === '/api/loyalty/info') {
+    return json({ name: rest.name, logo: rest.logo_welcome || rest.logo_header || '', color: rest.lang_color || rest.accent_color || '',
+      programs: cfg.programs.filter((x) => x.active) });
+  }
+  if (p === '/api/loyalty/card' && request.method === 'GET') {
+    const code = String(url.searchParams.get('c') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const card = code && await env.DB.prepare('SELECT * FROM loyalty_cards WHERE code = ? AND restaurant_id = ?').bind(code, rest.slug).first();
+    if (!card) return json({ error: 'not_found' }, { status: 404 });
+    return json({ card: cardOut(card, await loyaltyCounts(env, card.id, cfg), cfg) });
+  }
+  if (p === '/api/loyalty/register' && request.method === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const phone = normPhone(b.phone);
+    if (name.length < 2) return json({ error: 'bad_name' }, { status: 400 });
+    if (!/^7\d{10}$/.test(phone)) return json({ error: 'bad_phone' }, { status: 400 });
+    if (b.consent !== true) return json({ error: 'no_consent' }, { status: 400 });
+    // Простой антиспам: не больше 5 новых карт с одного IP за час
+    const ip = request.headers.get('cf-connecting-ip') || '';
+    const recent = await env.DB.prepare("SELECT COUNT(*) n FROM loyalty_cards WHERE ip = ? AND created_at > datetime('now','-1 hour')").bind(ip).first();
+    if ((recent?.n || 0) >= 5) return json({ error: 'too_many' }, { status: 429 });
+    const exists = await env.DB.prepare('SELECT id FROM loyalty_cards WHERE restaurant_id = ? AND phone = ?').bind(rest.slug, phone).first();
+    // Карта уже есть: QR показываем только на телефоне, где её создали — иначе чужой номер = чужой подарок.
+    // Восстановить на новом телефоне помогает официант (ищет по номеру и показывает QR для привязки).
+    if (exists) return json({ error: 'exists' }, { status: 409 });
+    const code = newCardCode();
+    await env.DB.prepare("INSERT INTO loyalty_cards (code, restaurant_id, name, phone, ip, consent_at, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))")
+      .bind(code, rest.slug, name, phone, ip).run();
+    const card = await env.DB.prepare('SELECT * FROM loyalty_cards WHERE code = ?').bind(code).first();
+    return json({ card: cardOut(card, await loyaltyCounts(env, card.id, cfg), cfg) });
+  }
+  return json({ error: 'not_found' }, { status: 404 });
+}
+
+/** Манифест «приложения» карты: иконка на экране «Домой» открывает сразу карту гостя (с её кодом) */
+async function serveCardManifest(request, env, url) {
+  const rest = await env.DB.prepare('SELECT slug, name, logo_header, accent_color FROM restaurants WHERE (slug = ?1 OR domain = ?1) AND active = 1')
+    .bind(normId(url.searchParams.get('r') || url.hostname)).first();
+  const code = String(url.searchParams.get('c') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  const name = rest?.name || 'Карта гостя';
+  const start = '/card' + (code ? `?c=${code}` : '') + (url.searchParams.get('r') ? `${code ? '&' : '?'}r=${encodeURIComponent(url.searchParams.get('r'))}` : '');
+  const icon = rest?.logo_header ? [{ src: rest.logo_header, sizes: '512x512', type: 'image/png', purpose: 'any' }] : [];
+  return new Response(JSON.stringify({
+    name: `Карта ${name}`, short_name: name.slice(0, 12), start_url: start, scope: '/card', id: '/card',
+    display: 'standalone', background_color: rest?.accent_color || '#4d1d15', theme_color: rest?.accent_color || '#4d1d15', icons: icon
+  }), { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-store' } });
+}
+
+async function handleLoyaltyAdmin(request, env, p) {
+  const url = new URL(request.url);
+  const slug = normId(url.searchParams.get('restaurant'));
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  const auth = await authorize(env, request, slug, { allowStaff: true });
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  const rest = await env.DB.prepare('SELECT slug, loyalty FROM restaurants WHERE slug = ?').bind(slug).first();
+  if (!rest) return json({ error: 'not_found' }, { status: 404 });
+  const cfg = loyaltyCfg(rest);
+  const method = request.method;
+
+  if (p === '/admin/api/loyalty/settings') {
+    if (method === 'GET') {
+      const staff = (await env.DB.prepare("SELECT email FROM admin_users WHERE restaurant_id = ? AND role = 'staff'").bind(slug).all()).results.map((r) => r.email);
+      const stats = await env.DB.prepare('SELECT COUNT(*) cards FROM loyalty_cards WHERE restaurant_id = ?').bind(slug).first();
+      return json({ settings: cfg, staffEmails: auth.role === 'staff' ? [] : staff, role: auth.role, cards: stats?.cards || 0 });
+    }
+    if (method === 'PUT') {
+      if (auth.role === 'staff') return json({ error: 'staff_only' }, { status: 403 });
+      const b = await request.json().catch(() => ({}));
+      const next = loyaltyCfg({ loyalty: JSON.stringify(b.settings || {}) });
+      await env.DB.prepare('UPDATE restaurants SET loyalty = ? WHERE slug = ?').bind(JSON.stringify(next), slug).run();
+      if (Array.isArray(b.staffEmails)) {
+        const emails = [...new Set(b.staffEmails.map((e) => String(e).trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))].slice(0, 30);
+        // Не трогаем тех, кто уже владелец или редактор
+        await env.DB.prepare("DELETE FROM admin_users WHERE restaurant_id = ? AND role = 'staff'").bind(slug).run();
+        for (const e of emails) {
+          const ex = await env.DB.prepare('SELECT role FROM admin_users WHERE email = ?').bind(e).first();
+          if (!ex) await env.DB.prepare("INSERT INTO admin_users (email, restaurant_id, role) VALUES (?, ?, 'staff')").bind(e, slug).run();
+        }
+      }
+      return json({ ok: true, settings: next });
+    }
+  }
+  if (p === '/admin/api/loyalty/find' && method === 'GET') {
+    const q = String(url.searchParams.get('q') || '').trim();
+    const code = q.toUpperCase().replace(/^.*[?&]C=/, '').replace(/[^A-Z0-9]/g, '');
+    const digits = q.replace(/\D/g, '');
+    let rows = [];
+    if (code.length === 12) rows = (await env.DB.prepare('SELECT * FROM loyalty_cards WHERE restaurant_id = ? AND code = ?').bind(slug, code).all()).results;
+    if (!rows.length && digits.length >= 4) rows = (await env.DB.prepare('SELECT * FROM loyalty_cards WHERE restaurant_id = ? AND phone LIKE ? ORDER BY id DESC LIMIT 10').bind(slug, '%' + digits.slice(-10)).all()).results;
+    const cards = [];
+    for (const c of rows) cards.push({ ...cardOut(c, await loyaltyCounts(env, c.id, cfg), cfg), phone: c.phone });
+    return json({ cards });
+  }
+  if (p === '/admin/api/loyalty/stamp' && method === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    const card = await env.DB.prepare('SELECT * FROM loyalty_cards WHERE restaurant_id = ? AND code = ?').bind(slug, String(b.code || '')).first();
+    if (!card) return json({ error: 'not_found' }, { status: 404 });
+    const prog = cfg.programs.find((x) => x.id === b.program && x.active);
+    if (!prog) return json({ error: 'bad_program' }, { status: 400 });
+    const counts = await loyaltyCounts(env, card.id, cfg);
+    const kind = b.action === 'redeem' ? 'redeem' : b.action === 'undo' ? 'unstamp' : 'stamp';
+    if (kind === 'stamp') {
+      if (counts[prog.id].stamps >= prog.need) return json({ error: 'reward_ready', message: 'Сначала выдайте подарок' }, { status: 409 });
+      const last = counts[prog.id].last;
+      if (!b.force && last && cfg.cooldownMin && (Date.now() - Date.parse(last.replace(' ', 'T') + 'Z')) < cfg.cooldownMin * 60000)
+        return json({ error: 'cooldown', message: `Отметка уже была меньше ${cfg.cooldownMin} мин назад` }, { status: 429 });
+    }
+    if (kind === 'redeem' && counts[prog.id].stamps < prog.need) return json({ error: 'not_ready' }, { status: 409 });
+    if (kind === 'unstamp' && !counts[prog.id].stamps) return json({ error: 'nothing' }, { status: 409 });
+    await env.DB.prepare("INSERT INTO loyalty_events (card_id, restaurant_id, program, kind, staff_email, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))")
+      .bind(card.id, slug, prog.id, kind, auth.email).run();
+    return json({ card: { ...cardOut(card, await loyaltyCounts(env, card.id, cfg), cfg), phone: card.phone } });
+  }
+  if (p === '/admin/api/loyalty/recent' && method === 'GET') {
+    const ev = (await env.DB.prepare(`SELECT e.program, e.kind, e.staff_email, e.created_at, c.name, c.code, c.phone
+      FROM loyalty_events e JOIN loyalty_cards c ON c.id = e.card_id WHERE e.restaurant_id = ? ORDER BY e.id DESC LIMIT 40`).bind(slug).all()).results;
+    const tot = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM loyalty_cards WHERE restaurant_id = ?1) cards,
+      (SELECT COUNT(*) FROM loyalty_events WHERE restaurant_id = ?1 AND kind = 'stamp' AND created_at > datetime('now','-30 days')) stamps30,
+      (SELECT COUNT(*) FROM loyalty_events WHERE restaurant_id = ?1 AND kind = 'redeem' AND created_at > datetime('now','-30 days')) rewards30`).bind(slug).first();
+    return json({ events: ev.map((e) => ({ ...e, phone: auth.role === 'staff' ? '…' + String(e.phone).slice(-4) : e.phone })), totals: tot });
+  }
+  return json({ error: 'not_found' }, { status: 404 });
+}
+
 /* ---------- POST /admin/api/upload — фото/видео в R2 ---------- */
 const MAX_BYTES_IMAGE = 20 * 1024 * 1024;
 const MAX_BYTES_VIDEO = 60 * 1024 * 1024;
@@ -1001,6 +1188,9 @@ export default {
       if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
+      if (p.startsWith('/admin/api/loyalty/')) return await handleLoyaltyAdmin(request, env, p);
+      if (p.startsWith('/api/loyalty/')) return await handleLoyaltyPublic(request, env, p);
+      if (p === '/card.webmanifest') return await serveCardManifest(request, env, url);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
       if (p.startsWith('/ar/') && (method === 'GET' || method === 'HEAD')) return await handleArGlb(request, env, ctx, p.slice(4));
       if (p.startsWith('/admin/api/')) {

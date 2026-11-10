@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта гостя</title>
+<meta name="theme-color" content="#4d1d15">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Карта гостя">
+<link rel="manifest" id="mf" href="/card.webmanifest">
+<link rel="apple-touch-icon" id="ati" href="">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Forum&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  /* Карта гостя: отдельная лёгкая страница. С экрана «Домой» открывается сразу сюда. */
+  :root { --brand: #4d1d15; --brand-2: #6b2a21; --cream: #f3e6cf; --gold: #e4c79c; --bg: #f6f2ec; --text: #1c1c1e; --muted: #7c746c; --line: #e4ddd3; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--text); font-family: Manrope, system-ui, sans-serif; }
+  body { min-height: 100vh; min-height: 100dvh; padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 28px); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+  .wrap { max-width: 440px; margin: 0 auto; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .back { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 600; color: var(--muted); text-decoration: none; }
+  .top h1 { font-family: Forum, serif; font-weight: 400; font-size: 22px; letter-spacing: .06em; }
+
+  /* Сама карта — как в Wallet */
+  .card { position: relative; overflow: hidden; border-radius: 22px; padding: 20px 20px 18px; color: var(--cream);
+    background: radial-gradient(120% 90% at 100% 0%, var(--brand-2) 0%, var(--brand) 55%, #2a0e0a 100%);
+    box-shadow: 0 18px 40px -18px rgba(60,15,10,.55), inset 0 0 0 1px rgba(255,255,255,.06); }
+  .card::after { content: ''; position: absolute; inset: 9px; border: 1px solid rgba(228,199,156,.28); border-radius: 15px; pointer-events: none; }
+  .card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .card__logo { height: 30px; max-width: 150px; object-fit: contain; }
+  .card__logo-txt { font-family: Forum, serif; font-size: 22px; letter-spacing: .04em; }
+  .card__kind { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+  .card__name { margin-top: 18px; font-family: Forum, serif; font-size: 28px; line-height: 1.1; }
+  .card__phone { margin-top: 2px; font-size: 13px; opacity: .65; }
+  .prog { margin-top: 16px; }
+  .prog__row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .prog__title { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .prog__left { font-size: 12px; opacity: .7; }
+  .dots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .dot { aspect-ratio: 1; border-radius: 50%; border: 1.5px solid rgba(228,199,156,.55); background: rgba(255,255,255,.04); display: flex; align-items: center; justify-content: center; }
+  .dot.is-on { background: var(--cream); border-color: var(--cream); }
+  .dot.is-on::after { content: ''; width: 34%; height: 34%; border-radius: 50%; background: var(--brand); }
+  .dot.is-gift { background: var(--gold); border-color: var(--gold); color: var(--brand); }
+  .dot.is-gift svg { width: 52%; height: 52%; }
+  .dot.is-ready { animation: ready 1.6s ease-in-out infinite; }
+  @keyframes ready { 0%,100% { box-shadow: 0 0 0 0 rgba(228,199,156,.7); } 50% { box-shadow: 0 0 0 7px rgba(228,199,156,0); } }
+  .prog__gift { margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--gold); }
+
+  .qr { margin-top: 14px; padding: 18px; border-radius: 22px; background: #fff; text-align: center; box-shadow: 0 1px 0 var(--line); }
+  .qr__box { width: 196px; height: 196px; margin: 0 auto; }
+  .qr__box img, .qr__box canvas { width: 196px !important; height: 196px !important; }
+  .qr__code { margin-top: 12px; font-size: 17px; font-weight: 800; letter-spacing: .14em; }
+  .qr__hint { margin-top: 4px; font-size: 14px; color: var(--muted); }
+
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 54px; border-radius: 16px; font-size: 16px; font-weight: 700; }
+  .btn-main { background: var(--brand); color: var(--cream); }
+  .btn-main:disabled { opacity: .5; }
+  .btn-soft { background: #fff; color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .home { margin-top: 14px; }
+  .note { margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.45; }
+
+  /* Регистрация */
+  .intro { margin-top: 18px; }
+  .intro h2 { font-family: Forum, serif; font-weight: 400; font-size: 28px; line-height: 1.15; }
+  .intro p { margin-top: 6px; font-size: 15px; color: var(--muted); line-height: 1.45; }
+  .perks { margin-top: 14px; display: grid; gap: 8px; }
+  .perk { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #fff; box-shadow: 0 1px 0 var(--line); font-size: 15px; font-weight: 600; }
+  .perk i { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--cream); color: var(--brand); display: flex; align-items: center; justify-content: center; }
+  .perk i svg { width: 20px; height: 20px; }
+  form { margin-top: 18px; display: grid; gap: 12px; }
+  .fld label { display: block; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px 4px; }
+  .fld input { width: 100%; height: 54px; padding: 0 16px; border-radius: 16px; border: 1px solid var(--line); background: #fff; font-size: 17px; outline: none; }
+  .fld input:focus { border-color: var(--brand); }
+  .agree { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .agree input { flex: none; width: 20px; height: 20px; margin-top: 1px; accent-color: var(--brand); }
+  .err { display: none; padding: 12px 14px; border-radius: 14px; background: #fdecea; color: #8a1c12; font-size: 14px; line-height: 1.4; }
+  .err.on { display: block; }
+
+  /* Инструкция «На экран Домой» для iPhone */
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 10; }
+  .sheet-bg.on { opacity: 1; pointer-events: auto; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; padding: 22px 20px calc(env(safe-area-inset-bottom) + 22px); border-radius: 24px 24px 0 0; background: #fff;
+    transform: translateY(105%); visibility: hidden; transition: transform .35s cubic-bezier(.2,.8,.2,1), visibility 0s .35s; max-width: 520px; margin: 0 auto; }
+  .sheet.on { transform: none; visibility: visible; transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+  .sheet h3 { font-family: Forum, serif; font-weight: 400; font-size: 24px; }
+  .step { display: flex; gap: 12px; align-items: center; margin-top: 14px; font-size: 16px; line-height: 1.35; }
+  .step b.n { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--brand); color: var(--cream); display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .ico { display: inline-flex; vertical-align: -5px; width: 26px; height: 26px; border-radius: 7px; background: #f1f1f4; align-items: center; justify-content: center; color: #0a84ff; }
+  .ico svg { width: 17px; height: 17px; }
+  .arrow { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 6px); z-index: 12; transform: translateX(-50%); color: #fff; opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .arrow.on { opacity: 1; animation: bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
+  .toast { visibility: hidden; position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 14px); transform: translate(-50%, -140%); background: #1c1c1e; color: #fff; padding: 11px 16px; border-radius: 14px; font-size: 14px; font-weight: 600; transition: transform .3s; z-index: 20; }
+  .toast.on { transform: translate(-50%, 0); visibility: visible; }
+  .loading { padding: 80px 0; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="loading">Загружаю…</div></div>
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+<svg class="arrow" id="arrow" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M5 13l7 7 7-7"/></svg>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const params = new URLSearchParams(location.search);
+  const R = params.get('r') || '';                    // на своём домене ресторана не нужен
+  const q = (p) => p + (R ? (p.includes('?') ? '&' : '?') + 'r=' + encodeURIComponent(R) : '');
+  const KEY = 'loyalty_card_' + (R || location.hostname);
+  const store = { get() { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } }, set(v) { try { localStorage.setItem(KEY, v); } catch {} } };
+  const toast = (t) => { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 2600); };
+  const ICON = {
+    hookah: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4M12 2v4M9.5 6h5l-.8 3h-3.4zM10.5 9.5c-2.6.9-4 2.9-4 5.3A5.5 5.5 0 0 0 12 20.5a5.5 5.5 0 0 0 5.5-5.7c0-2.4-1.4-4.4-4-5.3"/><path d="M17 13c2 0 3.5 1 3.5 3"/><path d="M9 22h6"/></svg>',
+    coffee: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3c0 1 1 1 1 2s-1 1-1 2M12 3c0 1 1 1 1 2s-1 1-1 2"/><path d="M3 22h15"/></svg>',
+    cocktail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16l-8 9z"/><path d="M12 13v7M8 21h8"/></svg>',
+    gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8S10.5 3 8 3a2.5 2.5 0 0 0 0 5M12 8s1.5-5 4-5a2.5 2.5 0 0 1 0 5"/></svg>'
+  };
+  const SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  const PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg>';
+  const DOTS = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+
+  let info = null, card = null, installEvt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; });
+  const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  async function api(path, opt) {
+    const r = await fetch(q(path), { headers: { 'content-type': 'application/json' }, ...opt });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || 'error'), { code: j.error, status: r.status });
+    return j;
+  }
+  function brand() {
+    if (info.color && /^#[0-9a-f]{6}$/i.test(info.color)) {
+      document.documentElement.style.setProperty('--brand', info.color);
+      document.querySelector('meta[name="theme-color"]').content = info.color;
+    }
+    document.title = 'Карта гостя · ' + info.name;
+    if (info.logo) $('#ati').href = info.logo;
+  }
+  const head = () => `<div class="top"><a class="back" href="${esc(q('/'))}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Меню</a><h1>Карта гостя</h1><span style="width:56px"></span></div>`;
+  const logo = () => info.logo ? `<img class="card__logo" src="${esc(info.logo)}" alt="${esc(info.name)}">` : `<span class="card__logo-txt">${esc(info.name)}</span>`;
+  const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c; };
+
+  function progHTML(p) {
+    const left = Math.max(0, p.need - p.stamps);
+    const dots = Array.from({ length: p.need }, (_, i) => `<span class="dot${i < p.stamps ? ' is-on' : ''}"></span>`).join('')
+      + `<span class="dot is-gift${p.ready ? ' is-ready' : ''}">${ICON[p.icon] || ICON.gift}</span>`;
+    return `<div class="prog"><div class="prog__row"><span class="prog__title">${esc(p.title)}</span><span class="prog__left">${p.ready ? '' : `ещё ${left} ${plural(left, 'отметка', 'отметки', 'отметок')}`}</span></div>
+      <div class="dots" style="grid-template-columns:repeat(${p.need + 1},1fr)">${dots}</div>
+      ${p.ready ? `<div class="prog__gift">🎁 ${esc(p.reward || 'Подарок готов')} — скажите официанту</div>` : ''}</div>`;
+  }
+
+  function renderCard() {
+    const code = card.code.replace(/(.{4})(?=.)/g, '$1 ');
+    $('#app').innerHTML = head() + `
+      <div class="card">
+        <div class="card__head">${logo()}<span class="card__kind">Карта гостя</span></div>
+        <div class="card__name">${esc(card.name)}</div>
+        <div class="card__phone">•••• ${esc(card.phoneTail)}</div>
+        ${card.programs.map(progHTML).join('')}
+      </div>
+      <div class="qr"><div class="qr__box" id="qr"></div><div class="qr__code">${esc(code)}</div><div class="qr__hint">Покажите официанту — он поставит отметку</div></div>
+      ${standalone() ? '' : `<button class="btn btn-main home" id="homeBtn">${PLUS.replace('<svg', '<svg width="22" height="22"')} Добавить на экран «Домой»</button>
+        <p class="note">Карта будет открываться одним нажатием, как приложение.</p>`}`;
+    if (window.QRCode) new QRCode($('#qr'), { text: location.origin + q('/card?c=' + card.code), width: 392, height: 392, colorDark: '#1c1c1e', correctLevel: QRCode.CorrectLevel.M });
+    const hb = $('#homeBtn'); if (hb) hb.onclick = addToHome;
+    // Ссылка и манифест несут код карты: иконка на экране «Домой» откроет именно эту карту
+    // (на iPhone у иконки своё хранилище, без кода в адресе карта бы «потерялась»)
+    const u = new URL(location.href); u.searchParams.set('c', card.code); history.replaceState(null, '', u);
+    $('#mf').href = q('/card.webmanifest?c=' + card.code);
+  }
+
+  function renderForm(err) {
+    const perks = info.programs.map((p) => `<div class="perk"><i>${ICON[p.icon] || ICON.gift}</i>${esc(p.reward || p.title)}</div>`).join('');
+    $('#app').innerHTML = head() + `
+      <div class="card" style="padding-bottom:22px"><div class="card__head">${logo()}<span class="card__kind">Карта гостя</span></div>
+        <div class="card__name">Копите отметки —<br>получайте подарки</div></div>
+      <div class="perks">${perks}</div>
+      <form id="f" novalidate>
+        <div class="fld"><label for="n">Имя</label><input id="n" autocomplete="given-name" maxlength="40" placeholder="Как к вам обращаться"></div>
+        <div class="fld"><label for="ph">Телефон</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 700 000 00 00" value="+7 "></div>
+        <label class="agree"><input type="checkbox" id="ok"><span>Согласен(на) на обработку имени и номера телефона для карты гостя ${esc(info.name)}</span></label>
+        <div class="err${err ? ' on' : ''}" id="err">${esc(err || '')}</div>
+        <button class="btn btn-main" id="go" type="submit">Получить карту</button>
+      </form>
+      <p class="note">Бесплатно и без SMS. Отметки ставит официант по QR-коду на карте.</p>`;
+    const ph = $('#ph');
+    ph.addEventListener('input', () => {
+      let d = ph.value.replace(/\D/g, ''); if (d.startsWith('8')) d = '7' + d.slice(1); if (!d.startsWith('7')) d = '7' + d; d = d.slice(0, 11);
+      const p = [d.slice(1, 4), d.slice(4, 7), d.slice(7, 9), d.slice(9, 11)].filter(Boolean);
+      ph.value = '+7 ' + p.join(' ');
+    });
+    $('#f').onsubmit = async (e) => {
+      e.preventDefault();
+      const showErr = (t) => { const el = $('#err'); el.textContent = t; el.classList.add('on'); };
+      const name = $('#n').value.trim(), phone = ph.value;
+      if (name.length < 2) return showErr('Напишите имя');
+      if (phone.replace(/\D/g, '').length !== 11) return showErr('Проверьте номер телефона');
+      if (!$('#ok').checked) return showErr('Отметьте согласие — без него карту создать нельзя');
+      const go = $('#go'); go.disabled = true; go.textContent = 'Создаю карту…';
+      try {
+        const r = await api('/api/loyalty/register', { method: 'POST', body: JSON.stringify({ name, phone, consent: true }) });
+        card = r.card; store.set(card.code); renderCard(); toast('Карта готова 🎉');
+      } catch (er) {
+        go.disabled = false; go.textContent = 'Получить карту';
+        showErr(er.code === 'exists' ? 'Карта с этим номером уже есть. Скажите официанту номер — он откроет вашу карту на этом телефоне.'
+          : er.code === 'too_many' ? 'Слишком много попыток, попробуйте через час.' : 'Не получилось, попробуйте ещё раз.');
+      }
+    };
+  }
+
+  function addToHome() {
+    if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; }); return; }
+    const sheet = $('#sheet');
+    sheet.innerHTML = isIOS ? `
+      <h3>Добавить на экран «Домой»</h3>
+      <div class="step"><b class="n">1</b><span>Нажмите <span class="ico">${SHARE}</span> «Поделиться» внизу экрана <small style="color:var(--muted)">(или <span class="ico" style="color:#1c1c1e">${DOTS}</span>, затем «Поделиться»)</small></span></div>
+      <div class="step"><b class="n">2</b><span>Пролистайте и выберите <span class="ico" style="color:#1c1c1e">${PLUS}</span> <b>«На экран Домой»</b></span></div>
+      <div class="step"><b class="n">3</b><span>Нажмите <b>«Добавить»</b> — готово</span></div>
+      <button class="btn btn-soft" style="margin-top:20px" id="sheetOk">Понятно</button>` : `
+      <h3>Добавить на экран «Домой»</h3>
+      <div class="step"><b class="n">1</b><span>Откройте меню браузера <span class="ico" style="color:#1c1c1e">${DOTS}</span> вверху справа</span></div>
+      <div class="step"><b class="n">2</b><span>Выберите <b>«Добавить на главный экран»</b> или «Установить»</span></div>
+      <button class="btn btn-soft" style="margin-top:20px" id="sheetOk">Понятно</button>`;
+    const close = () => { sheet.classList.remove('on'); $('#sheetBg').classList.remove('on'); $('#arrow').classList.remove('on'); };
+    sheet.classList.add('on'); $('#sheetBg').classList.add('on');
+    if (isIOS) $('#arrow').classList.add('on');
+    $('#sheetOk').onclick = close; $('#sheetBg').onclick = close;
+  }
+
+  async function start() {
+    try { info = await api('/api/loyalty/info'); }
+    catch { $('#app').innerHTML = head() + '<div class="loading">Карта гостя пока не подключена.</div>'; return; }
+    brand();
+    const code = (params.get('c') || store.get() || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code) {
+      try { card = (await api('/api/loyalty/card?c=' + code)).card; store.set(card.code); renderCard(); return; }
+      catch (e) { if (e.status !== 404) { $('#app').innerHTML = head() + '<div class="loading">Нет связи. Обновите страницу.</div>'; return; } }
+    }
+    renderForm();
+  }
+  // Возвращаемся на вкладку — обновляем отметки (официант мог только что поставить)
+  // и раз в 8 секунд, пока карта открыта у кассы
+  async function refresh() {
+    if (document.visibilityState !== 'visible' || !card) return;
+    try {
+      const c = (await api('/api/loyalty/card?c=' + card.code)).card;
+      const was = JSON.stringify(card.programs); card = c;
+      if (JSON.stringify(c.programs) !== was) { renderCard(); toast('Карта обновлена ✓'); }
+    } catch {}
+  }
+  document.addEventListener('visibilitychange', refresh);
+  setInterval(refresh, 8000);
+  start();
+})();
+</script>
+</body>
+</html>

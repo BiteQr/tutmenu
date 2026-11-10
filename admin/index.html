@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js" defer></script>
 <style>
 :root{
   --bg:#f6f6f8; --panel:#fff; --line:#e5e5ea; --text:#1c1c1e; --muted:#8a8a8f;
@@ -211,6 +212,29 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .ar-spin__head{width:100%;font-size:13px;} .ar-spin__head span{color:var(--muted);}
 .ar-spin__list{width:100%;display:flex;gap:4px;flex-wrap:wrap;}
 .ar-spin__list img{width:44px;height:44px;object-fit:cover;border-radius:6px;}
+
+/* ---------- карта лояльности (касса) ---------- */
+.loy-scan{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;}
+.loy-scan .btn-big{height:56px;font-size:17px;border-radius:14px;}
+.loy-search{display:flex;gap:8px;min-width:0;} .loy-search input{flex:1;min-width:0;height:48px;padding:0 14px;border:1px solid var(--line);border-radius:12px;font-size:17px;}
+.loy-cam{position:relative;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:1;max-height:60vh;}
+.loy-cam video{width:100%;height:100%;object-fit:cover;display:block;}
+.loy-cam::after{content:'';position:absolute;inset:18%;border:3px solid rgba(255,255,255,.85);border-radius:18px;box-shadow:0 0 0 999px rgba(0,0,0,.35);}
+.loy-card{border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:12px;background:#fff;}
+.loy-card__head{display:flex;justify-content:space-between;gap:10px;align-items:baseline;}
+.loy-card__name{font-size:20px;font-weight:800;} .loy-card__ph{font-size:14px;color:var(--muted);}
+.loy-prog{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);}
+.loy-prog__row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;}
+.loy-prog__t{font-weight:700;font-size:16px;}
+.loy-dots{display:flex;gap:6px;} .loy-dots i{width:22px;height:22px;border-radius:50%;border:2px solid #d8d0c4;}
+.loy-dots i.on{background:var(--dark);border-color:var(--dark);} .loy-dots i.gift{background:#e4c79c;border-color:#e4c79c;}
+.loy-act{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;}
+.loy-act .btn{height:52px;font-size:17px;border-radius:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.btn-gift{background:#2e7d32;color:#fff;}
+.loy-ev{display:flex;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px solid var(--line);font-size:14px;}
+.loy-ev:first-child{border-top:0;} .loy-ev span{color:var(--muted);white-space:nowrap;}
+.loy-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.loy-kpi div{background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;} .loy-kpi b{display:block;font-size:22px;} .loy-kpi span{font-size:12px;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -417,6 +441,11 @@ function showGate(kind, extra) {
 
 async function selectRestaurant(slug) {
   state.slug = slug;
+  // Официант (staff): только карта лояльности — меню и настройки ему не загружаем
+  if (state.me && state.me.role === 'staff') {
+    const ib = document.getElementById('importBtn'); if (ib) ib.hidden = true;
+    state.tab = 'loyalty'; renderTabs(); renderTab(); return;
+  }
   const [settingsRes, cats, secs, items, promos, buttons, badges] = await Promise.all([
     api(`/restaurants?restaurant=${slug}`),
     api(`/categories?restaurant=${slug}`),
@@ -455,13 +484,15 @@ const TABS = [
   ['badges', '🏷 Метки'],
   ['promos', '📣 Акции'],
   ['lunch', '🍱 Бизнес-ланч'],
+  ['loyalty', '🎁 Лояльность'],
   ['import', '📥 Импорт меню'],
   ['buttons', '🔘 Кнопки']
 ];
 
 function renderTabs() {
   const nav = document.getElementById('tabs');
-  nav.innerHTML = TABS.map(([key, label]) =>
+  const tabs = state.me && state.me.role === 'staff' ? TABS.filter(([k]) => k === 'loyalty') : TABS;
+  nav.innerHTML = tabs.map(([key, label]) =>
     `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
   ).join('');
   nav.querySelectorAll('.tab').forEach((btn) => {
@@ -477,6 +508,7 @@ function renderTab() {
   if (state.tab === 'badges') return renderBadgesTab(c);
   if (state.tab === 'lunch') return renderLunchTab(c);
   if (state.tab === 'import') return renderImportTab(c);
+  if (state.tab === 'loyalty') return renderLoyaltyTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
 }
 
@@ -1740,6 +1772,129 @@ async function impSave(container) {
     toast('Ошибка: ' + err.message); btn.disabled = false; btn.textContent = 'Добавить в меню';
   }
 }
+
+/* =========================================================
+   КАРТА ЛОЯЛЬНОСТИ — касса для официантов + настройки для владельца.
+   Официант (роль staff) видит только эту вкладку: сканирует QR гостя или ищет по номеру,
+   ставит «+1» или выдаёт подарок. Админку официанты добавляют себе на экран «Домой».
+   ========================================================= */
+async function renderLoyaltyTab(container) {
+  const L = state.loy || (state.loy = { found: null, query: '', scanning: false });
+  if (!L.loaded) {
+    container.innerHTML = '<div class="panel"><p>Загружаю…</p></div>';
+    try {
+      const [s, r] = await Promise.all([api(`/loyalty/settings?restaurant=${state.slug}`), api(`/loyalty/recent?restaurant=${state.slug}`)]);
+      Object.assign(L, { settings: s.settings, staffEmails: s.staffEmails, role: s.role, events: r.events, totals: r.totals, loaded: true });
+    } catch (err) { container.innerHTML = `<div class="panel"><p>Ошибка: ${esc(err.message)}</p></div>`; return; }
+  }
+  const isStaff = L.role === 'staff';
+  const progName = (id) => (L.settings.programs.find((p) => p.id === id) || {}).title || id;
+  const KIND = { stamp: '+1', redeem: '🎁 подарок', unstamp: 'отмена' };
+  const when = (t) => { const d = new Date(String(t).replace(' ', 'T') + 'Z'); return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+  container.innerHTML = `
+    ${!L.settings.enabled ? `<div class="panel" style="border-color:#e4c79c;background:#fffaf0"><b>Карта гостя выключена.</b> ${isStaff ? 'Попросите управляющего включить её.' : 'Включите её внизу, в «Настройках карты».'}</div>` : ''}
+    <div class="panel">
+      <div class="panel-head"><h2>Касса: отметка гостю</h2></div>
+      <div class="loy-scan">
+        ${L.scanning ? `<div class="loy-cam"><video id="loyVideo" playsinline muted></video></div><button class="btn btn-outline" id="loyStop">Закрыть камеру</button>`
+          : `<button class="btn btn-dark btn-big" id="loyScan">📷 Сканировать QR гостя</button>`}
+        <form class="loy-search" id="loySearch"><input id="loyQ" inputmode="numeric" placeholder="или последние 4 цифры номера" value="${esc(L.query)}"><button class="btn btn-outline" type="submit">Найти</button></form>
+      </div>
+      <div id="loyFound">${(L.found || []).map((c) => loyCardHTML(c)).join('') || (L.found ? '<p class="empty-hint" style="margin-top:12px">Карта не найдена. Пусть гость откроет «Карту гостя» в меню.</p>' : '')}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Последние отметки</h2></div>
+      <div class="loy-kpi"><div><b>${L.totals.cards || 0}</b><span>карт</span></div><div><b>${L.totals.stamps30 || 0}</b><span>отметок за 30 дн.</span></div><div><b>${L.totals.rewards30 || 0}</b><span>подарков за 30 дн.</span></div></div>
+      ${(L.events || []).slice(0, 15).map((e) => `<div class="loy-ev"><div><b>${esc(e.name)}</b> · ${esc(progName(e.program))} ${KIND[e.kind] || ''}</div><span>${when(e.created_at)}</span></div>`).join('') || '<p class="empty-hint">Пока отметок нет</p>'}
+    </div>
+    ${isStaff ? '' : `
+    <div class="panel">
+      <div class="panel-head"><h2>Настройки карты</h2></div>
+      <label class="field" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="loyOn" ${L.settings.enabled ? 'checked' : ''}> <b>Показывать «Карту гостя» в меню</b></label>
+      ${L.settings.programs.map((p, i) => `
+        <div class="field" style="border:1px solid var(--line);border-radius:12px;padding:12px">
+          <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" data-pa="${i}" ${p.active ? 'checked' : ''}> <b>${esc(p.title)}</b></label>
+          <div style="display:grid;grid-template-columns:1fr 90px;gap:8px">
+            <input type="text" data-pr="${i}" value="${esc(p.reward)}" placeholder="Текст подарка">
+            <input type="number" data-pn="${i}" value="${p.need}" min="1" max="20" title="Сколько отметок до подарка">
+          </div>
+        </div>`).join('')}
+      <div class="field"><label>Пауза между отметками одной карте, мин</label><input type="number" id="loyCd" value="${L.settings.cooldownMin}" min="0" max="1440"></div>
+      <div class="field"><label>Официанты — email (по одному в строке)</label>
+        <textarea id="loyStaff" rows="4" placeholder="waiter1@gmail.com">${esc((L.staffEmails || []).join('\n'))}</textarea>
+        <p style="font-size:12px;color:var(--muted);margin-top:6px">Официант входит в админку по своей почте (придёт код) и видит только эту вкладку. Потом добавляет админку на экран «Домой»: Safari → «Поделиться» → «На экран Домой».</p></div>
+      <div class="form-actions"><button class="btn btn-dark" id="loySave">Сохранить</button></div>
+    </div>`}`;
+
+  const find = async (q) => {
+    L.query = q;
+    try { L.found = (await api(`/loyalty/find?restaurant=${state.slug}&q=${encodeURIComponent(q)}`)).cards; } catch (err) { toast('Ошибка: ' + err.message); }
+    renderLoyaltyTab(container);
+  };
+  document.getElementById('loySearch').onsubmit = (e) => { e.preventDefault(); const q = document.getElementById('loyQ').value.trim(); if (q.replace(/\D/g, '').length >= 4 || q.length >= 12) find(q); else toast('Введите минимум 4 цифры'); };
+  const sc = document.getElementById('loyScan'); if (sc) sc.onclick = () => { L.scanning = true; renderLoyaltyTab(container); };
+  const st = document.getElementById('loyStop'); if (st) st.onclick = () => { loyStopCam(); L.scanning = false; renderLoyaltyTab(container); };
+  if (L.scanning) loyStartCam((text) => { loyStopCam(); L.scanning = false; find(text); }, () => { L.scanning = false; toast('Нет доступа к камере — найдите по номеру'); renderLoyaltyTab(container); });
+  container.querySelectorAll('[data-loy]').forEach((b) => {
+    b.onclick = async () => {
+      const [code, program, action] = b.dataset.loy.split('|');
+      if (action === 'redeem' && !confirm('Выдать подарок гостю? Счёт этой программы начнётся заново.')) return;
+      b.disabled = true;
+      const send = async (force) => api(`/loyalty/stamp?restaurant=${state.slug}`, { method: 'POST', body: { code, program, action, force } });
+      try {
+        let r;
+        try { r = await send(false); }
+        catch (err) { if (/cooldown|меньше/.test(err.message) && confirm(err.message + '. Всё равно поставить?')) r = await send(true); else throw err; }
+        L.found = (L.found || []).map((c) => c.code === code ? r.card : c);
+        const ev = await api(`/loyalty/recent?restaurant=${state.slug}`); L.events = ev.events; L.totals = ev.totals;
+        toast(action === 'redeem' ? '🎁 Подарок выдан' : action === 'undo' ? 'Отметка отменена' : '✓ Отметка поставлена');
+      } catch (err) { toast(err.message); }
+      renderLoyaltyTab(container);
+    };
+  });
+  if (!isStaff) {
+    document.getElementById('loySave').onclick = async () => {
+      const settings = { ...L.settings, enabled: document.getElementById('loyOn').checked, cooldownMin: Number(document.getElementById('loyCd').value) || 0,
+        programs: L.settings.programs.map((p, i) => ({ ...p, active: container.querySelector(`[data-pa="${i}"]`).checked, reward: container.querySelector(`[data-pr="${i}"]`).value.trim(), need: Number(container.querySelector(`[data-pn="${i}"]`).value) || 5 })) };
+      const staffEmails = document.getElementById('loyStaff').value.split(/[\s,;]+/).filter(Boolean);
+      try { const r = await api(`/loyalty/settings?restaurant=${state.slug}`, { method: 'PUT', body: { settings, staffEmails } }); L.settings = r.settings; L.staffEmails = staffEmails; toast('Сохранено'); renderLoyaltyTab(container); }
+      catch (err) { toast('Ошибка: ' + err.message); }
+    };
+  }
+}
+function loyCardHTML(c) {
+  return `<div class="loy-card">
+    <div class="loy-card__head"><span class="loy-card__name">${esc(c.name)}</span><span class="loy-card__ph">${esc(String(c.phone || '').replace(/^7(\d{3})(\d{3})(\d{2})(\d{2})$/, '+7 $1 $2 $3 $4'))}</span></div>
+    ${c.programs.map((p) => `<div class="loy-prog">
+      <div class="loy-prog__row"><span class="loy-prog__t">${esc(p.title)}</span>
+        <span class="loy-dots">${Array.from({ length: p.need }, (_, i) => `<i class="${i < p.stamps ? 'on' : ''}"></i>`).join('')}<i class="gift"></i></span></div>
+      ${p.ready ? `<div class="loy-act"><button class="btn btn-gift" data-loy="${c.code}|${p.id}|redeem">🎁 Выдать подарок</button><button class="btn btn-outline" data-loy="${c.code}|${p.id}|undo" title="Отменить последнюю отметку">↶</button></div>`
+        : `<div class="loy-act"><button class="btn btn-dark" data-loy="${c.code}|${p.id}|stamp">+1 ${esc(p.title.toLowerCase())} · ${p.stamps}/${p.need}</button><button class="btn btn-outline" data-loy="${c.code}|${p.id}|undo" ${p.stamps ? '' : 'disabled'} title="Отменить последнюю отметку">↶</button></div>`}
+    </div>`).join('')}
+  </div>`;
+}
+let loyStream = null, loyRaf = 0;
+async function loyStartCam(onCode, onFail) {
+  try {
+    loyStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const v = document.getElementById('loyVideo'); v.srcObject = loyStream; await v.play();
+    const det = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+    const cv = document.createElement('canvas'); const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const tick = async () => {
+      if (!loyStream) return;
+      try {
+        if (det) { const r = await det.detect(v); if (r[0]) return onCode(r[0].rawValue); }
+        else if (window.jsQR && v.videoWidth) {
+          cv.width = v.videoWidth; cv.height = v.videoHeight; ctx.drawImage(v, 0, 0);
+          const r = jsQR(ctx.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height); if (r) return onCode(r.data);
+        }
+      } catch { /* следующий кадр */ }
+      loyRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch { onFail(); }
+}
+function loyStopCam() { cancelAnimationFrame(loyRaf); if (loyStream) loyStream.getTracks().forEach((t) => t.stop()); loyStream = null; }
 
 function renderSettingsTab(container) {
   const s = state.settings;
