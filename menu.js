@@ -1210,8 +1210,15 @@
       return;
     }
 
+    // Баннер акции открывается на весь экран, как сторис: тап — следующая, свайп вниз — закрыть
     const promo = t.closest('[data-promo]');
-    if (promo) { openPromo(+promo.dataset.promo); return; }
+    if (promo) {
+      if (App.Stories) {
+        App.Stories.setList(data.promos);
+        App.Stories.open(+promo.dataset.promo, promo, (id) => { App.go('#/menu'); goToItem(id); });
+      } else openPromo(+promo.dataset.promo);
+      return;
+    }
 
     const cat = t.closest('[data-cat].cat');
     if (cat) { goToCategory(cat.dataset.cat); return; }

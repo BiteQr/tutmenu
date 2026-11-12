@@ -16,6 +16,12 @@
   let muted = true;
   let holding = false;
   let onGoto = null;
+  let blurTimer = 0;
+  /** Полностью гасим видео: пауза, отвязка файла — чтобы iPhone не продолжал его в мини-плеере и не качал дальше */
+  function killVideos(root) {
+    clearInterval(blurTimer);
+    $$('video', root).forEach((v) => { try { v.pause(); v.removeAttribute('src'); v.load(); } catch {} v.remove(); });
+  }
 
   const seen = () => { try { return new Set(store.get(SEEN_KEY, [])); } catch { return new Set(); } };
   function markSeen(id) {
@@ -26,6 +32,7 @@
   }
 
   /** Квадратики в ленте над поиском */
+  function setList(list) { promos = list; }
   function tilesHTML(list) {
     promos = list;
     const s = seen();
@@ -125,7 +132,7 @@
     idx = i;
     const p = promos[i];
     cancelAnimationFrame(raf);
-    const old = $('video', viewer); if (old) old.pause();
+    killVideos($('.sv__stage', viewer));
     $('.sv__bars', viewer).innerHTML = barsHTML();
     $('.sv__title', viewer).textContent = (I18n.f(p, 'title') || '').trim();
     const stage = $('.sv__stage', viewer);
@@ -138,20 +145,25 @@
     markSeen(p.id);
     App.track && App.track('view_promo', { id: p.id });
 
-    if (p.video) {
+    const src = p.storyVideo || p.video;
+    if (src) {
+      // Одно видео (без второй копии для фона — тяжёлые ролики на iPhone иначе не стартуют).
+      // Размытый фон рисуем с этого же видео в крошечный canvas раз в полсекунды.
       stage.innerHTML = `
-        <video class="sv__blur" src="${esc(safeUrl(p.video))}" muted playsinline preload="auto" aria-hidden="true"></video>
-        <video class="sv__video" src="${esc(safeUrl(p.video))}"${p.image ? ` poster="${esc(safeUrl(p.image))}"` : ''} playsinline preload="auto"></video>`;
+        <canvas class="sv__blur" width="32" height="18" aria-hidden="true"></canvas>
+        <video class="sv__video" src="${esc(safeUrl(src))}"${p.image ? ` poster="${esc(safeUrl(p.image))}"` : ''} playsinline webkit-playsinline disablepictureinpicture disableremoteplayback x-webkit-airplay="deny" preload="auto"></video>`;
       const v = $('.sv__video', stage);
       const blur = $('.sv__blur', stage);
       v.muted = muted;
+      v.disablePictureInPicture = true;
       // вертикальное видео — на весь экран, горизонтальное — целиком по центру на размытом фоне
       v.addEventListener('loadedmetadata', () => {
         const vertical = v.videoHeight >= v.videoWidth;
         stage.classList.toggle('is-vertical', vertical);
       });
-      v.addEventListener('play', () => { blur.currentTime = v.currentTime; blur.play().catch(() => {}); });
-      v.addEventListener('pause', () => blur.pause());
+      const paint = () => { try { blur.getContext('2d').drawImage(v, 0, 0, 32, 18); } catch {} };
+      v.addEventListener('loadeddata', paint);
+      blurTimer = setInterval(() => { if (!v.paused) paint(); }, 500);
       v.addEventListener('ended', () => go(idx + 1));
       v.play().catch(() => { v.muted = true; muted = true; v.play().catch(() => {}); $('.sv__btn[data-sv="sound"]', viewer).innerHTML = SOUND_OFF; });
       tickVideo(v);
@@ -201,7 +213,7 @@
     viewer.hidden = false;
     lockScroll('stories', true);
     // пауза квадратиков в ленте, пока смотрим полноэкранное
-    $$('.story video').forEach((v) => v.pause());
+    $$('#promos video').forEach((v) => v.pause());
     show(i);
     const card = $('.sv__card', viewer);
     const r = fromEl && fromEl.getBoundingClientRect();
@@ -220,15 +232,15 @@
   function close(fromSwipe) {
     if (!viewer || viewer.hidden) return;
     cancelAnimationFrame(raf);
-    $$('video', viewer).forEach((v) => v.pause());
+    killVideos(viewer);
     viewer.classList.remove('is-open');
     lockScroll('stories', false);
     setTimeout(() => {
       viewer.hidden = true;
       $('.sv__stage', viewer).innerHTML = '';
-      $$('.story video').forEach((v) => v.play().catch(() => {}));
+      $$('#promos video').forEach((v) => v.play().catch(() => {}));
     }, fromSwipe ? 0 : 250);
   }
 
-  App.Stories = { tilesHTML, open, close };
+  App.Stories = { tilesHTML, setList, open, close };
 })(window.App);

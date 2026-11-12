@@ -104,7 +104,7 @@ const ADMIN_TABLES = {
   },
   'promos': {
     table: 'promos',
-    cols: ['sort', 'active', 'image', 'video', 'title_ru', 'title_kk', 'title_en',
+    cols: ['sort', 'active', 'image', 'video', 'story_video', 'title_ru', 'title_kk', 'title_en',
            'description_ru', 'description_kk', 'description_en', 'item_id']
   },
   'buttons': {
@@ -182,7 +182,7 @@ async function handleMenu(request, env) {
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en, url: r.url
     })),
     promos: promos.results.map((r) => ({
-      id: String(r.id), image: lu(r.image), video: lu(r.video),
+      id: String(r.id), image: lu(r.image), video: lu(r.video), storyVideo: lu(r.story_video || ''),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en,
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       itemId: r.item_id ? String(r.item_id) : ''
