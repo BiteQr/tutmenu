@@ -157,7 +157,12 @@
       tickVideo(v);
     } else {
       stage.innerHTML = p.image ? `<img class="sv__img" src="${esc(safeUrl(p.image))}" alt="">` : '';
-      tickTimer(5000);
+      const im = $('.sv__img', stage);
+      if (im) {
+        const fit = () => stage.classList.toggle('is-vertical', im.naturalHeight >= im.naturalWidth);
+        im.complete ? fit() : im.addEventListener('load', fit);
+      }
+      tickTimer(6000);
     }
   }
 

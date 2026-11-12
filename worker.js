@@ -143,6 +143,11 @@ async function handleMenu(request, env) {
     const host = m[1].toLowerCase();
     return (host.endsWith('.workers.dev') || host === reqHost || host === ownDomain) ? m[2] : u;
   };
+  // Сторис из Инстаграма (то, что выкладываем через Metricool): видны на сайте сутки после публикации.
+  const nowIso = new Date().toISOString();
+  const siteStories = await env.DB.prepare(
+    'SELECT * FROM site_stories WHERE restaurant_id = ?1 AND active = 1 AND publish_at <= ?2 AND expires_at > ?2 ORDER BY publish_at DESC LIMIT 10'
+  ).bind(slug, nowIso).all().then((r) => r.results).catch(() => []);
   const [buttons, promos, categories, sections, items, badges] = await Promise.all([
     env.DB.prepare('SELECT * FROM buttons WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
     env.DB.prepare('SELECT * FROM promos WHERE restaurant_id = ? AND active = 1 ORDER BY sort').bind(slug).all(),
@@ -182,6 +187,15 @@ async function handleMenu(request, env) {
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       itemId: r.item_id ? String(r.item_id) : ''
     })),
+    stories: siteStories.map((r) => {
+      const media = lu(r.media);
+      const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(media);
+      return {
+        id: 's' + r.id, image: isVideo ? '' : media, video: isVideo ? media : '',
+        title_ru: r.title_ru || '', title_kk: r.title_kk || '', title_en: r.title_en || '',
+        description_ru: '', description_kk: '', description_en: '', itemId: ''
+      };
+    }),
     categories: categories.results.map((r) => ({
       id: String(r.id), image: lu(r.image),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en

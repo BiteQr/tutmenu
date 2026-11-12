@@ -996,7 +996,7 @@ body.is-locked { overflow: hidden; }
 .stories::-webkit-scrollbar { display: none; }
 .story {
   position: relative; flex: 0 0 auto;
-  width: 112px; aspect-ratio: 1 / 1.12;
+  width: 132px; aspect-ratio: 1 / 1.12;
   padding: 3px; border-radius: 20px;
   background: var(--dark);
   transition: transform .15s var(--ease);
@@ -1014,7 +1014,7 @@ body.is-locked { overflow: hidden; }
 }
 .story__title {
   position: absolute; left: 12px; right: 10px; bottom: 11px; z-index: 1;
-  font-size: 13px; font-weight: 700; line-height: 1.18; color: #fff; text-align: left;
+  font-size: 14px; font-weight: 700; line-height: 1.18; color: #fff; text-align: left;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
   text-shadow: 0 1px 6px rgba(0,0,0,.35);
 }
@@ -1034,7 +1034,7 @@ body.is-locked { overflow: hidden; }
   position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px);
   object-fit: cover; filter: blur(28px) brightness(.55); transform: scale(1.1);
 }
-.sv__stage.is-vertical .sv__video { object-fit: cover; }
+.sv__stage.is-vertical .sv__video, .sv__stage.is-vertical .sv__img { object-fit: cover; }
 .sv__stage.is-vertical .sv__blur { display: none; }
 .sv__top {
   position: absolute; left: 0; right: 0; top: 0; z-index: 3;

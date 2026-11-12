@@ -58,6 +58,7 @@
       settings: raw.settings || {},
       buttons: list(raw.buttons, false),
       promos: list(raw.promos, false),
+      stories: list(raw.stories, false),
       categories: list(raw.categories),
       sections: list(raw.sections).map((s) => ({ ...s, categoryId: String(s.categoryId ?? '') })),
       menuItems: list(raw.menuItems).map((i) => ({

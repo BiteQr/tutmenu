@@ -102,11 +102,13 @@
 
   const storiesMode = () => data.settings.promoStyle === 'stories' && App.Stories;
   function renderPromos() {
-    els.promos.hidden = !data.promos.length;
     const stories = storiesMode();
+    // В режиме сторис сначала свежие сторис из инсты (живут сутки), потом постоянные акции
+    const list = stories ? [...(data.stories || []), ...data.promos] : data.promos;
+    els.promos.hidden = !list.length;
     els.promos.classList.toggle('stories', !!stories);
     els.promos.classList.toggle('promos', !stories);
-    if (stories) { els.promos.innerHTML = App.Stories.tilesHTML(data.promos); return; }
+    if (stories) { els.promos.innerHTML = App.Stories.tilesHTML(list); return; }
     els.promos.innerHTML = data.promos.map((p, i) =>
       `<button type="button" class="promo" data-promo="${i}" aria-label="${esc(I18n.f(p, 'title'))}">
          ${promoMediaHTML(p, '', i < 2)}
