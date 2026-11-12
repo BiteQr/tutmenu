@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>tut.menu — умное QR-меню для кафе и ресторанов</title>
+<meta name="description" content="Умное QR-меню: гость находит блюдо за секунды на своём языке, вы меняете цены с телефона за минуту. Соберите своё демо за 2 минуты.">
+<meta name="theme-color" content="#ffffff">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="nav" id="top">
+  <a class="nav__brand" href="#top" aria-label="tut.menu">tut<span>.</span>menu</a>
+  <nav class="nav__links" aria-label="Разделы">
+    <a href="#guest" data-t="navGuest">Гостю</a>
+    <a href="#owner" data-t="navOwner">Владельцу</a>
+    <a href="#example" data-t="navExample">Пример</a>
+    <a href="#price" data-t="navPrice">Цена</a>
+    <a href="#faq" data-t="navFaq">Вопросы</a>
+  </nav>
+  <div class="nav__lang" role="group" aria-label="Язык">
+    <button type="button" data-lang="ru" aria-pressed="true">RU</button>
+    <button type="button" data-lang="kk" aria-pressed="false">KZ</button>
+    <button type="button" data-lang="en" aria-pressed="false">EN</button>
+  </div>
+  <a class="btn btn--small nav__cta" href="#build" data-t="navCta">Собрать демо</a>
+</header>
+
+<main>
+
+<!-- ПЕРВЫЙ ЭКРАН -->
+<section class="hero">
+  <div class="hero__text">
+    <h1 class="hero__title" data-t="heroTitle">Умное QR-меню для кафе и ресторанов</h1>
+    <p class="hero__lead" data-t="heroLead">Гость сканирует QR и за секунды находит блюдо: на своём языке, с фото и умным поиском. Цены и стоп-лист вы меняете сами, с телефона.</p>
+    <div class="hero__actions">
+      <a class="btn" href="#build" data-t="heroCta">Собрать своё демо за 2 минуты</a>
+      <a class="link" href="https://tipagraf.kz" target="_blank" rel="noopener" data-t="heroLink">Открыть живое меню</a>
+    </div>
+    <p class="hero__made" data-t="made">Сделано в Уральске. Работаем по всему Казахстану.</p>
+  </div>
+  <div class="hero__stage" aria-hidden="true">
+    <div class="tent">
+      <div class="tent__card">
+        <span class="tent__word">tut<span>.</span>menu</span>
+        <img class="tent__qr" src="img/qr-tipagraf.svg" alt="">
+        <span class="tent__hint" data-t="tentHint">Наведите камеру</span>
+      </div>
+    </div>
+    <div class="phone phone--hero">
+      <img src="img/menu.webp" alt="" width="390" height="844">
+    </div>
+  </div>
+</section>
+
+<!-- ГОСТЮ -->
+<section class="guest" id="guest">
+  <div class="guest__text">
+    <h2 data-t="guestTitle">Гость сам находит, что заказать</h2>
+    <div class="point">
+      <h3 data-t="g1t">Умный поиск обычными словами</h3>
+      <p data-t="g1p">Гость пишет «хочу что-то лёгкое» или «что к пиву», и меню подбирает блюда из вашей карты с объяснением, почему они подходят.</p>
+    </div>
+    <div class="ask" role="group" aria-label="Примеры запросов">
+      <p class="ask__label" data-t="askLabel">Нажмите, это настоящие ответы меню Типа Граф:</p>
+      <div class="ask__chips">
+        <button type="button" class="chip is-active" data-q="0">хочу что-то лёгкое</button>
+        <button type="button" class="chip" data-q="1">что взять к пиву</button>
+        <button type="button" class="chip" data-q="2">без мяса</button>
+        <button type="button" class="chip" data-q="3">сладкое к кофе</button>
+      </div>
+    </div>
+  </div>
+  <div class="guest__phone">
+    <div class="phone phone--live">
+      <div class="live" data-ui>
+        <div class="live__head">ТИПА ГРАФ</div>
+        <div class="live__search"><span class="live__q" id="liveQ">хочу что-то лёгкое</span></div>
+        <p class="live__msg" id="liveMsg"></p>
+        <ul class="live__list" id="liveList"></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="guest2">
+  <figure class="shot">
+    <div class="phone"><img src="img/dish_recs.webp" alt="Карточка блюда с подсказкой «С этим берут»" loading="lazy" width="390" height="844"></div>
+  </figure>
+  <div class="point point--wide">
+    <h3 data-t="g2t">«С этим берут» под каждым блюдом</h3>
+    <p data-t="g2p">Открыл салат и видит, что к нему заказывают: вино, хлебную корзину, стейк. Добавляет в один тап. Официанту не нужно уговаривать.</p>
+  </div>
+  <div class="point point--wide">
+    <h3 data-t="g3t">Казахский, русский, английский</h3>
+    <p data-t="g3p">Язык переключается одной кнопкой: названия, описания и поиск. Каждый гость читает меню так, как ему удобно.</p>
+  </div>
+  <figure class="shot">
+    <div class="phone"><img src="img/menu_kk.webp" alt="Меню на казахском языке" loading="lazy" width="390" height="844"></div>
+  </figure>
+</section>
+
+<!-- ВЛАДЕЛЬЦУ -->
+<section class="owner" id="owner">
+  <div class="owner__text">
+    <h2 data-t="ownerTitle">Меню меняете вы, за минуту</h2>
+    <dl class="feats">
+      <div><dt data-t="o1t">Цены и стоп-лист</dt><dd data-t="o1p">Блюдо закончилось или выросла цена: поправили в админке с телефона, гости видят сразу. Без перепечатки.</dd></div>
+      <div><dt data-t="o2t">Статистика</dt><dd data-t="o2p">Что гости открывают, что ищут и что кладут в корзину, по дням и часам.</dd></div>
+      <div><dt data-t="o3t">Сторис, акции, бизнес-ланч</dt><dd data-t="o3p">Видео и акции наверху меню, как в Инстаграме. Ланч на каждый день недели меняется сам.</dd></div>
+      <div><dt data-t="o4t">Свой домен и свой стиль</dt><dd data-t="o4p">Меню на вашем адресе, как tipagraf.kz, с вашим логотипом, цветами и шрифтами.</dd></div>
+      <div><dt data-t="o5t">Заказ без ожидания</dt><dd data-t="o5p">Гость собирает заказ в корзине и показывает экран официанту или отправляет его в WhatsApp.</dd></div>
+    </dl>
+  </div>
+  <div class="owner__ui">
+    <div class="admin" data-ui>
+      <div class="admin__bar"><span>Салаты</span><span class="admin__save" id="adminSaved">Сохранено</span></div>
+      <ul class="admin__rows">
+        <li><img src="img/d_763cbce3.webp" alt=""><span class="admin__name">Греческий салат</span><label class="admin__price"><input type="text" inputmode="numeric" value="3 000" id="adminPrice" aria-label="Цена"><b>₸</b></label><button type="button" class="tog is-on" aria-pressed="true" aria-label="В наличии"></button></li>
+        <li><img src="img/d_ece8088b.webp" alt=""><span class="admin__name">Овощная нарезка</span><label class="admin__price"><input type="text" value="3 200" aria-label="Цена"><b>₸</b></label><button type="button" class="tog is-on" aria-pressed="true" aria-label="В наличии"></button></li>
+        <li><img src="img/d_2e0d21a1.webp" alt=""><span class="admin__name">Уха классическая</span><label class="admin__price"><input type="text" value="3 000" aria-label="Цена"><b>₸</b></label><button type="button" class="tog" aria-pressed="false" aria-label="В наличии"></button></li>
+      </ul>
+      <p class="admin__note" data-t="adminNote">Поменяйте цену или выключите блюдо: так это выглядит в админке.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ПРИМЕР -->
+<section class="example" id="example">
+  <div class="example__head">
+    <h2 data-t="exTitle">Живой пример: Типа Граф, Уральск</h2>
+    <p data-t="exLead">Первый ресторан на tut.menu. Это настоящее меню, им каждый день пользуются гости. Наведите камеру на QR или откройте tipagraf.kz.</p>
+    <div class="example__qr">
+      <img src="img/qr-tipagraf.svg" alt="QR-код меню Типа Граф" width="160" height="160">
+      <a class="link" href="https://tipagraf.kz" target="_blank" rel="noopener">tipagraf.kz</a>
+    </div>
+  </div>
+  <div class="example__phones">
+    <figure><div class="phone"><img src="img/welcome.webp" alt="Приветственный экран меню Типа Граф" loading="lazy" width="390" height="844"></div><figcaption data-t="cap1">Приветствие с видео заведения</figcaption></figure>
+    <figure><div class="phone"><img src="img/menu.webp" alt="Главная меню Типа Граф" loading="lazy" width="390" height="844"></div><figcaption data-t="cap2">Акции, бизнес-ланч и поиск</figcaption></figure>
+    <figure><div class="phone"><img src="img/dish.webp" alt="Карточка блюда" loading="lazy" width="390" height="844"></div><figcaption data-t="cap3">Блюдо с фото и описанием</figcaption></figure>
+  </div>
+</section>
+
+<!-- ЦЕНА -->
+<section class="price" id="price">
+  <h2 data-t="priceTitle">Одна цена, всё включено</h2>
+  <div class="price__grid">
+    <div class="price__num">
+      <p class="price__big">240 000 ₸</p>
+      <p class="price__per" data-t="pricePer">в год, это около 20 000 ₸ в месяц</p>
+      <a class="btn" href="#build" data-t="priceCta">Собрать демо бесплатно</a>
+    </div>
+    <ul class="price__list">
+      <li data-t="p1">Меню на трёх языках с умным поиском</li>
+      <li data-t="p2">«С этим берут», корзина и «Показать официанту»</li>
+      <li data-t="p3">Админка с телефона: цены, стоп-лист, фото</li>
+      <li data-t="p4">Сторис, акции и бизнес-ланч по дням</li>
+      <li data-t="p5">Статистика: что смотрят и что ищут</li>
+      <li data-t="p6">Ваш домен, логотип и дизайн</li>
+      <li data-t="p7">Перенесём ваше меню сами, по PDF или фото</li>
+      <li data-t="p8">Поддержка в WhatsApp</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ВОПРОСЫ -->
+<section class="faq" id="faq">
+  <h2 data-t="faqTitle">Частые вопросы</h2>
+  <div class="faq__list">
+    <details><summary data-t="q1">Работает с Kaspi QR?</summary><p data-t="a1">Меню не мешает оплате: гость платит как обычно, через Kaspi QR или терминал. Можем добавить в меню кнопку с вашей ссылкой на оплату Kaspi.</p></details>
+    <details><summary data-t="q2">Есть интеграция с iiko?</summary><p data-t="a2">Сейчас меню ведётся в нашей админке, цена меняется за десять секунд. Синхронизацию с iiko обсуждаем под ваше заведение.</p></details>
+    <details><summary data-t="q3">Сколько ждать запуска?</summary><p data-t="a3">Демо собирается за 2 минуты. Готовое меню с вашими блюдами обычно запускаем за 1–2 дня.</p></details>
+    <details><summary data-t="q4">Кто наполняет меню?</summary><p data-t="a4">Мы. Пришлите PDF, фото бумажного меню или таблицу, и мы перенесём блюда, цены и описания сами. Дальше правите в админке.</p></details>
+    <details><summary data-t="q5">Гостю нужно скачивать приложение?</summary><p data-t="a5">Нет. Меню открывается в браузере по QR-коду, ничего устанавливать не нужно.</p></details>
+    <details><summary data-t="q6">Можно на своём домене?</summary><p data-t="a6">Да, как tipagraf.kz. Если домена ещё нет, подскажем, где купить, и подключим сами.</p></details>
+  </div>
+</section>
+
+<!-- ФИНАЛ -->
+<section class="final" id="build">
+  <h2 data-t="finalTitle">Соберите своё меню за 2 минуты</h2>
+  <p data-t="finalLead">Выберите дизайн, загрузите логотип и получите ссылку на демо с вашим названием. Бесплатно и без звонков.</p>
+  <div class="final__actions">
+    <a class="btn btn--light" href="#build" id="buildBtn" data-t="finalCta">Собрать демо</a>
+    <a class="link link--light" id="waLink" href="#" target="_blank" rel="noopener" data-t="finalWa">Написать в WhatsApp</a>
+  </div>
+  <p class="final__made" data-t="made">Сделано в Уральске. Работаем по всему Казахстану.</p>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p class="foot__word">tut<span>.</span>menu</p>
+  <p class="foot__line"><span data-t="footLine">Умное QR-меню для кафе и ресторанов Казахстана</span> · <a href="https://tipagraf.kz" target="_blank" rel="noopener">tipagraf.kz</a></p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

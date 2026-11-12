@@ -1003,6 +1003,8 @@ async function serveSitemap(env, url) {
   return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8' } });
 }
 
+const SALES_HOSTS = new Set(['tutmenu.kz', 'www.tutmenu.kz']);
+
 /* ---------- Маршрутизация ---------- */
 export default {
   async fetch(request, env, ctx) {
@@ -1029,6 +1031,18 @@ export default {
       }
     } catch (err) {
       return json({ error: 'server_error', message: String(err) }, { status: 500 });
+    }
+
+    // Продающий сайт tut.menu: tutmenu.kz отдаёт лендинг из папки /site (www → без www)
+    if (SALES_HOSTS.has(url.hostname) && (method === 'GET' || method === 'HEAD')
+        && !/^\/(api|files|media|admin|demo)(\/|$)/.test(p)) {
+      if (url.hostname.startsWith('www.')) {
+        url.hostname = url.hostname.slice(4);
+        return Response.redirect(url.toString(), 301);
+      }
+      const target = new URL(url);
+      target.pathname = '/site' + (p === '/' ? '/' : p);
+      return env.ASSETS.fetch(new Request(target.toString(), request));
     }
 
     // Всё остальное — статичные файлы сайта (index.html, css, js, картинки-заглушки).
