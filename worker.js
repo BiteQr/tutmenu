@@ -166,6 +166,7 @@ async function handleMenu(request, env) {
     itemLayout: restaurant.item_layout || 'list',
     langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
     orderMode: restaurant.order_mode === 'waiter' ? 'waiter' : 'whatsapp',
+    promoStyle: restaurant.promo_style === 'stories' ? 'stories' : 'banner',
     lunch: parseLunch(restaurant.lunch)
   };
 
@@ -452,7 +453,7 @@ async function handleAdminApi(request, env, segments) {
       const b = await request.json();
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style']
         .filter((c) => c in b);
       if (cols.includes('lunch')) {
         const v = b.lunch == null || b.lunch === '' ? null : (typeof b.lunch === 'string' ? b.lunch : JSON.stringify(b.lunch));

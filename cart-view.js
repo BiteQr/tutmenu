@@ -3,7 +3,7 @@
    ========================================================= */
 (function (App) {
   const C = window.APP_CONFIG;
-  const { $, esc, money, img, toast, lockScroll } = App.utils;
+  const { $, esc, money, img, toast, lockScroll, swipeClose } = App.utils;
   const I18n = App.I18n;
   const Cart = App.Cart;
 
@@ -110,6 +110,14 @@
         <h3 class="recs__title">${esc(I18n.t('addToOrder'))}</h3>
         <div class="hscroll recs">${recs.map(recHTML).join('')}</div>` : ''}`;
   }
+
+  // Корзину закрываем свайпом вправо (откуда она выехала) или вниз, когда она прокручена к началу.
+  // В лентах рекомендаций горизонтальный свайп оставляем им — они листаются.
+  swipeClose(root, {
+    scroller: $('.cart__scroll', root), axes: ['y', 'x'], ignore: '.hscroll, .recs',
+    enabled: () => root.classList.contains('is-open'),
+    onClose: () => App.back('#/menu')
+  });
 
   /* ---------- открытие / закрытие (вызывается роутером) ---------- */
   function open() {

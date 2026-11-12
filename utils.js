@@ -133,5 +133,64 @@ window.App = window.App || {};
     if (el && !el.disabled) haptic();
   }, true);
 
-  App.utils = { $, $$, esc, safeUrl, money, norm, debounce, store, img, toast, bump, lockScroll, overlay, haptic, PLACEHOLDER };
+
+  /** Закрытие свайпом (как в iOS): тянем окно вниз (когда оно прокручено к началу) или вправо.
+   *  el — что двигаем; scroller — что прокручивается внутри (вниз тянем только с самого верха);
+   *  axes — 'y' и/или 'x'; ignore — селектор областей, где горизонтальный жест не наш (ленты с прокруткой);
+   *  backdrop — что затемнять (необязательно); onClose(axis) — закрыть по-настоящему. */
+  function swipeClose(el, { scroller, axes = ['y'], ignore, backdrop, onClose, enabled }) {
+    let x0 = 0, y0 = 0, t0 = 0, axis = null, d = 0, active = false, skipX = false;
+    const reset = () => {
+      el.style.transition = ''; el.style.transform = ''; el.style.borderRadius = ''; el.style.boxShadow = '';
+      if (backdrop) { backdrop.style.transition = ''; backdrop.style.opacity = ''; }
+    };
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || (enabled && !enabled())) { active = false; return; }
+      const t = e.touches[0];
+      x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); axis = null; d = 0; active = true;
+      skipX = !!(ignore && e.target.closest && e.target.closest(ignore));
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+      if (!active) return;
+      const t = e.touches[0];
+      const dx = t.clientX - x0, dy = t.clientY - y0;
+      if (!axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        const top = !scroller || scroller.scrollTop <= 0;
+        if (axes.includes('y') && Math.abs(dy) > Math.abs(dx) && dy > 0 && top) axis = 'y';
+        else if (axes.includes('x') && !skipX && Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 0) axis = 'x';
+        else { active = false; return; }
+        el.style.transition = 'none';
+        if (backdrop) backdrop.style.transition = 'none';
+      }
+      e.preventDefault();
+      d = Math.max(0, axis === 'y' ? dy : dx);
+      const k = axis === 'y' ? Math.min(1, d / 600) : 0;
+      el.style.transform = axis === 'y' ? `translateY(${d}px) scale(${1 - k * 0.12})` : `translateX(${d}px)`;
+      if (axis === 'y') el.style.borderRadius = '24px'; else el.style.boxShadow = '-12px 0 30px rgba(0,0,0,.18)';
+      if (backdrop) backdrop.style.opacity = String(Math.max(0, 1 - d / 500));
+    }, { passive: false });
+    const end = () => {
+      if (!active || !axis) { active = false; return; }
+      active = false;
+      const v = d / Math.max(1, Date.now() - t0);
+      const size = axis === 'y' ? window.innerHeight : window.innerWidth;
+      if (d > Math.min(140, size * 0.28) || (v > 0.5 && d > 40)) {
+        el.style.transition = 'transform .25s ease-in, opacity .25s';
+        el.style.transform = axis === 'y' ? `translateY(${size}px)` : `translateX(${size}px)`;
+        if (backdrop) { backdrop.style.transition = 'opacity .25s'; backdrop.style.opacity = '0'; }
+        haptic(6);
+        setTimeout(() => { onClose(axis); setTimeout(reset, 380); }, 200);
+      } else {
+        el.style.transition = 'transform .3s cubic-bezier(.2,.9,.25,1)';
+        el.style.transform = '';
+        if (backdrop) { backdrop.style.transition = 'opacity .3s'; backdrop.style.opacity = ''; }
+        setTimeout(reset, 320);
+      }
+    };
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+  }
+
+  App.utils = { $, $$, esc, safeUrl, money, norm, debounce, store, img, toast, bump, lockScroll, overlay, haptic, swipeClose, PLACEHOLDER };
 })(window.App);

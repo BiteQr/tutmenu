@@ -3,7 +3,7 @@
    ========================================================= */
 (function (App) {
   const C = window.APP_CONFIG;
-  const { $, $$, esc, money, norm, debounce, img, toast, bump, overlay, safeUrl } = App.utils;
+  const { $, $$, esc, money, norm, debounce, img, toast, bump, overlay, safeUrl, swipeClose } = App.utils;
   const I18n = App.I18n;
   const Cart = App.Cart;
 
@@ -100,8 +100,13 @@
     if (tmp.firstElementChild) v.replaceWith(tmp.firstElementChild);
   }, true);
 
+  const storiesMode = () => data.settings.promoStyle === 'stories' && App.Stories;
   function renderPromos() {
     els.promos.hidden = !data.promos.length;
+    const stories = storiesMode();
+    els.promos.classList.toggle('stories', !!stories);
+    els.promos.classList.toggle('promos', !stories);
+    if (stories) { els.promos.innerHTML = App.Stories.tilesHTML(data.promos); return; }
     els.promos.innerHTML = data.promos.map((p, i) =>
       `<button type="button" class="promo" data-promo="${i}" aria-label="${esc(I18n.f(p, 'title'))}">
          ${promoMediaHTML(p, '', i < 2)}
@@ -116,7 +121,7 @@
       любой маленький программный scrollTo, так что настоящий скролл
       для такой короткой подсказки ненадёжен в разных браузерах. */
   function hintPromosScroll() {
-    if (hintShown || !data.promos || data.promos.length < 2) return;
+    if (hintShown || !data.promos || data.promos.length < 2 || storiesMode()) return;
     hintShown = true;
     const row = els.promos;
     requestAnimationFrame(() => {
@@ -833,6 +838,7 @@
         <div class="overlay__content"></div>
       </div>`;
     document.body.appendChild(itemDetailModal);
+    attachSwipe(itemDetailModal);
 
     itemDetailModal.addEventListener('click', (e) => {
       const t = e.target;
@@ -1196,6 +1202,12 @@
 
     if (t.closest('[data-lunch-open]')) { openLunchWeek(); return; }
 
+    const story = t.closest('[data-story]');
+    if (story) {
+      App.Stories.open(+story.dataset.story, story, (id) => { App.go('#/menu'); goToItem(id); });
+      return;
+    }
+
     const promo = t.closest('[data-promo]');
     if (promo) { openPromo(+promo.dataset.promo); return; }
 
@@ -1226,6 +1238,17 @@
     const v = $('video', els.promoModal);
     if (v) v.pause();
   }
+
+  /** Свайп вниз закрывает любое окно-шторку (акция, выбор варианта, ланч, карточка блюда) */
+  function attachSwipe(ov) {
+    const panel = $('.overlay__panel', ov);
+    if (!panel) return;
+    swipeClose(panel, {
+      scroller: panel, axes: ['y'],
+      onClose: () => { $$('video', ov).forEach((v) => v.pause()); overlay.close(ov); }
+    });
+  }
+  [els.promoModal, els.variantSheet, els.lunchSheet].forEach((ov) => ov && attachSwipe(ov));
 
   // Модалки живут вне #menu
   [els.promoModal, els.variantSheet].forEach((ov) => {
