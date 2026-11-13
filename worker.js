@@ -1104,14 +1104,68 @@ async function handleDemoCreate(request, env, ctx) {
 
 /* ---------- Telegram: уведомления о новых демо (бот @tutmenu_bot) ----------
    Секреты задаются в Cloudflare: TG_TOKEN (токен бота) и TG_CHAT_ID (куда слать). */
+// Токен и чат берутся из секретов Cloudflare, а если их нет — из app_config (владелец вводит в админке сам)
+async function cfg(env, key) {
+  const r = await env.DB.prepare('SELECT value FROM app_config WHERE key = ?1').bind(key).first().catch(() => null);
+  return r ? r.value : '';
+}
+async function setCfg(env, key, value) {
+  await env.DB.prepare('INSERT INTO app_config (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(key, value).run();
+}
+async function tgCreds(env) {
+  return { token: env.TG_TOKEN || await cfg(env, 'tg_token'), chat: env.TG_CHAT_ID || await cfg(env, 'tg_chat_id') };
+}
+async function tgCall(token, method, body) {
+  const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {})
+  });
+  return r.json().catch(() => ({ ok: false }));
+}
 async function tgNotify(env, text) {
-  if (!env.TG_TOKEN || !env.TG_CHAT_ID) return;
   try {
-    await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/sendMessage`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text, disable_web_page_preview: true })
-    });
+    const { token, chat } = await tgCreds(env);
+    if (!token || !chat) return;
+    await tgCall(token, 'sendMessage', { chat_id: chat, text, disable_web_page_preview: true });
   } catch { /* уведомление не должно ломать создание демо */ }
+}
+
+/** Настройка Telegram из админки (только владелец). Токен назад в браузер не отдаём никогда. */
+async function handleTgApi(request, env, action) {
+  const auth = await ownerOnly(env, request);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  const method = request.method;
+  const { token, chat } = await tgCreds(env);
+  if (!action && method === 'GET') {
+    return json({ tokenSet: !!token, chatSet: !!chat, chatName: await cfg(env, 'tg_chat_name'), bot: await cfg(env, 'tg_bot') });
+  }
+  if (!action && method === 'PUT') {
+    const b = await request.json().catch(() => ({}));
+    const t = String(b.token || '').trim();
+    if (!/^\d{6,12}:[A-Za-z0-9_-]{30,50}$/.test(t)) return json({ error: 'bad_token', message: 'Это не похоже на токен бота' }, { status: 400 });
+    const me = await tgCall(t, 'getMe');
+    if (!me.ok) return json({ error: 'bad_token', message: 'Telegram не принял токен' }, { status: 400 });
+    await setCfg(env, 'tg_token', t);
+    await setCfg(env, 'tg_bot', '@' + me.result.username);
+    return json({ ok: true, bot: '@' + me.result.username });
+  }
+  if (action === 'find-chat' && method === 'POST') {
+    if (!token) return json({ error: 'no_token' }, { status: 400 });
+    const up = await tgCall(token, 'getUpdates', { limit: 50 });
+    const msgs = (up.result || []).map((u) => u.message).filter((m) => m && m.chat && m.chat.type === 'private' && /^\/start/.test(m.text || ''));
+    const last = msgs[msgs.length - 1];
+    if (!last) return json({ error: 'no_start', message: 'Бот ещё не получил /start. Напишите ему /start и нажмите снова.' }, { status: 404 });
+    const name = [last.chat.first_name, last.chat.last_name].filter(Boolean).join(' ') + (last.chat.username ? ` (@${last.chat.username})` : '');
+    await setCfg(env, 'tg_chat_id', String(last.chat.id));
+    await setCfg(env, 'tg_chat_name', name);
+    await tgCall(token, 'sendMessage', { chat_id: last.chat.id, text: '✅ Готово! Сюда будут приходить новые демо tut.menu.' });
+    return json({ ok: true, chatName: name });
+  }
+  if (action === 'test' && method === 'POST') {
+    if (!token || !chat) return json({ error: 'not_ready' }, { status: 400 });
+    const r = await tgCall(token, 'sendMessage', { chat_id: chat, text: '🔔 Проверка: уведомления tut.menu работают.' });
+    return json({ ok: !!r.ok });
+  }
+  return json({ error: 'not_found' }, { status: 404 });
 }
 const KIND_NAMES = { restaurant: 'Ресторан', cafe: 'Кафе', coffee: 'Кофейня', lounge: 'Лаунж/кальянная', bar: 'Бар', sushi: 'Суши', pizza: 'Пиццерия', fastfood: 'Фастфуд', bakery: 'Кондитерская', canteen: 'Столовая' };
 
@@ -1191,6 +1245,9 @@ export default {
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
       if (p.startsWith('/ar/') && (method === 'GET' || method === 'HEAD')) return await handleArGlb(request, env, ctx, p.slice(4));
+      if (p === '/admin/api/tg' || p.startsWith('/admin/api/tg/')) {
+        return await handleTgApi(request, env, p.split('/')[4] || '');
+      }
       if (p.startsWith('/admin/api/leads')) {
         const [, , , , slug, action] = p.split('/');
         return await handleLeadsApi(request, env, (slug || '').replace(/[^a-z0-9-]/g, ''), action);

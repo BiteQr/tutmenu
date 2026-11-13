@@ -221,8 +221,12 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
   .lead__top { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
   .lead__meta { font-size: 13.5px; color: #555; }
   .lead__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
-  .lead__actions .btn--small { padding: 8px 12px; font-size: 13.5px; text-decoration: none; }
   .lead__note { flex: 1; min-width: 160px; height: 36px; border: 1px solid #ddd; border-radius: 10px; padding: 0 10px; font: inherit; }
+  .tgbox { background: #fff; border: 1px solid #e6e6e6; border-radius: 14px; padding: 14px; margin-bottom: 14px; display: grid; gap: 8px; }
+  .tgbox.is-ok { border-color: #bfe5cc; background: #f3fbf5; }
+  .tgbox p { margin: 0; font-size: 14px; color: #444; }
+  .tgbox__row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tgbox__row input { flex: 1; min-width: 200px; height: 38px; border: 1px solid #ddd; border-radius: 10px; padding: 0 10px; font: inherit; }
   .lead-dead { color: #c0392b; font-weight: 600; }
 </style>
 </head>
@@ -464,6 +468,33 @@ async function reloadTable(key, endpoint) {
 const DEMO_ORIGIN = 'https://tutmenu.n-a-s-2606zha.workers.dev';
 const LEAD_STATUS = { new: 'Новый', contacted: 'Связались', paid: 'Оплатил', declined: 'Отказ' };
 const LEAD_KIND = { restaurant: 'Ресторан', cafe: 'Кафе', coffee: 'Кофейня', lounge: 'Лаунж', bar: 'Бар', sushi: 'Суши', pizza: 'Пиццерия', fastfood: 'Фастфуд', bakery: 'Кондитерская', canteen: 'Столовая' };
+/* Блок «Telegram»: владелец сам вставляет токен бота, бот сам находит чат после /start */
+async function renderTgBox(box) {
+  let st = {};
+  try { st = await api('/tg'); } catch (e) { box.innerHTML = ''; return; }
+  const ready = st.tokenSet && st.chatSet;
+  box.innerHTML = `<div class="tgbox ${ready ? 'is-ok' : ''}">
+    <b>Telegram-уведомления о новых демо</b>
+    ${ready ? `<p>Работают: ${esc(st.bot || 'бот')} пишет в чат ${esc(st.chatName || '')}.</p>
+      <div class="tgbox__row"><button class="btn btn-dark btn-sm" data-tg-test>Отправить проверку</button><button class="btn btn-outline btn-sm" data-tg-reset>Сменить токен</button></div>`
+    : !st.tokenSet || box.dataset.reset ? `<p>1. Вставьте токен бота из BotFather (его видите только вы, назад он не показывается).</p>
+      <div class="tgbox__row"><input type="password" data-tg-token placeholder="123456789:AA…" autocomplete="off"><button class="btn btn-dark btn-sm" data-tg-save>Сохранить</button></div>`
+    : `<p>2. Откройте ${esc(st.bot || 'бота')} в Telegram, нажмите «Старт» (или напишите /start), затем нажмите кнопку ниже.</p>
+      <div class="tgbox__row"><a class="btn btn-outline btn-sm" href="https://t.me/${esc((st.bot || '').replace('@', ''))}" target="_blank" rel="noopener">Открыть бота</a><button class="btn btn-dark btn-sm" data-tg-find>Найти мой чат</button></div>`}
+  </div>`;
+  const q = (sel) => box.querySelector(sel);
+  if (q('[data-tg-save]')) q('[data-tg-save]').onclick = async () => {
+    try { const r = await api('/tg', { method: 'PUT', body: { token: q('[data-tg-token]').value } }); delete box.dataset.reset; toast('Токен сохранён: ' + r.bot); renderTgBox(box); }
+    catch (e) { toast(e.message); }
+  };
+  if (q('[data-tg-find]')) q('[data-tg-find]').onclick = async () => {
+    try { const r = await api('/tg/find-chat', { method: 'POST' }); toast('Чат найден: ' + r.chatName); renderTgBox(box); }
+    catch (e) { toast(e.message); }
+  };
+  if (q('[data-tg-test]')) q('[data-tg-test]').onclick = () => api('/tg/test', { method: 'POST' }).then(() => toast('Отправил проверку в Telegram')).catch((e) => toast(e.message));
+  if (q('[data-tg-reset]')) q('[data-tg-reset]').onclick = () => { box.dataset.reset = '1'; renderTgBox(box); };
+}
+
 async function renderLeadsTab(c) {
   c.innerHTML = '<p class="hint">Загружаю лиды…</p>';
   let items = [];
@@ -480,6 +511,7 @@ async function renderLeadsTab(c) {
   };
   const counts = Object.fromEntries(Object.keys(LEAD_STATUS).map((k) => [k, items.filter((l) => l.status === k).length]));
   c.innerHTML = `
+    <div id="tgBox"></div>
     <div class="leads-head">
       <div><b>${items.length}</b> демо · новых ${counts.new} · связались ${counts.contacted} · оплатили ${counts.paid} · отказ ${counts.declined}</div>
       <div class="leads-filters">
@@ -499,12 +531,13 @@ async function renderLeadsTab(c) {
         <div class="lead__meta">${esc(l.owner_name)} · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">${esc(l.phone)}</a> · создано ${new Date(l.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · открывали ${l.views} раз · осталось ${left(l)}</div>
         <div class="lead__meta">Дизайн: ${esc([d.theme, d.style, d.palette, d.fonts].filter(Boolean).join(' / ') || 'по умолчанию')}</div>
         <div class="lead__actions">
-          <a class="btn btn--small" href="${DEMO_ORIGIN}/demo/${esc(l.slug)}" target="_blank" rel="noopener">Открыть демо</a>
-          <button class="btn btn--small btn--ghost" data-lead-extend>Продлить на 3 дня</button>
+          <a class="btn btn-dark btn-sm" href="${DEMO_ORIGIN}/demo/${esc(l.slug)}" target="_blank" rel="noopener">Открыть демо</a>
+          <button class="btn btn-outline btn-sm" data-lead-extend>Продлить на 3 дня</button>
           <input class="lead__note" data-lead-note placeholder="Заметка" value="${esc(l.note || '')}">
         </div>
       </div>`;
     }).join('')}</div>`;
+  renderTgBox(c.querySelector('#tgBox'));
   c.querySelector('#leadCity').onchange = (e) => { f.city = e.target.value; renderLeadsTab(c); };
   c.querySelector('#leadStatus').onchange = (e) => { f.status = e.target.value; renderLeadsTab(c); };
   c.querySelectorAll('.lead').forEach((row) => {
