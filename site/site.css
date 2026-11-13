@@ -189,7 +189,7 @@ p { max-width: 60ch; }
 .example__qr { display: flex; align-items: center; gap: 20px; }
 .example__qr img { width: 132px; height: 132px; border-radius: 12px; background: #fff; }
 .example__qr .link { font-size: 22px; }
-.example__phones { display: grid; grid-auto-flow: column; grid-auto-columns: min(250px, 66vw); gap: 20px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 calc(-1 * var(--m)); padding: 0 var(--m) 8px; scrollbar-width: none; }
+.example__phones { display: grid; grid-auto-flow: column; grid-auto-columns: min(250px, 66vw); gap: 20px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: var(--m); margin: 0 calc(-1 * var(--m)); padding: 0 var(--m) 8px; scrollbar-width: none; }
 .example__phones::-webkit-scrollbar { display: none; }
 .example__phones figure { scroll-snap-align: start; }
 .example__phones figcaption { margin-top: 14px; font-size: 15px; font-weight: 500; }

@@ -123,6 +123,7 @@ html[data-style="showcase"] .section { padding-top: 38px; }
 html[data-style="showcase"] .section__title { font-size: 26px; }
 html[data-style="showcase"] #sections .items {
   display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+  scroll-padding-inline: var(--pad); /* иначе iPhone прижимает первую карточку к краю экрана */
   margin: 16px calc(-1 * var(--pad)) 0; padding: 0 var(--pad) 6px;
 }
 html[data-style="showcase"] #sections .items::-webkit-scrollbar { display: none; }
@@ -204,3 +205,7 @@ html[data-style][data-mode="dark"] .pills { box-shadow: none; }
   box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
 .demo-edit:active { transform: translateX(-50%) scale(.97); }
+
+/* Кнопки на цвете акцента: текст цветом «на акценте» темы (золото → тёмный текст), а не всегда белый */
+html[data-style] .order-btn, html[data-style] .cart__empty button { color: var(--on-dark); }
+html[data-style] .cart__foot { background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent), var(--bg) 40%); }
