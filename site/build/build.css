@@ -144,3 +144,47 @@ button { background: none; border: 0; cursor: pointer; }
 }
 @media (prefers-reduced-motion: reduce) { .step, .stage.is-open { animation: none; } }
 .theme img[src*="welcomes/"] { aspect-ratio: 390 / 844; }
+
+/* Телефон, шаги дизайна: живое превью закреплено сверху, варианты — лентой под ним */
+.phone__tap { display: none; }
+@media (max-width: 979px) {
+  body.live .b__top { position: fixed; top: 0; left: 0; right: 0; z-index: 41; background: var(--bg); }
+  body.live .stage:not(.is-open) {
+    visibility: visible; pointer-events: auto; left: 0; right: 0; top: var(--hh, 58px); width: auto; height: 46vh; z-index: 40;
+    background: var(--soft); border-radius: 0 0 26px 26px; padding: 10px 10px 10px 114px; justify-content: center; align-items: flex-start;
+  }
+  body.live .stage:not(.is-open) .stage__tabs { position: absolute; left: 10px; top: 10px; flex-direction: column; background: rgba(255,255,255,.7); }
+  body.live .stage:not(.is-open) .stage__tabs button { padding: 7px 10px; font-size: 12px; text-align: left; }
+  body.live .stage:not(.is-open) .phone__tap { display: block; position: absolute; inset: 0; z-index: 2; }
+  body.live .stage:not(.is-open)::after {
+    content: 'Нажмите, чтобы открыть'; position: absolute; right: 12px; bottom: 12px; max-width: 76px;
+    font-size: 11.5px; line-height: 1.25; color: var(--muted); text-align: right;
+  }
+  body.live .panel { padding-top: calc(var(--hh, 58px) + 46vh + 6px); }
+  body.live .b__peek { display: none; }
+  body.live .step h1 { font-size: 22px; }
+  body.live .step .sub { display: none; }
+  body.live .label { margin: 14px 0 8px; }
+  body.live .toggles { margin-top: 12px; }
+  body.live .tg { padding: 12px 14px; }
+  body.live .tg small { display: none; }
+  /* Ленты вариантов */
+  body.live .themes, body.live .pals, body.live .fontlist {
+    display: grid; grid-auto-flow: column; grid-template-columns: none; overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; margin: 12px calc(-1 * var(--m)) 0; padding: 2px var(--m) 6px; scroll-padding-inline: var(--m);
+    scrollbar-width: none; gap: 10px;
+  }
+  body.live .themes::-webkit-scrollbar, body.live .pals::-webkit-scrollbar, body.live .fontlist::-webkit-scrollbar { display: none; }
+  body.live .themes { grid-auto-columns: 31%; }
+  body.live .themes > *, body.live .pals > *, body.live .fontlist > * { scroll-snap-align: start; }
+  body.live .theme { padding: 6px; border-radius: 16px; }
+  body.live .theme img { border-radius: 11px; aspect-ratio: 390 / 560; }
+  body.live .theme img[src*="welcomes/"] { aspect-ratio: 390 / 700; }
+  body.live .theme b { margin: 7px 2px 0; font-size: 14px; }
+  body.live .theme small, body.live .theme .tag { display: none; }
+  body.live .pals { grid-auto-columns: 30%; }
+  body.live .fontlist { grid-auto-columns: 62%; }
+  body.live .fontopt { flex-direction: column !important; align-items: flex-start !important; gap: 4px; }
+  body.live .fontopt__d { font-size: 20px; }
+  body.live .fontopt__b { white-space: normal; }
+}

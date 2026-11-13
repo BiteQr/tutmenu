@@ -79,9 +79,29 @@
       if (err) { ready = false; pv.contentWindow.location.reload(); }
     } catch { /* другой origin — ничего не делаем */ }
   }
-  $('#peek').addEventListener('click', () => { $('#stage').classList.add('is-open'); healPreview(); push(); });
+  const openPeek = () => { $('#stage').classList.add('is-open'); fitPhone(); healPreview(); push(); };
+  $('#peek').addEventListener('click', openPeek);
+  $('#pvTap').addEventListener('click', openPeek);
   setInterval(healPreview, 4000);
-  $('#peekClose').addEventListener('click', () => $('#stage').classList.remove('is-open'));
+  $('#peekClose').addEventListener('click', () => { $('#stage').classList.remove('is-open'); fitPhone(); });
+
+  /* На телефоне на шагах дизайна превью всегда видно сверху (живое), варианты листаются вбок под ним.
+     Меню внутри рисуется в настоящую ширину 390px и уменьшается целиком — как настоящий телефон. */
+  const LIVE = ['theme', 'welcome', 'colors', 'fonts', 'layout', 'blocks'];
+  const mq = matchMedia('(max-width: 979px)');
+  function fitPhone() {
+    const ph = $('.phone'), st = $('#stage');
+    if (!mq.matches) { ph.style.cssText = ''; pv.style.cssText = ''; return; }
+    const open = st.classList.contains('is-open');
+    const live = document.body.classList.contains('live') && !open;
+    const h = live ? Math.round(innerHeight * 0.46) - 20 : Math.min(innerHeight * 0.74, 640);
+    const pad = live ? 5 : 10;
+    const s = (h - pad * 2) / 844;
+    ph.style.cssText = `width:${Math.round(390 * s + pad * 2)}px;height:${Math.round(h)}px;padding:${pad}px;border-radius:${live ? 24 : 46}px;position:relative;overflow:hidden;flex:none`;
+    pv.style.cssText = `width:390px;height:844px;transform:scale(${s});transform-origin:0 0;border-radius:${Math.round((live ? 19 : 36) / s)}px`;
+    document.documentElement.style.setProperty('--hh', $('.b__top').offsetHeight + 'px');
+  }
+  addEventListener('resize', fitPhone);
 
   /* ---------- шаги ---------- */
   const wrap = $('#stepWrap');
@@ -215,7 +235,10 @@
     // Полоска шагов кликабельна: можно сразу перейти к любому шагу (после заполнения данных)
     $('#steps').innerHTML = steps.map((sid, k) => `<button type="button" data-goto="${k}" aria-label="${STEPS[sid].title}" class="${k < cur ? 'done' : k === cur ? 'cur' : ''}"><i></i></button>`).join('');
     $('#stepName').textContent = `Шаг ${cur + 1} из ${steps.length} · ${STEPS[id].title}`;
+    if (render.last !== id) { render.last = id; scrollTo(0, 0); }
     wrap.innerHTML = VIEWS[id]();
+    document.body.classList.toggle('live', LIVE.includes(id));
+    fitPhone();
     $('#back').disabled = cur === 0;
     $('#next').textContent = id === 'done' ? (editKey ? 'Сохранить изменения' : 'Получить ссылку') : 'Далее';
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
