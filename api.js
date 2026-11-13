@@ -15,8 +15,10 @@
   const { store } = App.utils;
 
   /** slug из ?r=... или собственный домен сайта — им сайт представляется бэкенду */
-  const restaurantId = (new URLSearchParams(location.search).get('r') || location.hostname)
-    .toLowerCase().replace(/^www\./, '');
+  // Демо из конструктора: /demo/<slug> → «demo:<slug>» (тестовое меню в дизайне клиента)
+  const demoSlug = (location.pathname.match(/^\/demo\/([a-z0-9-]{1,64})\/?$/i) || [])[1];
+  const restaurantId = demoSlug ? 'demo:' + demoSlug.toLowerCase()
+    : (new URLSearchParams(location.search).get('r') || location.hostname).toLowerCase().replace(/^www\./, '');
   App.restaurantId = restaurantId;
   const cacheKey = `${C.DATA_CACHE_KEY}:${restaurantId}`;
 

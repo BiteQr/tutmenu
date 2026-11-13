@@ -57,6 +57,17 @@
 
   /** Пресет оформления (цвет/шрифт/скругления) + опциональный акцентный цвет клиента */
   function applyTheme(s) {
+    // Новый движок тем (дизайн из конструктора): цвета, шрифты, форма, стиль категорий и карточек
+    let design = s.design;
+    if (typeof design === 'string') { try { design = JSON.parse(design); } catch { design = null; } }
+    if (design && typeof design === 'object' && window.TMThemes) {
+      const r = window.TMThemes.apply(design);
+      s.itemLayout = r.layout;
+      document.documentElement.dataset.welcomeBg = design.welcomeBg === 'color' ? 'color' : 'photo';
+      // Без приветствия меню открывается сразу
+      if (design.welcome === false && (!location.hash || location.hash === '#/' || location.hash === '#')) location.replace('#/menu');
+      return;
+    }
     const preset = VALID_PRESETS.includes(s.theme) ? s.theme : 'modern';
     document.documentElement.dataset.preset = preset;
 
@@ -78,7 +89,27 @@
     } else ['--lang-bg', '--lang-fg', '--lang-check'].forEach((v) => root.style.removeProperty(v));
   }
 
+  /* Живое превью в конструкторе демо: страница меню в iframe получает дизайн и название
+     от конструктора (того же сайта) и сразу перерисовывается. Работает только с ?preview=1. */
+  const isPreview = /[?&]preview=1/.test(location.search);
+  if (isPreview) {
+    window.addEventListener('message', (e) => {
+      if (e.origin !== location.origin || !e.data || e.data.type !== 'tm-design' || !App.data) return;
+      const s = App.data.settings;
+      s.design = e.data.design;
+      if (e.data.name) s.name = e.data.name;
+      if ('logo' in e.data) { s.logoHeader = e.data.logo || ''; s.logoWelcome = e.data.logo || ''; }
+      if (e.data.blocks) {
+        App.data.promos = e.data.blocks.promos === false ? [] : (App.data._promos || App.data.promos);
+        s.lunch = e.data.blocks.lunch === false ? null : (App.data._lunch || s.lunch);
+      }
+      applyData(App.data);
+      if (e.data.screen && location.hash !== e.data.screen) location.hash = e.data.screen;
+    });
+  }
+
   function applyData(data) {
+    if (data._promos === undefined) { data._promos = data.promos; data._lunch = data.settings.lunch; }
     App.data = data;
     if (data.settings.name) document.title = data.settings.name;
     applyTheme(data.settings);

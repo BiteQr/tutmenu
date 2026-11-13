@@ -1,7 +1,7 @@
 /* tut.menu — лендинг: языки, живой AI-поиск на реальных ответах Типа Граф, админка-пример, появление блоков. */
 (function () {
   // Номер WhatsApp отдела продаж (только цифры, с 7). ЗАМЕНИТЬ перед запуском.
-  const WA_PHONE = '';
+  const WA_PHONE = '77064150958';
 
   const T = {
     kk: {
@@ -104,7 +104,7 @@
     const a = document.getElementById('waLink');
     if (!a) return;
     const text = { ru: 'Здравствуйте! Хочу QR-меню tut.menu для своего заведения.', kk: 'Сәлеметсіз бе! Мекемеме tut.menu QR-мәзірін қалаймын.', en: 'Hello! I’d like a tut.menu QR menu for my venue.' }[l] || '';
-    a.href = WA_PHONE ? `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(text)}` : '#build';
+    a.href = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(text)}`;
   }
 
   /* ---------- живой AI-поиск: настоящие ответы меню Типа Граф ---------- */

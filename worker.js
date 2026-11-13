@@ -1005,6 +1005,99 @@ async function serveSitemap(env, url) {
 
 const SALES_HOSTS = new Set(['tutmenu.kz', 'www.tutmenu.kz']);
 
+
+/* =========================================================
+   ДЕМО ИЗ КОНСТРУКТОРА (tutmenu.kz/demo/<slug>)
+   Тестовое меню (media/demo/template.json) в дизайне клиента: название, логотип, тема.
+   Каждое демо — лид в таблице demos; живёт 3 суток.
+   ========================================================= */
+const DEMO_TTL_MS = 72 * 3600 * 1000;
+const DEMO_LIMIT_PER_IP = 5;          // демо с одного IP за сутки
+
+async function demoTemplate(env, request) {
+  const res = await env.ASSETS.fetch(new Request(new URL('/media/demo/template.json', request.url)));
+  return res.json();
+}
+
+const TRANSLIT = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',ә:'a',ғ:'g',қ:'k',ң:'n',ө:'o',ұ:'u',ү:'u',һ:'h',і:'i' };
+function demoSlugFrom(name) {
+  const base = String(name || '').toLowerCase().split('').map((c) => TRANSLIT[c] ?? c).join('')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'menu';
+  const rnd = Math.random().toString(36).slice(2, 6);
+  return `${base}-${rnd}`;
+}
+
+async function handleDemoMenu(request, env, slug) {
+  const data = await demoTemplate(env, request);
+  if (slug === 'preview') return json(data, { headers: { 'cache-control': 'no-store' } });
+  const row = await env.DB.prepare('SELECT * FROM demos WHERE slug = ?1').bind(slug).first();
+  if (!row) return json({ error: 'not_found', message: 'Демо не найдено' }, { status: 404 });
+  const expired = Date.parse(row.expires_at) <= Date.now();
+  let design = {}, blocks = {};
+  try { design = JSON.parse(row.design || '{}'); } catch {}
+  try { blocks = JSON.parse(row.blocks || '{}'); } catch {}
+  const s = data.settings;
+  s.name = row.restaurant_name || s.name;
+  s.design = design;
+  if (row.logo) { s.logoHeader = row.logo; s.logoWelcome = row.logo; }
+  if (blocks.promos === false) data.promos = [];
+  if (blocks.lunch === false) s.lunch = null;
+  s.demo = { slug, expiresAt: row.expires_at, expired, restaurant: row.restaurant_name };
+  if (!expired) {
+    await env.DB.prepare("UPDATE demos SET views = views + 1, last_view_at = ?2 WHERE slug = ?1")
+      .bind(slug, new Date().toISOString()).run().catch(() => {});
+  }
+  return json(data, { headers: { 'cache-control': 'no-store' } });
+}
+
+async function handleDemoCreate(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+  const info = body.info || {};
+  const clean = (v, n) => String(v || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
+  const owner = clean(info.owner, 60), name = clean(info.name, 60), city = clean(info.city, 40), kind = clean(info.kind, 20);
+  const phone = clean(info.phone, 24);
+  if (!owner || !name || phone.replace(/\D/g, '').length < 11) return json({ error: 'fields', message: 'Заполните имя, название и телефон' }, { status: 400 });
+
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const cnt = await env.DB.prepare('SELECT COUNT(*) n FROM demos WHERE ip = ?1 AND created_at > ?2').bind(ip, dayAgo).first();
+  if (cnt && cnt.n >= DEMO_LIMIT_PER_IP) return json({ error: 'limit', message: 'Слишком много демо за сутки' }, { status: 429 });
+
+  // Дизайн: только известные ключи и короткие значения
+  const d = body.design || {};
+  const design = {};
+  for (const k of ['theme', 'palette', 'fonts', 'shape', 'cats', 'cards', 'layout', 'welcomeBg']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
+  if (typeof d.accent === 'string' && /^#[0-9a-f]{6}$/i.test(d.accent)) design.accent = d.accent;
+  if (d.welcome === false) design.welcome = false;
+  const b = body.blocks || {};
+  const blocks = { promos: b.promos !== false, lunch: b.lunch !== false, stories: b.stories === true };
+
+  const slug = demoSlugFrom(name);
+  // Логотип приходит из конструктора уже уменьшенным (PNG data URL) — кладём в R2
+  let logo = '';
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.logo || ''));
+  if (m && m[2].length < 2_000_000) {
+    const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+    const key = `demos/${slug}/logo.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+    await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: `image/${m[1]}` } });
+    logo = `/files/${key}`;
+  }
+  const now = new Date();
+  await env.DB.prepare(`INSERT INTO demos (slug, owner_name, restaurant_name, phone, city, kind, logo, design, blocks, ip, created_at, expires_at, views, status)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new')`)
+    .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
+      now.toISOString(), new Date(now.getTime() + DEMO_TTL_MS).toISOString()).run();
+  return json({ ok: true, slug, url: `/demo/${slug}` });
+}
+
+/** Страница демо: то же приложение меню, с <base href="/">, чтобы файлы грузились от корня */
+async function serveDemoPage(request, env) {
+  const res = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url)));
+  const html = (await res.text()).replace('<head>', '<head><base href="/"><meta name="robots" content="noindex">');
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+}
+
 /* ---------- Маршрутизация ---------- */
 export default {
   async fetch(request, env, ctx) {
@@ -1013,7 +1106,12 @@ export default {
     const method = request.method;
 
     try {
-      if (p === '/api/menu' && method === 'GET') return await handleMenu(request, env);
+      if (p === '/api/menu' && method === 'GET') {
+        const did = (url.searchParams.get('id') || '').toLowerCase();
+        if (did.startsWith('demo:')) return await handleDemoMenu(request, env, did.slice(5).replace(/[^a-z0-9-]/g, ''));
+        return await handleMenu(request, env);
+      }
+      if (p === '/api/demo' && method === 'POST') return await handleDemoCreate(request, env);
       if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
       if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
@@ -1033,6 +1131,12 @@ export default {
       return json({ error: 'server_error', message: String(err) }, { status: 500 });
     }
 
+    // Демо из конструктора — только на продающем домене (и workers.dev для проверки)
+    const salesish = SALES_HOSTS.has(url.hostname) || url.hostname.endsWith('.workers.dev');
+    if (/^\/demo\/[a-z0-9-]{1,64}\/?$/i.test(p) && salesish && (method === 'GET' || method === 'HEAD')) {
+      return await serveDemoPage(request, env);
+    }
+
     // Лендинг tut.menu живёт только на своём домене: на сайтах клиентов (tipagraf.kz и др.) папки /site нет
     if (/^\/site(\/|$)/.test(p) && !SALES_HOSTS.has(url.hostname) && !url.hostname.endsWith('.workers.dev')) {
       return new Response('Not found', { status: 404 });
@@ -1047,7 +1151,10 @@ export default {
       }
       const target = new URL(url);
       target.pathname = '/site' + (p === '/' ? '/' : p);
-      return env.ASSETS.fetch(new Request(target.toString(), request));
+      const r = await env.ASSETS.fetch(new Request(target.toString(), request));
+      // Файлы меню (styles.css, app.js, themes.js…) для демо и конструктора лежат в корне
+      if (r.status === 404 && p !== '/') return env.ASSETS.fetch(request);
+      return r;
     }
 
     // Всё остальное — статичные файлы сайта (index.html, css, js, картинки-заглушки).

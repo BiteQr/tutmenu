@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Собрать демо — tut.menu</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="build.css">
+</head>
+<body>
+<div class="b">
+  <header class="b__top">
+    <a class="b__brand" href="../">tut<span>.</span>menu</a>
+    <div class="mode" role="group" aria-label="Режим">
+      <button type="button" data-mode="quick" aria-pressed="true">Быстро</button>
+      <button type="button" data-mode="full" aria-pressed="false">Тонкая настройка</button>
+    </div>
+  </header>
+
+  <div class="b__body">
+    <section class="panel" aria-live="polite">
+      <div class="steps" id="steps"></div>
+      <div class="step-wrap" id="stepWrap"></div>
+      <div class="b__nav">
+        <button type="button" class="btn btn--ghost" id="back">Назад</button>
+        <button type="button" class="btn btn--ghost b__peek" id="peek">Превью</button>
+        <button type="button" class="btn" id="next">Далее</button>
+      </div>
+    </section>
+
+    <aside class="stage" id="stage" aria-label="Превью меню">
+      <div class="stage__tabs" role="group" aria-label="Экран превью">
+        <button type="button" data-screen="#/" aria-pressed="false">Приветствие</button>
+        <button type="button" data-screen="#/menu" aria-pressed="true">Меню</button>
+      </div>
+      <div class="phone"><iframe id="pv" title="Превью меню" src="about:blank"></iframe></div>
+      <button type="button" class="stage__close" id="peekClose">Вернуться к настройкам</button>
+    </aside>
+  </div>
+</div>
+<script src="../../themes.js"></script>
+<script src="build.js"></script>
+</body>
+</html>
