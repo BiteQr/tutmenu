@@ -25,10 +25,12 @@ button { background: none; border: 0; cursor: pointer; }
 .panel { display: flex; flex-direction: column; padding: 4px var(--m) 0; min-width: 0; }
 
 /* Полоса шагов */
-.steps { display: flex; gap: 6px; margin-bottom: 18px; }
-.steps i { flex: 1; height: 5px; border-radius: 5px; background: var(--soft2); transition: background-color .3s; }
-.steps i.done { background: var(--ink); }
-.steps i.cur { background: var(--accent); }
+.steps { display: flex; gap: 4px; }
+.steps button { flex: 1; padding: 10px 0; }
+.steps i { display: block; height: 5px; border-radius: 5px; background: var(--soft2); transition: background-color .3s; }
+.steps .done i { background: var(--ink); }
+.steps .cur i { background: var(--accent); }
+.stepname { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
 
 .step-wrap { flex: 1; }
 .step h1 { font-size: clamp(26px, 3.2vw, 38px); letter-spacing: -0.035em; line-height: 1.05; font-weight: 700; }

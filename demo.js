@@ -52,6 +52,18 @@
     document.documentElement.dataset.demo = '1';
     setInterval(() => { const b = bar.querySelector('[data-left]'); if (b) b.textContent = left(end - Date.now()); }, 30000);
 
+    // Создатель демо (ключ сохранён на этом устройстве) может вернуться в конструктор и поменять дизайн
+    let mine = false;
+    try { mine = !!JSON.parse(localStorage.getItem('tm_demo_keys') || '{}')[demo.slug]; } catch {}
+    if (mine) {
+      const sales = /(^|\.)tutmenu\.kz$/.test(location.hostname);
+      const edit = document.createElement('a');
+      edit.className = 'demo-edit';
+      edit.href = (sales ? '/build/' : '/site/build/') + '?edit=' + encodeURIComponent(demo.slug);
+      edit.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Изменить дизайн';
+      document.body.append(edit);
+    }
+
     // Напоминание при каждом заходе (закрывается крестиком)
     setTimeout(() => {
       const pop = document.createElement('div');

@@ -1051,6 +1051,44 @@ async function handleDemoMenu(request, env, slug) {
   return json(data, { headers: { 'cache-control': 'no-store' } });
 }
 
+/** Дизайн и блоки из конструктора: только известные ключи и короткие значения */
+function cleanDesign(body) {
+  const d = body.design || {};
+  const design = {};
+  for (const k of ['theme', 'style', 'palette', 'fonts', 'welcomeBg']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
+  if (typeof d.accent === 'string' && /^#[0-9a-f]{6}$/i.test(d.accent)) design.accent = d.accent;
+  if (d.welcome === false) design.welcome = false;
+  const b = body.blocks || {};
+  const blocks = { promos: b.promos !== false, lunch: b.lunch !== false, stories: b.stories === true };
+  return { design, blocks };
+}
+async function saveDemoLogo(env, slug, dataUrl) {
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+  if (!m || m[2].length >= 2_000_000) return null;
+  const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  const key = `demos/${slug}/logo-${Date.now().toString(36)}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+  await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: `image/${m[1]}` } });
+  return `/files/${key}`;
+}
+
+/** Изменение своего демо из конструктора: по ключу, который выдан создателю */
+async function handleDemoUpdate(request, env, slug) {
+  const row = await env.DB.prepare('SELECT edit_key, expires_at, logo FROM demos WHERE slug = ?1').bind(slug).first();
+  if (!row) return json({ error: 'not_found' }, { status: 404 });
+  const key = request.headers.get('x-edit-key') || '';
+  if (!row.edit_key || key !== row.edit_key) return json({ error: 'forbidden' }, { status: 403 });
+  if (Date.parse(row.expires_at) <= Date.now()) return json({ error: 'expired', message: 'Демо истекло' }, { status: 410 });
+  let body; try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+  const { design, blocks } = cleanDesign(body);
+  const name = String((body.info || {}).name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 60);
+  let logo = row.logo || '';
+  if (body.logo === '') logo = '';
+  else if (String(body.logo || '').startsWith('data:')) logo = (await saveDemoLogo(env, slug, body.logo)) || logo;
+  await env.DB.prepare('UPDATE demos SET design = ?2, blocks = ?3, logo = ?4, restaurant_name = COALESCE(NULLIF(?5, \'\'), restaurant_name) WHERE slug = ?1')
+    .bind(slug, JSON.stringify(design), JSON.stringify(blocks), logo, name).run();
+  return json({ ok: true, url: `/demo/${slug}` });
+}
+
 async function handleDemoCreate(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
@@ -1065,30 +1103,17 @@ async function handleDemoCreate(request, env, ctx) {
   const cnt = await env.DB.prepare('SELECT COUNT(*) n FROM demos WHERE ip = ?1 AND created_at > ?2').bind(ip, dayAgo).first();
   if (cnt && cnt.n >= DEMO_LIMIT_PER_IP) return json({ error: 'limit', message: 'Слишком много демо за сутки' }, { status: 429 });
 
-  // Дизайн: только известные ключи и короткие значения
-  const d = body.design || {};
-  const design = {};
-  for (const k of ['theme', 'style', 'palette', 'fonts', 'welcomeBg']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
-  if (typeof d.accent === 'string' && /^#[0-9a-f]{6}$/i.test(d.accent)) design.accent = d.accent;
-  if (d.welcome === false) design.welcome = false;
-  const b = body.blocks || {};
-  const blocks = { promos: b.promos !== false, lunch: b.lunch !== false, stories: b.stories === true };
+  const { design, blocks } = cleanDesign(body);
 
   const slug = demoSlugFrom(name);
   // Логотип приходит из конструктора уже уменьшенным (PNG data URL) — кладём в R2
-  let logo = '';
-  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.logo || ''));
-  if (m && m[2].length < 2_000_000) {
-    const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
-    const key = `demos/${slug}/logo.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
-    await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: `image/${m[1]}` } });
-    logo = `/files/${key}`;
-  }
+  const logo = (await saveDemoLogo(env, slug, body.logo)) || '';
+  const editKey = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, '0')).join('');
   const now = new Date();
-  await env.DB.prepare(`INSERT INTO demos (slug, owner_name, restaurant_name, phone, city, kind, logo, design, blocks, ip, created_at, expires_at, views, status)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new')`)
+  await env.DB.prepare(`INSERT INTO demos (slug, owner_name, restaurant_name, phone, city, kind, logo, design, blocks, ip, created_at, expires_at, views, status, edit_key)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new', ?13)`)
     .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
-      now.toISOString(), new Date(now.getTime() + DEMO_TTL_MS).toISOString()).run();
+      now.toISOString(), new Date(now.getTime() + DEMO_TTL_MS).toISOString(), editKey).run();
   const origin = new URL(request.url).origin;
   const T = (k) => k ? k : '—';
   ctx.waitUntil(tgNotify(env, [
@@ -1099,7 +1124,7 @@ async function handleDemoCreate(request, env, ctx) {
     `${origin}/demo/${slug}`,
     `WhatsApp: https://wa.me/${phone.replace(/\D/g, '').replace(/^8/, '7')}`
   ].join('\n')));
-  return json({ ok: true, slug, url: `/demo/${slug}` });
+  return json({ ok: true, slug, url: `/demo/${slug}`, editKey });
 }
 
 /* ---------- Telegram: уведомления о новых демо (бот @tutmenu_bot) ----------
@@ -1242,6 +1267,7 @@ export default {
         return await handleMenu(request, env);
       }
       if (p === '/api/demo' && method === 'POST') return await handleDemoCreate(request, env, ctx);
+      if (/^\/api\/demo\/[a-z0-9-]{1,64}$/.test(p) && method === 'PUT') return await handleDemoUpdate(request, env, p.split('/')[3]);
       if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
       if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);

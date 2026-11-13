@@ -9,6 +9,7 @@
 (function (root) {
   /* Устройство страницы. layout — базовая сетка приложения, остальное делает themes.css */
   const STYLES = {
+    classic:  { name: 'Классика', note: 'Наш основной дизайн, как у Типа Граф: фото 2 в ряд, разделы-капсулы', layout: 'grid' },
     carte:    { name: 'Карта',    note: 'Как бумажное меню дорогого ресторана: текст, цены с точками, без лишнего', layout: 'list' },
     gallery:  { name: 'Галерея',  note: 'Каждое блюдо — большое фото на всю ширину', layout: 'grid' },
     editorial:{ name: 'Журнал',   note: 'Фото и текст чередуются, крупные заголовки', layout: 'list' },
@@ -19,6 +20,7 @@
 
   /* Палитры: фон, текст, вторичный, плашки, акцент, текст на акценте */
   const PALETTES = {
+    classic:  { name: 'Классика',       bg: '#ffffff', text: '#1c1c1e', muted: '#8a8a8f', surface: '#f2f2f5', surface2: '#e8e8ed', accent: '#4d1d15', onAccent: '#ffffff', dark: false },
     ivory:    { name: 'Слоновая кость', bg: '#f5f0e6', text: '#1d1a15', muted: '#7a7163', surface: '#ebe4d6', surface2: '#e0d7c5', accent: '#1d1a15', onAccent: '#f5f0e6', dark: false },
     noir:     { name: 'Нуар',           bg: '#0d0d0c', text: '#efe8dc', muted: '#9b9386', surface: '#191816', surface2: '#24221f', accent: '#c9a467', onAccent: '#0d0d0c', dark: true },
     bordeaux: { name: 'Бордо',          bg: '#2b0f14', text: '#f4e7dc', muted: '#c2a59b', surface: '#3a1820', surface2: '#47212a', accent: '#e9c48a', onAccent: '#2b0f14', dark: true },
@@ -29,6 +31,7 @@
 
   /* Пары шрифтов — все с казахскими буквами (кириллица-расширенная) */
   const FONTS = {
+    classic:   { name: 'Классика',  display: 'Montserrat',         body: '',           dw: 800, italic: false, upper: false, track: '0', gf: 'Montserrat:wght@600;700;800' },
     cormorant: { name: 'Гарамон',   display: 'Cormorant Garamond', body: 'Manrope',    dw: 600, italic: true,  upper: false, track: '0', gf: 'Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Manrope:wght@400;500;600;700' },
     prata:     { name: 'Прата',     display: 'Prata',              body: 'Montserrat', dw: 400, italic: false, upper: false, track: '0', gf: 'Prata&family=Montserrat:wght@400;500;600' },
     forum:     { name: 'Форум',     display: 'Forum',              body: 'Raleway',    dw: 400, italic: false, upper: true,  track: '.08em', gf: 'Forum&family=Raleway:wght@400;500;600' },
@@ -39,6 +42,7 @@
 
   /* Готовые темы */
   const THEMES = {
+    classic:   { name: 'Классика', note: 'Наш основной дизайн, как у Типа Граф',      kinds: ['restaurant', 'cafe', 'lounge', 'coffee', 'pizza', 'fastfood', 'canteen', 'bar', 'sushi', 'bakery'], style: 'classic', palette: 'classic', fonts: 'classic' },
     carte:     { name: 'Карта',   note: 'Бумажная карта ресторана, цены с точками',   kinds: ['restaurant', 'bar'],             style: 'carte',     palette: 'ivory',    fonts: 'cormorant' },
     gallery:   { name: 'Галерея', note: 'Большие фото на чёрном, как в дорогом журнале', kinds: ['restaurant', 'sushi', 'lounge'], style: 'gallery',   palette: 'noir',     fonts: 'prata' },
     editorial: { name: 'Журнал',  note: 'Фото и текст чередуются, тёплая олива',      kinds: ['cafe', 'bakery', 'coffee'],       style: 'editorial', palette: 'olive',    fonts: 'lora' },
@@ -52,7 +56,7 @@
 
   function resolve(design) {
     const d = design || {};
-    const themeId = pick(THEMES, d.theme, 'carte');
+    const themeId = pick(THEMES, d.theme, 'classic');
     const t = THEMES[themeId];
     const style = pick(STYLES, d.style, t.style);
     return {
@@ -92,13 +96,15 @@
     set('--line', p.dark ? 'rgba(255,255,255,.13)' : 'rgba(0,0,0,.1)');
     set('--dark', accent); set('--on-dark', onAccent);
     set('--panel', p.dark ? p.surface : '#ffffff');
-    set('--font', `'${f.body}', -apple-system, 'Segoe UI', Roboto, sans-serif`);
-    set('--font-display', `'${f.display}', Georgia, serif`);
+    // Классический шрифт — системный, как в основном дизайне; иначе — пара шрифтов темы
+    if (f.body) set('--font', `'${f.body}', -apple-system, 'Segoe UI', Roboto, sans-serif`); else el.style.removeProperty('--font');
+    set('--font-display', f.body ? `'${f.display}', Georgia, serif` : `"Montserrat", var(--font)`);
     set('--display-weight', String(f.dw));
     set('--display-case', f.upper ? 'uppercase' : 'none');
     set('--display-track', f.track);
     set('--display-style', f.italic ? 'italic' : 'normal');
-    el.dataset.design = '1';
+    // «Классика» — основной дизайн приложения: только цвета и шрифт, без премиальных переделок раскладки
+    if (r.style === 'classic') delete el.dataset.design; else el.dataset.design = '1';
     el.dataset.mode = p.dark ? 'dark' : 'light';
     el.dataset.style = r.style;
     el.dataset.palette = r.palette;

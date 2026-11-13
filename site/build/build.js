@@ -20,13 +20,20 @@
     mode: 'quick',
     info: { owner: '', name: '', phone: '', city: 'Уральск', kind: '' },
     logo: '',
-    design: { theme: 'carte' },
+    design: { theme: 'classic' },
     welcome: true,
     welcomeBg: 'photo',
     blocks: { promos: true, lunch: true, stories: false }
   };
-  try { const saved = JSON.parse(sessionStorage.getItem('tm_build') || 'null'); if (saved) Object.assign(S, saved); } catch {}
-  const save = () => { try { sessionStorage.setItem('tm_build', JSON.stringify(S)); } catch {} };
+  /* Режим «изменить своё демо»: ?edit=<slug>. Ключ и настройки хранятся на устройстве создателя. */
+  const EDIT = (new URLSearchParams(location.search).get('edit') || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const keys = (() => { try { return JSON.parse(localStorage.getItem('tm_demo_keys') || '{}'); } catch { return {}; } })();
+  const editKey = EDIT ? keys[EDIT] : '';
+  const store = EDIT && editKey ? localStorage : sessionStorage;
+  const STATE_KEY = EDIT && editKey ? 'tm_build_' + EDIT : 'tm_build';
+  try { const saved = JSON.parse(store.getItem(STATE_KEY) || 'null'); if (saved) Object.assign(S, saved); } catch {}
+  const save = () => { try { store.setItem(STATE_KEY, JSON.stringify(S)); } catch {} };
+  if (EDIT && editKey) { S.mode = 'full'; }
 
   const STEPS = {
     info: { title: 'Расскажите о заведении', quick: true },
@@ -186,8 +193,8 @@
     },
     done() {
       const r = resolved(), i = S.info;
-      return `<div class="step"><h1>Ваше демо почти готово</h1>
-        <p class="sub">Нажмите «Получить ссылку»: демо с вашим названием откроется по своей ссылке и проживёт 3 дня.</p>
+      return `<div class="step"><h1>${editKey ? 'Сохраните изменения' : 'Ваше демо почти готово'}</h1>
+        <p class="sub">${editKey ? 'Демо обновится по той же ссылке.' : 'Нажмите «Получить ссылку»: демо с вашим названием откроется по своей ссылке и проживёт 3 дня. Дизайн потом можно поменять кнопкой «Изменить дизайн» прямо в демо.'}</p>
         <dl class="done-card">
           <dt>Заведение</dt><dd>${esc(i.name || '—')}, ${esc(i.city || '')}</dd>
           <dt>Дизайн</dt><dd>Тема «${T.THEMES[r.theme].name}» · цвета «${T.PALETTES[r.palette].name}» · шрифт «${T.FONTS[r.fonts].name}»</dd>
@@ -202,10 +209,12 @@
     const steps = order();
     if (cur >= steps.length) cur = steps.length - 1;
     const id = steps[cur];
-    $('#steps').innerHTML = steps.map((_, k) => `<i class="${k < cur ? 'done' : k === cur ? 'cur' : ''}"></i>`).join('');
+    // Полоска шагов кликабельна: можно сразу перейти к любому шагу (после заполнения данных)
+    $('#steps').innerHTML = steps.map((sid, k) => `<button type="button" data-goto="${k}" aria-label="${STEPS[sid].title}" class="${k < cur ? 'done' : k === cur ? 'cur' : ''}"><i></i></button>`).join('');
+    $('#stepName').textContent = `Шаг ${cur + 1} из ${steps.length} · ${STEPS[id].title}`;
     wrap.innerHTML = VIEWS[id]();
     $('#back').disabled = cur === 0;
-    $('#next').textContent = id === 'done' ? 'Получить ссылку' : 'Далее';
+    $('#next').textContent = id === 'done' ? (editKey ? 'Сохранить изменения' : 'Получить ссылку') : 'Далее';
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
   }
 
@@ -284,6 +293,14 @@
     setScreen(nid === 'welcome' ? '#/' : '#/menu');
   });
   $('#back').addEventListener('click', () => { if (cur > 0) { cur--; render(); } });
+  $('#steps').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-goto]');
+    if (!b) return;
+    const k = +b.dataset.goto;
+    if (k > 0 && order()[cur] === 'info' && !validInfo()) return;
+    cur = k; render();
+    setScreen(order()[cur] === 'welcome' ? '#/' : '#/menu');
+  });
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     const id = order()[cur];
     S.mode = b.dataset.mode; save();
@@ -295,15 +312,20 @@
     const btn = $('#next');
     btn.disabled = true; msg.textContent = 'Собираем демо…';
     try {
-      const res = await fetch('/api/demo', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
+      const res = await fetch(editKey ? `/api/demo/${EDIT}` : '/api/demo', {
+        method: editKey ? 'PUT' : 'POST', headers: { 'content-type': 'application/json', 'x-edit-key': editKey || '' },
         body: JSON.stringify({ info: S.info, logo: S.logo, design: Object.assign({}, S.design, { welcome: S.welcome, welcomeBg: S.welcomeBg }), blocks: S.blocks })
       });
       const j = await res.json();
-      if (!res.ok || !j.url) throw new Error(j.error || 'error');
-      location.href = j.url;
+      if (!res.ok || !j.url) throw new Error(j.message || j.error || 'error');
+      // Запоминаем на этом устройстве ключ и настройки — чтобы потом менять дизайн этого демо
+      if (j.editKey && j.slug) {
+        keys[j.slug] = j.editKey;
+        try { localStorage.setItem('tm_demo_keys', JSON.stringify(keys)); localStorage.setItem('tm_build_' + j.slug, JSON.stringify(S)); } catch {}
+      }
+      location.href = j.url + '#/menu';
     } catch (e) {
-      msg.textContent = 'Не получилось создать демо. Попробуйте ещё раз через минуту.';
+      msg.textContent = (editKey ? 'Не получилось сохранить. ' : 'Не получилось создать демо. ') + 'Попробуйте ещё раз через минуту.';
       btn.disabled = false;
     }
   }

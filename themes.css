@@ -189,3 +189,18 @@ html[data-demo] .welcome { top: 46px; }
 .demo-dead h1 { font-size: 34px; line-height: 1.05; letter-spacing: -.03em; margin-bottom: 14px; }
 html.demo-is-dead body > *:not(.demo-dead) { visibility: hidden; }
 @keyframes demoIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* «Классика» (основной дизайн) в конструкторе: без подчёркнутого названия; тёмные палитры — читаемая шапка и поиск */
+html[data-style] .topbar__name, html[data-style] .topbar__brand { text-decoration: none; color: var(--text); }
+html[data-style][data-mode="dark"] body { background: var(--bg); color: var(--text); }
+html[data-style][data-mode="dark"] .topbar { background: color-mix(in srgb, var(--bg) 94%, transparent); }
+html[data-style][data-mode="dark"] .search input { background: var(--surface); color: var(--text); border-color: transparent; }
+html[data-style][data-mode="dark"] .overlay__panel { background: var(--surface); color: var(--text); }
+html[data-style][data-mode="dark"] .pills { box-shadow: none; }
+.demo-edit {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 70;
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 20px; border-radius: 999px;
+  background: #111; color: #fff; font: 600 15px/1 'Onest', -apple-system, 'Segoe UI', sans-serif; text-decoration: none; white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.demo-edit:active { transform: translateX(-50%) scale(.97); }
