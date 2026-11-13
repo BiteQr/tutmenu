@@ -117,6 +117,7 @@
     App.Welcome.render(data);
     App.Menu.render(data);
     App.CartView.render();
+    if (data.settings.demo && App.Demo) App.Demo.show(data.settings.demo, data.settings.name);
   }
 
   function showError(err) {

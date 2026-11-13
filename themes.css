@@ -159,3 +159,33 @@ html[data-style="lounge"] #sections .add-btn { min-width: 36px; height: 36px; }
 
 /* Светлые палитры с тёмным акцентом: на фото приветствия кнопка светлая, иначе её не видно */
 html[data-design][data-mode="light"] .wbtn--primary { background: var(--bg); color: var(--text); }
+
+/* =========================================================
+   ДЕМО tut.menu: плашка с таймером, напоминание, «Демо истекло»
+   ========================================================= */
+.demo-bar {
+  position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 10px;
+  min-height: 46px; padding: 6px 10px 6px 14px; background: #1f4bff; color: #fff;
+  font: 500 13.5px/1.25 'Onest', -apple-system, 'Segoe UI', sans-serif;
+}
+.demo-bar__t { flex: 1; }
+.demo-bar__t b { font-weight: 700; white-space: nowrap; }
+.demo-bar__btn { flex: none; padding: 8px 14px; border-radius: 999px; background: #fff; color: #1f4bff; font-weight: 700; text-decoration: none; }
+html[data-demo] .topbar { top: 46px; }
+html[data-demo] .search-bar { top: calc(46px + var(--header-h)); }
+html[data-demo] .pills { top: calc(46px + var(--header-h) + var(--searchbar-h)); }
+html[data-demo] .welcome { top: 46px; }
+.demo-pop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: end center; padding: 16px; background: rgba(0,0,0,.45); animation: demoIn .3s ease; }
+@media (min-width: 600px) { .demo-pop { place-items: center; } }
+.demo-pop__card { position: relative; width: min(420px, 100%); background: #fff; color: #111; border-radius: 24px; padding: 26px 22px 18px; font: 400 15.5px/1.45 'Onest', -apple-system, sans-serif; }
+.demo-pop__big { font-size: 23px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; margin: 0 28px 10px 0; }
+.demo-pop__x { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; background: #f2f2ef; font-size: 22px; line-height: 1; color: #111; }
+.demo-pop__later { display: block; width: 100%; margin-top: 8px; padding: 12px; font-weight: 600; color: #555; background: none; }
+.demo-btn { display: flex; align-items: center; justify-content: center; min-height: 54px; margin-top: 16px; border-radius: 999px; background: #1f4bff; color: #fff; font-weight: 700; text-decoration: none; }
+.demo-dead { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 20px; background: #f2f2ef; color: #111; font: 400 17px/1.5 'Onest', -apple-system, sans-serif; }
+.demo-dead__card { max-width: 440px; }
+.demo-dead__brand { font-weight: 800; font-size: 24px; letter-spacing: -.04em; margin-bottom: 28px; }
+.demo-dead__brand span { color: #1f4bff; }
+.demo-dead h1 { font-size: 34px; line-height: 1.05; letter-spacing: -.03em; margin-bottom: 14px; }
+html.demo-is-dead body > *:not(.demo-dead) { visibility: hidden; }
+@keyframes demoIn { from { opacity: 0; } to { opacity: 1; } }

@@ -19,6 +19,7 @@
 
   // Workers AI — умный поиск блюд (/api/ai-search)
   "ai": { "binding": "AI" },
+  "triggers": { "crons": ["17 * * * *"] },
   "images": { "binding": "IMAGES" },
 
   "r2_buckets": [

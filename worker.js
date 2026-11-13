@@ -1051,7 +1051,7 @@ async function handleDemoMenu(request, env, slug) {
   return json(data, { headers: { 'cache-control': 'no-store' } });
 }
 
-async function handleDemoCreate(request, env) {
+async function handleDemoCreate(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
   const info = body.info || {};
@@ -1089,7 +1089,75 @@ async function handleDemoCreate(request, env) {
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new')`)
     .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
       now.toISOString(), new Date(now.getTime() + DEMO_TTL_MS).toISOString()).run();
+  const origin = new URL(request.url).origin;
+  const T = (k) => k ? k : '—';
+  ctx.waitUntil(tgNotify(env, [
+    '🆕 Новое демо tut.menu',
+    `${name}${kind ? ' · ' + (KIND_NAMES[kind] || kind) : ''}${city ? ', ' + city : ''}`,
+    `${owner} · ${phone}`,
+    `Дизайн: ${T(design.theme)} / ${T(design.style)} / ${T(design.palette)} / ${T(design.fonts)}`,
+    `${origin}/demo/${slug}`,
+    `WhatsApp: https://wa.me/${phone.replace(/\D/g, '').replace(/^8/, '7')}`
+  ].join('\n')));
   return json({ ok: true, slug, url: `/demo/${slug}` });
+}
+
+/* ---------- Telegram: уведомления о новых демо (бот @tutmenu_bot) ----------
+   Секреты задаются в Cloudflare: TG_TOKEN (токен бота) и TG_CHAT_ID (куда слать). */
+async function tgNotify(env, text) {
+  if (!env.TG_TOKEN || !env.TG_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/sendMessage`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: env.TG_CHAT_ID, text, disable_web_page_preview: true })
+    });
+  } catch { /* уведомление не должно ломать создание демо */ }
+}
+const KIND_NAMES = { restaurant: 'Ресторан', cafe: 'Кафе', coffee: 'Кофейня', lounge: 'Лаунж/кальянная', bar: 'Бар', sushi: 'Суши', pizza: 'Пиццерия', fastfood: 'Фастфуд', bakery: 'Кондитерская', canteen: 'Столовая' };
+
+/* ---------- Лиды (демо) в админке — только владелец tut.menu ---------- */
+async function ownerOnly(env, request) {
+  const email = accessEmail(request);
+  if (!email) return { ok: false, status: 401, error: 'no_access_email' };
+  const row = await env.DB.prepare('SELECT role FROM admin_users WHERE email = ?').bind(email).first();
+  if (!row || row.role !== 'owner') return { ok: false, status: 403, error: 'owner_only' };
+  return { ok: true, email };
+}
+async function handleLeadsApi(request, env, slug, action) {
+  const auth = await ownerOnly(env, request);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  const method = request.method;
+  if (!slug && method === 'GET') {
+    const r = await env.DB.prepare('SELECT slug, owner_name, restaurant_name, phone, city, kind, design, created_at, expires_at, views, last_view_at, status, note, deleted_at FROM demos ORDER BY created_at DESC LIMIT 500').all();
+    return json({ items: r.results });
+  }
+  if (slug && method === 'PUT' && !action) {
+    const b = await request.json().catch(() => ({}));
+    const status = ['new', 'contacted', 'paid', 'declined'].includes(b.status) ? b.status : null;
+    const note = typeof b.note === 'string' ? b.note.slice(0, 1000) : null;
+    await env.DB.prepare('UPDATE demos SET status = COALESCE(?2, status), note = COALESCE(?3, note) WHERE slug = ?1').bind(slug, status, note).run();
+    return json({ ok: true });
+  }
+  if (slug && method === 'POST' && action === 'extend') {
+    // «Восстановим за минуту»: демо снова живёт 3 дня
+    await env.DB.prepare('UPDATE demos SET expires_at = ?2, deleted_at = NULL WHERE slug = ?1')
+      .bind(slug, new Date(Date.now() + DEMO_TTL_MS).toISOString()).run();
+    return json({ ok: true });
+  }
+  return json({ error: 'not_found' }, { status: 404 });
+}
+
+/** Раз в час: у истёкших демо удаляем файлы (логотип) в R2. Запись остаётся — это лид в админке;
+ *  по старой ссылке открывается «Демо истекло». */
+async function cleanupDemos(env) {
+  const now = new Date().toISOString();
+  const r = await env.DB.prepare('SELECT slug, logo FROM demos WHERE expires_at <= ?1 AND deleted_at IS NULL LIMIT 200').bind(now).all();
+  for (const d of r.results) {
+    const list = await env.BUCKET.list({ prefix: `demos/${d.slug}/` });
+    for (const o of list.objects) await env.BUCKET.delete(o.key);
+    await env.DB.prepare("UPDATE demos SET deleted_at = ?2, logo = '' WHERE slug = ?1").bind(d.slug, now).run();
+  }
+  return r.results.length;
 }
 
 /** Страница демо: то же приложение меню, с <base href="/">, чтобы файлы грузились от корня */
@@ -1101,6 +1169,9 @@ async function serveDemoPage(request, env) {
 
 /* ---------- Маршрутизация ---------- */
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(cleanupDemos(env));
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
@@ -1112,7 +1183,7 @@ export default {
         if (did.startsWith('demo:')) return await handleDemoMenu(request, env, did.slice(5).replace(/[^a-z0-9-]/g, ''));
         return await handleMenu(request, env);
       }
-      if (p === '/api/demo' && method === 'POST') return await handleDemoCreate(request, env);
+      if (p === '/api/demo' && method === 'POST') return await handleDemoCreate(request, env, ctx);
       if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
       if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
@@ -1120,6 +1191,10 @@ export default {
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
       if (p.startsWith('/ar/') && (method === 'GET' || method === 'HEAD')) return await handleArGlb(request, env, ctx, p.slice(4));
+      if (p.startsWith('/admin/api/leads')) {
+        const [, , , , slug, action] = p.split('/');
+        return await handleLeadsApi(request, env, (slug || '').replace(/[^a-z0-9-]/g, ''), action);
+      }
       if (p.startsWith('/admin/api/')) {
         const segments = p.slice('/admin/api/'.length).split('/').filter(Boolean);
         return await handleAdminApi(request, env, segments);
