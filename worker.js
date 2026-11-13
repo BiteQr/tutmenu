@@ -172,6 +172,7 @@ async function handleMenu(request, env) {
     langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
     orderMode: restaurant.order_mode === 'waiter' ? 'waiter' : 'whatsapp',
     promoStyle: restaurant.promo_style === 'stories' ? 'stories' : 'banner',
+    design: (() => { try { return restaurant.design ? JSON.parse(restaurant.design) : null; } catch { return null; } })(),
     lunch: parseLunch(restaurant.lunch)
   };
 
