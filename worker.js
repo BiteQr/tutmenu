@@ -1033,6 +1033,11 @@ export default {
       return json({ error: 'server_error', message: String(err) }, { status: 500 });
     }
 
+    // Лендинг tut.menu живёт только на своём домене: на сайтах клиентов (tipagraf.kz и др.) папки /site нет
+    if (/^\/site(\/|$)/.test(p) && !SALES_HOSTS.has(url.hostname) && !url.hostname.endsWith('.workers.dev')) {
+      return new Response('Not found', { status: 404 });
+    }
+
     // Продающий сайт tut.menu: tutmenu.kz отдаёт лендинг из папки /site (www → без www)
     if (SALES_HOSTS.has(url.hostname) && (method === 'GET' || method === 'HEAD')
         && !/^\/(api|files|media|admin|demo)(\/|$)/.test(p)) {
