@@ -312,7 +312,7 @@ html[data-welcome="poster"] .welcome .wbtn {
 html[data-welcome="poster"] .welcome .wbtn::after { content: '→'; font-size: 18px; opacity: .8; }
 html[data-welcome="poster"] .welcome .wbtn--primary {
   min-height: 60px; padding: 0 22px; margin-bottom: 10px; border: 0; border-radius: 0;
-  background: #fff; color: #111; font-weight: 700; font-size: 17px;
+  background: var(--dark); color: var(--on-dark); font-weight: 700; font-size: 17px;
 }
 html[data-welcome="poster"] .welcome .wbtn--primary + .wbtn { border-top: 0; }
 
