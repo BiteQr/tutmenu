@@ -209,3 +209,130 @@ html[data-style][data-mode="dark"] .pills { box-shadow: none; }
 /* Кнопки на цвете акцента: текст цветом «на акценте» темы (золото → тёмный текст), а не всегда белый */
 html[data-style] .order-btn, html[data-style] .cart__empty button { color: var(--on-dark); }
 html[data-style] .cart__foot { background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent), var(--bg) 40%); }
+
+
+/* =========================================================
+   ВИДЫ ПРИВЕТСТВИЯ — html[data-welcome]. «classic» = как у Типа Граф (ничего не меняем).
+   Атрибут ставит только TMThemes.apply, у Типа Граф его нет.
+   ========================================================= */
+html[data-welcome]:not([data-welcome="classic"]) .welcome__center.has-logo .welcome__name { display: block; }
+html[data-welcome]:not([data-welcome="classic"]) .welcome__name {
+  font-family: var(--font-display); font-weight: var(--display-weight); font-style: var(--display-style);
+  text-transform: var(--display-case); letter-spacing: var(--display-track);
+}
+
+/* Аватар-логотип в круге (Таплинк, Сплит, Карточка) — тёмная подложка, логотипы обычно светлые */
+html[data-welcome="taplink"] .welcome__logo,
+html[data-welcome="split"] .welcome__logo,
+html[data-welcome="card"] .welcome__logo {
+  width: 112px; height: 112px; border-radius: 50%; object-fit: contain; padding: 18px;
+  background: #151515; box-shadow: 0 10px 30px rgba(0,0,0,.18);
+}
+html[data-welcome="taplink"][data-mode="dark"] .welcome__logo,
+html[data-welcome="split"][data-mode="dark"] .welcome__logo,
+html[data-welcome="card"][data-mode="dark"] .welcome__logo { background: var(--surface-2); }
+
+/* Светлые кнопки-ссылки (общие для Таплинк / Сплит / Карточка) */
+html[data-welcome="taplink"] .welcome .wbtn,
+html[data-welcome="split"] .welcome .wbtn,
+html[data-welcome="card"] .welcome .wbtn {
+  border: 0; border-radius: 16px; background: var(--surface); color: var(--text);
+  font-family: var(--font); font-size: 15px; font-weight: 600; letter-spacing: 0;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-welcome="taplink"] .welcome .wbtn--primary,
+html[data-welcome="split"] .welcome .wbtn--primary,
+html[data-welcome="card"] .welcome .wbtn--primary { background: var(--dark); color: var(--on-dark); }
+html[data-welcome="taplink"] .welcome .wbtn--text,
+html[data-welcome="split"] .welcome .wbtn--text,
+html[data-welcome="card"] .welcome .wbtn--text { background: none; color: var(--muted); }
+html[data-welcome="taplink"] .welcome__hours,
+html[data-welcome="split"] .welcome__hours,
+html[data-welcome="card"] .welcome__hours { background: var(--surface); border-color: var(--line); color: var(--text); }
+html[data-welcome="taplink"] .welcome__tagline,
+html[data-welcome="split"] .welcome__tagline,
+html[data-welcome="card"] .welcome__tagline { color: var(--muted); opacity: 1; letter-spacing: .04em; font-family: var(--font); font-size: 14px; text-transform: none; }
+
+/* --- 2. ТАПЛИНК: однотонный фон, аватар, кнопки столбиком --- */
+html[data-welcome="taplink"] .welcome { background: var(--bg); color: var(--text); }
+html[data-welcome="taplink"] .welcome__bg { display: none; }
+html[data-welcome="taplink"] .welcome__content { max-width: 460px; margin: 0 auto; }
+html[data-welcome="taplink"] .welcome__center { flex: none; justify-content: flex-start; padding: 44px 24px 26px; }
+html[data-welcome="taplink"] .welcome__name { margin-top: 18px; font-size: 26px; letter-spacing: .02em; }
+html[data-welcome="taplink"] .welcome__center:not(.has-logo) .welcome__name { margin-top: 30px; font-size: 34px; }
+html[data-welcome="taplink"] .welcome__tagline { margin-top: 6px; }
+html[data-welcome="taplink"] .welcome__buttons { grid-template-columns: 1fr; gap: 10px; margin: 0; max-width: none; }
+html[data-welcome="taplink"] .welcome .wbtn { min-height: 58px; }
+
+/* --- 3. СПЛИТ: фото сверху, круглый логотип на стыке --- */
+html[data-welcome="split"] .welcome { background: var(--bg); color: var(--text); }
+html[data-welcome="split"] .welcome__bg {
+  position: absolute; left: 0; right: 0; top: 0; bottom: auto; height: 48vh;
+  border-radius: 0 0 32px 32px; overflow: hidden;
+}
+html[data-welcome="split"] .welcome__overlay { background: linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,0) 40%); }
+html[data-welcome="split"] .welcome__langs { color: #fff; }
+html[data-welcome="split"] .welcome__center { flex: none; justify-content: flex-start; padding: calc(48vh - 56px - 50px) 24px 24px; }
+html[data-welcome="split"] .welcome__center .welcome__logo { border: 5px solid var(--bg); box-sizing: border-box; width: 120px; height: 120px; }
+html[data-welcome="split"] .welcome__center:not(.has-logo) { padding-top: calc(48vh - 50px + 24px); }
+html[data-welcome="split"] .welcome__name { margin-top: 14px; font-size: 28px; letter-spacing: .02em; }
+html[data-welcome="split"] .welcome__tagline { margin-top: 6px; }
+html[data-welcome="split"] .welcome__buttons { margin-top: auto; }
+
+/* --- 4. КАРТОЧКА: фото фоном, снизу карточка с аватаром и кнопками --- */
+html[data-welcome="card"] .welcome__overlay { background: linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.05) 50%, rgba(0,0,0,.35)); }
+html[data-welcome="card"] .welcome__content { justify-content: flex-end; }
+html[data-welcome="card"] .welcome__langs { margin-bottom: auto; }
+html[data-welcome="card"] .welcome__center {
+  flex: none; margin: 76px 14px 0; padding: 0 22px 18px; color: var(--text);
+  background: var(--bg); border-radius: 30px 30px 0 0;
+}
+html[data-welcome="card"] .welcome__center .welcome__logo { margin-top: -56px; border: 5px solid var(--bg); box-sizing: border-box; width: 112px; height: 112px; }
+html[data-welcome="card"] .welcome__center:not(.has-logo) { padding-top: 28px; }
+html[data-welcome="card"] .welcome__name { margin-top: 12px; font-size: 26px; letter-spacing: .02em; }
+html[data-welcome="card"] .welcome__tagline { margin-top: 4px; }
+html[data-welcome="card"] .welcome__buttons {
+  width: auto; margin: 0 14px calc(14px + var(--safe-b)); padding: 0 18px 20px;
+  background: var(--bg); border-radius: 0 0 30px 30px; gap: 10px;
+}
+
+/* --- 5. ПОСТЕР: крупное название слева снизу, кнопки-строки со стрелками --- */
+html[data-welcome="poster"] .welcome__overlay { background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, rgba(0,0,0,.05) 30%, rgba(0,0,0,.55) 62%, rgba(0,0,0,.9) 100%); }
+html[data-welcome="poster"] .welcome__langs { justify-content: flex-end; padding-right: 22px; }
+html[data-welcome="poster"] .welcome__center { justify-content: flex-end; align-items: flex-start; text-align: left; padding: 40px 24px 26px; }
+html[data-welcome="poster"] .welcome__logo { width: auto; height: 46px; max-width: 60%; margin-bottom: 18px; object-fit: contain; }
+html[data-welcome="poster"] .welcome__name { font-size: clamp(46px, 14vw, 64px); line-height: .98; letter-spacing: -.01em; }
+html[data-welcome="poster"] .welcome__tagline { margin-top: 14px; font-size: 13px; letter-spacing: .22em; text-transform: uppercase; }
+html[data-welcome="poster"] .welcome__buttons { grid-template-columns: 1fr; gap: 0; max-width: none; }
+html[data-welcome="poster"] .welcome .wbtn {
+  justify-content: space-between; min-height: 56px; padding: 0 2px; border: 0; border-top: 1px solid rgba(255,255,255,.28);
+  border-radius: 0; background: none; color: #fff; -webkit-backdrop-filter: none; backdrop-filter: none;
+  font-family: var(--font); font-size: 16px; font-weight: 500; letter-spacing: 0;
+}
+html[data-welcome="poster"] .welcome .wbtn::after { content: '→'; font-size: 18px; opacity: .8; }
+html[data-welcome="poster"] .welcome .wbtn--primary {
+  min-height: 60px; padding: 0 22px; margin-bottom: 10px; border: 0; border-radius: 0;
+  background: #fff; color: #111; font-weight: 700; font-size: 17px;
+}
+html[data-welcome="poster"] .welcome .wbtn--primary + .wbtn { border-top: 0; }
+
+/* --- 6. ТИПОГРАФИКА: без фото, огромное название на цвете бренда --- */
+html[data-welcome="typo"] .welcome { background: var(--dark); color: var(--on-dark); }
+html[data-welcome="typo"] .welcome__bg { display: none; }
+html[data-welcome="typo"] .welcome__langs { justify-content: flex-start; padding-left: 24px; }
+html[data-welcome="typo"] .welcome__center { align-items: flex-start; justify-content: flex-start; text-align: left; padding: 9vh 24px 24px; }
+html[data-welcome="typo"] .welcome__logo { width: auto; height: 40px; max-width: 50%; object-fit: contain; margin-bottom: 7vh; }
+html[data-welcome="typo"] .welcome__name { font-size: clamp(40px, 12vw, 76px); line-height: .95; letter-spacing: -.02em; overflow-wrap: break-word; }
+html[data-welcome="typo"] .welcome__tagline { margin-top: 22px; font-family: var(--font); font-size: 17px; letter-spacing: 0; text-transform: none; opacity: .75; }
+html[data-welcome="typo"] .welcome__hours { background: none; border-color: currentColor; color: inherit; opacity: .8; }
+html[data-welcome="typo"] .welcome__buttons { display: flex; flex-wrap: wrap; gap: 6px 22px; max-width: none; }
+html[data-welcome="typo"] .welcome .wbtn {
+  min-height: 40px; padding: 0; border: 0; border-radius: 0; background: none; color: inherit;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  font-family: var(--font); font-size: 15px; font-weight: 500; letter-spacing: 0;
+  text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px;
+}
+html[data-welcome="typo"] .welcome .wbtn--primary {
+  flex: 1 1 100%; min-height: 64px; margin-bottom: 10px; border-radius: 999px; text-decoration: none;
+  background: var(--on-dark); color: var(--dark); font-size: 17px; font-weight: 700;
+}

@@ -116,6 +116,7 @@ body.is-locked { overflow: hidden; }
 }
 .welcome__logo { width: min(210px, 58vw); height: auto; }
 .welcome__name { font-family: var(--font-display); font-size: 40px; font-weight: 700; letter-spacing: .12em; }
+.welcome__center.has-logo .welcome__name { display: none; }
 .welcome__tagline {
   margin-top: 14px;
   font-family: var(--font-display); font-size: 13px; font-weight: 500;

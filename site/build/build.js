@@ -142,7 +142,10 @@
         <div class="toggles">
           <button type="button" class="tg" data-welcome ${pressed(S.welcome)}><span><b>Показывать приветствие</b><small>Если выключить, меню откроется сразу</small></span><i></i></button>
         </div>
-        ${S.welcome ? `<p class="label">Фон</p><div class="chips">
+        ${S.welcome ? `<p class="label">Вид</p><div class="themes">${Object.entries(T.WELCOMES).map(([id, w]) => `
+          <button type="button" class="theme" data-wstyle="${id}" ${pressed((S.design.welcomeStyle || 'classic') === id)}>
+            <img src="welcomes/${id}.webp" alt="" loading="lazy"><b>${w.name}</b><small>${w.note}</small></button>`).join('')}</div>` : ''}
+        ${S.welcome && !['taplink', 'typo'].includes(S.design.welcomeStyle) ? `<p class="label">Фон</p><div class="chips">
           <button type="button" class="chip" data-wbg="photo" ${pressed(S.welcomeBg === 'photo')}>Фото заведения</button>
           <button type="button" class="chip" data-wbg="color" ${pressed(S.welcomeBg === 'color')}>Цвет темы</button>
         </div><p class="sub" style="font-size:14px">Своё фото или видео загрузим при подключении.</p>` : ''}
@@ -263,6 +266,7 @@
     else if (d.font) setDesign({ fonts: d.font });
     else if (d.style) setDesign({ style: d.style });
     else if ('welcome' in d) { S.welcome = !S.welcome; save(); setScreen('#/'); render(); }
+    else if (d.wstyle) { S.design = Object.assign({}, S.design, { welcomeStyle: d.wstyle }); save(); setScreen('#/'); push(); render(); }
     else if (d.wbg) { S.welcomeBg = d.wbg; save(); setScreen('#/'); render(); }
     else if (d.block) { S.blocks[d.block] = !S.blocks[d.block]; save(); setScreen('#/menu'); render(); }
     else if ('logoClear' in d) { S.logo = ''; save(); push(); render(); }

@@ -51,6 +51,16 @@
     lounge:    { name: 'Лаунж',   note: 'Бордо и золото, круглые фото строками',      kinds: ['lounge', 'bar'],                  style: 'lounge',    palette: 'bordeaux', fonts: 'unbounded' }
   };
 
+  /* Вид приветственного экрана — смешивается с любой темой */
+  const WELCOMES = {
+    classic:  { name: 'Классика',     note: 'Фото или видео на весь экран, логотип по центру — как у Типа Граф' },
+    taplink:  { name: 'Таплинк',      note: 'Логотип в круге, название и кнопки-ссылки столбиком' },
+    split:    { name: 'Сплит',        note: 'Фото сверху, логотип в круге на стыке, кнопки ниже' },
+    card:     { name: 'Карточка',     note: 'Фото фоном, внизу карточка с названием и кнопками' },
+    poster:   { name: 'Постер',       note: 'Крупное название поверх фото, как афиша' },
+    typo:     { name: 'Типографика',  note: 'Без фото: огромное название на цвете бренда' }
+  };
+
   const pick = (obj, k, def) => (k && obj[k] ? k : def);
   const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -108,11 +118,12 @@
     el.dataset.mode = p.dark ? 'dark' : 'light';
     el.dataset.style = r.style;
     el.dataset.palette = r.palette;
+    el.dataset.welcome = pick(WELCOMES, (design || {}).welcomeStyle, 'classic');
     const meta = doc.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', p.bg);
     loadFonts(doc, r.fonts);
     return r;
   }
 
-  root.TMThemes = { STYLES, PALETTES, FONTS, THEMES, resolve, apply, contrastOn };
+  root.TMThemes = { STYLES, PALETTES, FONTS, THEMES, WELCOMES, resolve, apply, contrastOn };
 })(typeof window !== 'undefined' ? window : globalThis);

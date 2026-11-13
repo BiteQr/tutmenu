@@ -143,3 +143,4 @@ button { background: none; border: 0; cursor: pointer; }
   .themes { grid-template-columns: repeat(3, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .step, .stage.is-open { animation: none; } }
+.theme img[src*="welcomes/"] { aspect-ratio: 390 / 844; }

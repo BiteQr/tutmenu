@@ -61,8 +61,11 @@
       imgEl.hidden = false;
     } else {
       imgEl.hidden = true;
-      imgEl.insertAdjacentHTML('afterend', `<h1 class="welcome__name">${esc(s.name || '')}</h1>`);
     }
+    // Название есть всегда; в основном дизайне при логотипе оно скрыто (как раньше),
+    // а в других видах приветствия (Таплинк, Постер…) показывается под логотипом
+    center.classList.toggle('has-logo', !!logo);
+    imgEl.insertAdjacentHTML('afterend', `<h1 class="welcome__name">${esc(s.name || '')}</h1>`);
     $('.welcome__tagline', center).textContent = I18n.f(s, 'tagline');
   }
 
