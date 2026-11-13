@@ -94,7 +94,7 @@
     if (!mq.matches) { ph.style.cssText = ''; pv.style.cssText = ''; return; }
     const open = st.classList.contains('is-open');
     const live = document.body.classList.contains('live') && !open;
-    const h = live ? Math.round(innerHeight * 0.46) - 20 : Math.min(innerHeight * 0.74, 640);
+    const h = live ? Math.max(130, st.clientHeight - 16) : Math.min(innerHeight * 0.74, 640);
     const pad = live ? 5 : 10;
     const s = (h - pad * 2) / 844;
     ph.style.cssText = `width:${Math.round(390 * s + pad * 2)}px;height:${Math.round(h)}px;padding:${pad}px;border-radius:${live ? 24 : 46}px;position:relative;overflow:hidden;flex:none`;
@@ -102,6 +102,7 @@
     document.documentElement.style.setProperty('--hh', $('.b__top').offsetHeight + 'px');
   }
   addEventListener('resize', fitPhone);
+  if (window.ResizeObserver) new ResizeObserver(() => fitPhone()).observe($('#stage'));
 
   /* ---------- шаги ---------- */
   const wrap = $('#stepWrap');
@@ -235,7 +236,7 @@
     // Полоска шагов кликабельна: можно сразу перейти к любому шагу (после заполнения данных)
     $('#steps').innerHTML = steps.map((sid, k) => `<button type="button" data-goto="${k}" aria-label="${STEPS[sid].title}" class="${k < cur ? 'done' : k === cur ? 'cur' : ''}"><i></i></button>`).join('');
     $('#stepName').textContent = `Шаг ${cur + 1} из ${steps.length} · ${STEPS[id].title}`;
-    if (render.last !== id) { render.last = id; scrollTo(0, 0); }
+    if (render.last !== id) { render.last = id; scrollTo(0, 0); $(".panel").scrollTop = 0; }
     wrap.innerHTML = VIEWS[id]();
     document.body.classList.toggle('live', LIVE.includes(id));
     fitPhone();
