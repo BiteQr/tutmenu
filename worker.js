@@ -1217,7 +1217,11 @@ async function cleanupDemos(env) {
 /** Страница демо: то же приложение меню, с <base href="/">, чтобы файлы грузились от корня */
 async function serveDemoPage(request, env) {
   const res = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url)));
-  const html = (await res.text()).replace('<head>', '<head><base href="/"><meta name="robots" content="noindex">');
+  // Файлы приложения грузим от корня (/styles.css, /app.js). <base href="/"> не используем:
+  // с ним ссылки вида href="#/menu" уводили бы со страницы демо на главную.
+  const html = (await res.text())
+    .replace(/(\s(?:src|href)=")(?![a-z]+:|\/|#)([^"]+)"/gi, '$1/$2"')
+    .replace('<head>', '<head><meta name="robots" content="noindex">');
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
