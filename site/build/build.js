@@ -20,7 +20,7 @@
     mode: 'quick',
     info: { owner: '', name: '', phone: '', city: 'Уральск', kind: '' },
     logo: '',
-    design: { theme: 'graf' },
+    design: { theme: 'carte' },
     welcome: true,
     welcomeBg: 'photo',
     blocks: { promos: true, lunch: true, stories: false }
@@ -35,7 +35,7 @@
     welcome: { title: 'Приветственный экран' },
     colors: { title: 'Цвета' },
     fonts: { title: 'Шрифты' },
-    layout: { title: 'Карточки и кнопки' },
+    layout: { title: 'Раскладка' },
     blocks: { title: 'Что показать в меню' },
     done: { title: 'Готово', quick: true }
   };
@@ -111,7 +111,7 @@
     theme() {
       const cur = S.design.theme;
       return `<div class="step"><h1>Выберите дизайн</h1>
-        <p class="sub">Готовые темы под ваш тип заведения. Потом любую деталь можно взять из другой темы: цвета от одной, шрифты от другой.</p>
+        <p class="sub">Готовые темы под ваш тип заведения. Потом можно смешать: раскладку от одной темы, цвета и шрифты от другой.</p>
         <div class="themes">${themesSorted().map((id) => {
           const t = T.THEMES[id];
           const fit = S.info.kind && t.kinds.includes(S.info.kind);
@@ -151,19 +151,18 @@
         <p class="sub">Все поддерживают казахские буквы.</p>
         <div class="fontlist" style="margin-top:18px">${Object.entries(T.FONTS).map(([id, f]) => `
           <button type="button" class="fontopt" data-font="${id}" ${pressed(r.fonts === id)}>
-            <span class="fontopt__d" style="font-family:'${f.display}';font-weight:${f.dw};text-transform:${f.upper ? 'uppercase' : 'none'}">Салаттар</span>
+            <span class="fontopt__d" style="font-family:'${f.display}';font-weight:${f.dw};text-transform:${f.upper ? 'uppercase' : 'none'};letter-spacing:${f.track};font-style:${f.italic ? 'italic' : 'normal'}">Салаттар · Десерты</span>
             <span class="fontopt__b">${f.name}</span></button>`).join('')}</div>
       </div>`;
     },
     layout() {
       const r = resolved();
-      const row = (key, dict) => `<div class="chips">${Object.entries(dict).map(([id, n]) => `<button type="button" class="chip" data-set="${key}" data-v="${id}" ${pressed(r[key] === (typeof n === 'string' ? id : id))}>${typeof n === 'string' ? n : n.name}</button>`).join('')}</div>`;
-      return `<div class="step"><h1>Карточки и кнопки</h1>
-        <p class="sub">Смешивайте как угодно: всё сразу видно справа.</p>
-        <p class="label">Раскладка блюд</p>${row('layout', T.LAYOUTS)}
-        <p class="label">Карточки блюд</p>${row('cards', T.CARDS)}
-        <p class="label">Разделы меню</p>${row('cats', T.CATS)}
-        <p class="label">Углы кнопок и фото</p>${row('shape', T.SHAPES)}
+      return `<div class="step"><h1>Раскладка меню</h1>
+        <p class="sub">Как стоят блюда на странице. Цвета и шрифты при этом остаются вашими.</p>
+        <div class="fontlist" style="margin-top:18px">${Object.entries(T.STYLES).map(([id, st]) => `
+          <button type="button" class="fontopt" data-style="${id}" ${pressed(r.style === id)} style="flex-direction:column;align-items:flex-start;gap:4px">
+            <span class="fontopt__d" style="font-size:20px">${st.name}</span>
+            <span class="fontopt__b" style="white-space:normal">${st.note}</span></button>`).join('')}</div>
       </div>`;
     },
     blocks() {
@@ -184,8 +183,8 @@
         <p class="sub">Нажмите «Получить ссылку»: демо с вашим названием откроется по своей ссылке и проживёт 3 дня.</p>
         <dl class="done-card">
           <dt>Заведение</dt><dd>${esc(i.name || '—')}, ${esc(i.city || '')}</dd>
-          <dt>Дизайн</dt><dd>${T.THEMES[r.theme].name} · цвета «${T.PALETTES[r.palette].name}» · шрифт «${T.FONTS[r.fonts].name}»</dd>
-          <dt>Карточки</dt><dd>${T.LAYOUTS[r.layout]}, ${T.CARDS[r.cards].toLowerCase()}, разделы «${T.CATS[r.cats].toLowerCase()}»</dd>
+          <dt>Дизайн</dt><dd>Тема «${T.THEMES[r.theme].name}» · цвета «${T.PALETTES[r.palette].name}» · шрифт «${T.FONTS[r.fonts].name}»</dd>
+          <dt>Раскладка</dt><dd>${T.STYLES[r.style].name}</dd>
         </dl>
         <p class="sub" id="doneMsg" style="font-size:14px"></p>
       </div>`;
@@ -240,13 +239,13 @@
       const rnd = (a) => a[Math.floor(Math.random() * a.length)];
       const base = rnd(keys(T.THEMES));
       S.themePicked = true;
-      S.design = { theme: base, palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)), shape: rnd(keys(T.SHAPES)), cats: rnd(keys(T.CATS)), cards: rnd(keys(T.CARDS)) };
+      S.design = { theme: base, style: rnd(keys(T.STYLES)), palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)) };
       save(); push(); render();
     }
     else if (d.pal) setDesign({ palette: d.pal, accent: '' });
     else if ('accentClear' in d) setDesign({ accent: '' });
     else if (d.font) setDesign({ fonts: d.font });
-    else if (d.set) setDesign({ [d.set]: d.v });
+    else if (d.style) setDesign({ style: d.style });
     else if ('welcome' in d) { S.welcome = !S.welcome; save(); setScreen('#/'); render(); }
     else if (d.wbg) { S.welcomeBg = d.wbg; save(); setScreen('#/'); render(); }
     else if (d.block) { S.blocks[d.block] = !S.blocks[d.block]; save(); setScreen('#/menu'); render(); }

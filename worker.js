@@ -1067,7 +1067,7 @@ async function handleDemoCreate(request, env) {
   // Дизайн: только известные ключи и короткие значения
   const d = body.design || {};
   const design = {};
-  for (const k of ['theme', 'palette', 'fonts', 'shape', 'cats', 'cards', 'layout', 'welcomeBg']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
+  for (const k of ['theme', 'style', 'palette', 'fonts', 'welcomeBg']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
   if (typeof d.accent === 'string' && /^#[0-9a-f]{6}$/i.test(d.accent)) design.accent = d.accent;
   if (d.welcome === false) design.welcome = false;
   const b = body.blocks || {};
