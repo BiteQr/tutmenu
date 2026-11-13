@@ -131,13 +131,21 @@
 
   async function init() {
     I18n.applyStatic();
-    try {
-      const data = await App.API.load((fresh) => applyData(fresh)); // фоновое обновление
-      applyData(data);
-    } catch (err) {
-      showError(err);
-      return;
+    // Превью конструктора и демо: на телефоне фоновый iframe иногда теряет первый запрос — пробуем ещё раз
+    const tries = (isPreview || /^\/demo\//.test(location.pathname)) ? 4 : 1;
+    let lastErr = null;
+    for (let k = 0; k < tries; k++) {
+      try {
+        const data = await App.API.load((fresh) => applyData(fresh)); // фоновое обновление
+        applyData(data);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (k < tries - 1) await new Promise((r) => setTimeout(r, 1200 * (k + 1)));
+      }
     }
+    if (lastErr) { showError(lastErr); return; }
 
     I18n.onChange(() => {
       const y = window.scrollY;

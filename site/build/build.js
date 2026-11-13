@@ -66,7 +66,14 @@
     push();
   }
   document.querySelectorAll('[data-screen]').forEach((b) => b.addEventListener('click', () => setScreen(b.dataset.screen)));
-  $('#peek').addEventListener('click', () => { $('#stage').classList.add('is-open'); push(); });
+  function healPreview() {
+    try {
+      const err = pv.contentDocument && pv.contentDocument.querySelector('.loader__error:not([hidden])');
+      if (err) { ready = false; pv.contentWindow.location.reload(); }
+    } catch { /* другой origin — ничего не делаем */ }
+  }
+  $('#peek').addEventListener('click', () => { $('#stage').classList.add('is-open'); healPreview(); push(); });
+  setInterval(healPreview, 4000);
   $('#peekClose').addEventListener('click', () => $('#stage').classList.remove('is-open'));
 
   /* ---------- шаги ---------- */
