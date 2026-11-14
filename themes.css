@@ -336,3 +336,14 @@ html[data-welcome="typo"] .welcome .wbtn--primary {
   flex: 1 1 100%; min-height: 64px; margin-bottom: 10px; border-radius: 999px; text-decoration: none;
   background: var(--on-dark); color: var(--dark); font-size: 17px; font-weight: 700;
 }
+
+/* Низкие экраны (iPhone SE, браузеры с панелями): в «Сплите» фото ниже, чтобы кнопки помещались без прокрутки */
+@media (max-height: 700px) {
+  html[data-welcome="split"] .welcome__bg { height: 36vh; }
+  html[data-welcome="split"] .welcome__center { padding-top: calc(36vh - 50px - 44px); padding-bottom: 14px; }
+  html[data-welcome="split"] .welcome__center:not(.has-logo) { padding-top: calc(36vh + 16px); }
+  html[data-welcome="split"] .welcome__center .welcome__logo { width: 96px; height: 96px; }
+  html[data-welcome="split"] .welcome__name { margin-top: 10px; font-size: 24px; }
+  html[data-welcome="taplink"] .welcome__center { padding-top: 24px; padding-bottom: 18px; }
+  html[data-welcome="taplink"] .welcome .wbtn { min-height: 52px; }
+}

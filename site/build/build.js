@@ -283,13 +283,16 @@
       const fit = Object.keys(T.THEMES).find((id) => T.THEMES[id].kinds.includes(d.kind));
       if (fit && !S.themePicked) S.design = { theme: fit };
       save(); push(); render();
-    } else if (d.theme) { S.themePicked = true; S.design = { theme: d.theme }; save(); push(); render(); }
+    } else if (d.theme) {
+      // Новая тема меняет устройство, цвета и шрифты, но выбранный вид приветствия оставляем
+      S.themePicked = true; S.design = { theme: d.theme, welcomeStyle: S.design.welcomeStyle }; save(); push(); render();
+    }
     else if ('dice' in d) {
       const keys = (o) => Object.keys(o);
       const rnd = (a) => a[Math.floor(Math.random() * a.length)];
       const base = rnd(keys(T.THEMES));
       S.themePicked = true;
-      S.design = { theme: base, style: rnd(keys(T.STYLES)), palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)) };
+      S.design = { theme: base, style: rnd(keys(T.STYLES)), palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)), welcomeStyle: rnd(keys(T.WELCOMES)) };
       save(); push(); render();
     }
     else if (d.pal) setDesign({ palette: d.pal, accent: '' });
@@ -315,6 +318,7 @@
       S.logo = c.toDataURL('image/png');
       URL.revokeObjectURL(url); save(); push(); render();
     };
+    img.onerror = () => { URL.revokeObjectURL(url); alertMsg('Не получилось открыть картинку. Попробуйте PNG или JPG.'); };
     img.src = url;
   }
   function alertMsg(t) { const m = document.createElement('p'); m.className = 'sub'; m.textContent = t; wrap.querySelector('.step').append(m); }
@@ -351,7 +355,9 @@
         method: editKey ? 'PUT' : 'POST', headers: { 'content-type': 'application/json', 'x-edit-key': editKey || '' },
         body: JSON.stringify({ info: S.info, logo: S.logo, design: Object.assign({}, S.design, { welcome: S.welcome, welcomeBg: S.welcomeBg }), blocks: S.blocks })
       });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 429) { msg.textContent = 'Сегодня с этого устройства уже собрано много демо. Напишите нам в WhatsApp — соберём сами.'; btn.disabled = false; return; }
+      if (res.status === 410) { msg.textContent = 'Это демо уже истекло. Соберите новое — это минута.'; btn.disabled = false; return; }
       if (!res.ok || !j.url) throw new Error(j.message || j.error || 'error');
       // Запоминаем на этом устройстве ключ и настройки — чтобы потом менять дизайн этого демо
       if (j.editKey && j.slug) {

@@ -198,3 +198,12 @@ button { background: none; border: 0; cursor: pointer; }
   body.live .fontopt__d { font-size: 20px; }
   body.live .fontopt__b { white-space: normal; }
 }
+
+/* Узкие телефоны (320–370px): три кнопки внизу не помещались — главная кнопка на всю ширину сверху */
+@media (max-width: 379px) {
+  .b__nav { flex-wrap: wrap; gap: 8px; }
+  .b__nav #next { order: -1; flex: 1 1 100%; }
+  .b__nav .btn--ghost { flex: 1 1 0; padding: 0 12px; }
+  body.live .b__nav #next { order: 0; flex: 1; }
+  body.live .b__nav .btn--ghost { flex: 0 0 auto; }
+}
