@@ -131,7 +131,7 @@
         <div class="fields">
           <div class="field"><label for="fOwner">Ваше имя</label><input id="fOwner" data-f="owner" autocomplete="name" value="${esc(i.owner)}"></div>
           <div class="field"><label for="fName">Название заведения</label><input id="fName" data-f="name" value="${esc(i.name)}" placeholder="Например, Бариста на Достык"></div>
-          <div class="field"><label for="fPhone">Телефон / WhatsApp</label><input id="fPhone" data-f="phone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(i.phone)}" placeholder="+7 7__ ___ __ __"></div>
+          <div class="field"><label for="fPhone">Телефон / WhatsApp</label><input id="fPhone" data-f="phone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(fmtPhone(i.phone))}" placeholder="+7 7__ ___ __ __"></div>
           <div class="field"><label for="fCity">Город</label><input id="fCity" data-f="city" value="${esc(i.city)}"></div>
         </div>
         <p class="label">Тип заведения</p>
@@ -252,6 +252,28 @@
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
   }
 
+  function fmtPhone(v) {
+    let d = String(v || '').replace(/\D/g, '');
+    if (!/^\s*\+/.test(String(v || '')) && d.length === 10) d = '7' + d;  // вставили номер без кода страны
+    if (d.startsWith('8')) d = '7' + d.slice(1);
+    if (!d.startsWith('7')) d = '7' + d;
+    // Номера Казахстана после +7 начинаются с 6 или 7: «8» сразу после +7 — это привычная восьмёрка, убираем
+    if (d[1] === '8') d = '7' + d.slice(2);
+    // Если человек набрал номер целиком поверх «+7» (лишние цифры) — берём последние 10
+    if (d.length > 11) d = '7' + d.slice(-10);
+    const p = d.slice(1);
+    let out = '+7';
+    if (p.length) out += ' ' + p.slice(0, 3);
+    if (p.length > 3) out += ' ' + p.slice(3, 6);
+    if (p.length > 6) out += ' ' + p.slice(6, 8);
+    if (p.length > 8) out += ' ' + p.slice(8, 10);
+    return out;
+  }
+  // Пустое поле телефона при фокусе сразу получает «+7 »
+  wrap.addEventListener('focusin', (e) => {
+    if (e.target.id === 'fPhone' && !e.target.value) { e.target.value = '+7 '; S.info.phone = '+7'; save(); }
+  });
+
   function validInfo() {
     const i = S.info;
     const digits = (i.phone || '').replace(/\D/g, '');
@@ -265,6 +287,15 @@
 
   /* ---------- события ---------- */
   wrap.addEventListener('input', (e) => {
+    if (e.target.id === 'fPhone') {
+      // Маска +7 ___ ___ __ __: «+7» уже стоит, 8 и 7 в начале понимаем как код страны
+      const el = e.target, before = el.value.slice(0, el.selectionStart).replace(/\D/g, '').length;
+      el.value = fmtPhone(el.value);
+      let pos = 0, n = 0;
+      while (pos < el.value.length && n < before) { if (/\d/.test(el.value[pos])) n++; pos++; }
+      if (pos < 3) pos = el.value.length;
+      try { el.setSelectionRange(pos, pos); } catch {}
+    }
     const f = e.target.dataset.f;
     if (f) { S.info[f] = e.target.value; save(); if (f === 'name') push(); }
     if (e.target.id === 'fAccent') { S.design.accent = e.target.value; save(); push(); }
