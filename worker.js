@@ -9,6 +9,24 @@ function safeVariants(raw) {
   try { return JSON.parse(raw); } catch { return []; }
 }
 
+/** Простой ограничитель запросов с одного IP (счётчик в кэше ближайшего сервера Cloudflare).
+ *  Не идеально точный, но не даёт одному человеку завалить базу заказами/событиями
+ *  или сжечь дневной лимит ИИ-поиска за минуту. */
+async function tooMany(request, name, limit, windowSec) {
+  try {
+    const ip = request.headers.get('CF-Connecting-IP') || 'x';
+    const slot = Math.floor(Date.now() / 1000 / windowSec);
+    const key = new Request(`https://rl.local/${name}/${encodeURIComponent(ip)}/${slot}`);
+    const cache = caches.default;
+    const hit = await cache.match(key);
+    const n = hit ? Number(await hit.text()) || 0 : 0;
+    if (n >= limit) return true;
+    await cache.put(key, new Response(String(n + 1), { headers: { 'cache-control': `max-age=${windowSec}` } }));
+  } catch { /* ограничитель не должен ломать сайт */ }
+  return false;
+}
+const slowDown = () => json({ error: 'rate_limited', message: 'Слишком много запросов, попробуйте через пару минут' }, { status: 429 });
+
 function json(data, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -31,8 +49,43 @@ function normId(v) {
  * в Cloudflare и вырезает любой такой же заголовок, присланный клиентом
  * напрямую — подделать его нельзя, если путь (/admin/*) защищён в Zero Trust.
  */
-function accessEmail(request) {
-  return (request.headers.get('Cf-Access-Authenticated-User-Email') || '').trim().toLowerCase();
+/* Проверяем подпись входа Cloudflare Access (JWT), а не только заголовок с почтой.
+   Заголовку можно верить лишь там, где Access точно включён; подпись же подделать нельзя —
+   так админка защищена и на новом домене (tutmenu.kz), и на служебных адресах, даже если
+   на них забыли настроить Access. */
+const ACCESS_TEAM = 'https://tutmenu.cloudflareaccess.com';
+const ACCESS_AUD = '3f40c8676c65b8559c6139766333d5206b321b1a9076340216d362aa2d87ea25';
+let accessKeys = null, accessKeysAt = 0;
+const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+async function accessCerts(force) {
+  if (!force && accessKeys && Date.now() - accessKeysAt < 3600e3) return accessKeys;
+  const r = await fetch(`${ACCESS_TEAM}/cdn-cgi/access/certs`);
+  const j = await r.json();
+  accessKeys = j.keys || []; accessKeysAt = Date.now();
+  return accessKeys;
+}
+export async function verifyAccessJwt(token, now = Date.now(), getKeys = accessCerts) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return '';
+  let head, pay;
+  try { head = JSON.parse(new TextDecoder().decode(b64url(parts[0]))); pay = JSON.parse(new TextDecoder().decode(b64url(parts[1]))); } catch { return ''; }
+  if (head.alg !== 'RS256') return '';
+  let keys = await getKeys(false);
+  let jwk = keys.find((k) => k.kid === head.kid);
+  if (!jwk) { keys = await getKeys(true); jwk = keys.find((k) => k.kid === head.kid); }
+  if (!jwk) return '';
+  const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
+  if (!ok) return '';
+  const aud = Array.isArray(pay.aud) ? pay.aud : [pay.aud];
+  if (!aud.includes(ACCESS_AUD) || pay.iss !== ACCESS_TEAM) return '';
+  if (!pay.exp || pay.exp * 1000 < now) return '';
+  return String(pay.email || '').trim().toLowerCase();
+}
+async function accessEmail(request) {
+  const jwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+  if (!jwt) return '';
+  try { return await verifyAccessJwt(jwt); } catch { return ''; }
 }
 
 /**
@@ -41,7 +94,7 @@ function accessEmail(request) {
  * editor — только свой restaurant_id (slug).
  */
 export async function authorize(env, request, slug) {
-  const email = accessEmail(request);
+  const email = await accessEmail(request);
   if (!email) return { ok: false, status: 401, error: 'no_access_email' };
 
   const row = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?')
@@ -410,7 +463,7 @@ async function handleAdminApi(request, env, segments) {
   }
 
   if (section === 'me') {
-    const email = accessEmail(request);
+    const email = await accessEmail(request);
     if (!email) return json({ error: 'no_access_email' }, { status: 401 });
     const me = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(email).first();
     if (!me) return json({ error: 'not_registered', email });
@@ -421,7 +474,7 @@ async function handleAdminApi(request, env, segments) {
   }
 
   if (section === 'restaurants') {
-    const email = accessEmail(request);
+    const email = await accessEmail(request);
     const me = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(email).first();
     if (!me) return json({ error: 'not_registered' }, { status: 403 });
 
@@ -1196,7 +1249,7 @@ const KIND_NAMES = { restaurant: 'Ресторан', cafe: 'Кафе', coffee: '
 
 /* ---------- Лиды (демо) в админке — только владелец tut.menu ---------- */
 async function ownerOnly(env, request) {
-  const email = accessEmail(request);
+  const email = await accessEmail(request);
   if (!email) return { ok: false, status: 401, error: 'no_access_email' };
   const row = await env.DB.prepare('SELECT role FROM admin_users WHERE email = ?').bind(email).first();
   if (!row || row.role !== 'owner') return { ok: false, status: 403, error: 'owner_only' };
@@ -1251,11 +1304,25 @@ async function serveDemoPage(request, env) {
 }
 
 /* ---------- Маршрутизация ---------- */
-export default {
+const handler = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanupDemos(env));
   },
+  /* Обёртка: базовые заголовки безопасности на все ответы */
   async fetch(request, env, ctx) {
+    const res = await handler.route(request, env, ctx);
+    if (!res || res.status === 101) return res;
+    const out = new Response(res.body, res);
+    const h = out.headers;
+    h.set('x-content-type-options', 'nosniff');
+    h.set('referrer-policy', 'strict-origin-when-cross-origin');
+    const ct = h.get('content-type') || '';
+    if (ct.includes('text/html')) h.set('x-frame-options', 'SAMEORIGIN');
+    // Загруженные файлы никогда не исполняются как страница (защита от SVG/HTML со скриптом)
+    if (new URL(request.url).pathname.startsWith('/files/')) h.set('content-security-policy', "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+    return out;
+  },
+  async route(request, env, ctx) {
     const url = new URL(request.url);
     const p = url.pathname;
     const method = request.method;
@@ -1266,11 +1333,11 @@ export default {
         if (did.startsWith('demo:')) return await handleDemoMenu(request, env, did.slice(5).replace(/[^a-z0-9-]/g, ''));
         return await handleMenu(request, env);
       }
-      if (p === '/api/demo' && method === 'POST') return await handleDemoCreate(request, env, ctx);
-      if (/^\/api\/demo\/[a-z0-9-]{1,64}$/.test(p) && method === 'PUT') return await handleDemoUpdate(request, env, p.split('/')[3]);
-      if (p === '/api/orders' && method === 'POST') return await handleOrders(request, env);
-      if (p === '/api/track' && method === 'POST') return await handleTrack(request, env);
-      if (p === '/api/ai-search' && method === 'POST') return await handleAiSearch(request, env, ctx);
+      if (p === '/api/demo' && method === 'POST') return (await tooMany(request, 'demo', 10, 600)) ? slowDown() : await handleDemoCreate(request, env, ctx);
+      if (/^\/api\/demo\/[a-z0-9-]{1,64}$/.test(p) && method === 'PUT') return (await tooMany(request, 'demoput', 60, 600)) ? slowDown() : await handleDemoUpdate(request, env, p.split('/')[3]);
+      if (p === '/api/orders' && method === 'POST') return (await tooMany(request, 'orders', 15, 600)) ? slowDown() : await handleOrders(request, env);
+      if (p === '/api/track' && method === 'POST') return (await tooMany(request, 'track', 600, 600)) ? json({ ok: false }, { status: 429 }) : await handleTrack(request, env);
+      if (p === '/api/ai-search' && method === 'POST') return (await tooMany(request, 'ai', 30, 600)) ? slowDown() : await handleAiSearch(request, env, ctx);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
@@ -1291,7 +1358,9 @@ export default {
         return await handleFiles(request, env, ctx, segments);
       }
     } catch (err) {
-      return json({ error: 'server_error', message: String(err) }, { status: 500 });
+      // Подробности ошибки — только в админке; гостям не показываем внутренности сервера
+      console.error(err);
+      return json({ error: 'server_error', message: p.startsWith('/admin/api/') ? String(err) : 'Ошибка сервера' }, { status: 500 });
     }
 
     // Демо из конструктора — только на продающем домене (и workers.dev для проверки)
@@ -1347,3 +1416,4 @@ export default {
     return res;
   }
 };
+export default handler;
