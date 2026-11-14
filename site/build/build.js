@@ -94,7 +94,10 @@
     if (!mq.matches) { ph.style.cssText = ''; pv.style.cssText = ''; return; }
     const open = st.classList.contains('is-open');
     const live = document.body.classList.contains('live') && !open;
-    const h = live ? Math.max(130, st.clientHeight - 16) : Math.min(innerHeight * 0.74, 640);
+    // Открытое превью: телефон занимает ровно то, что осталось между вкладками и кнопкой «Вернуться» —
+    // иначе в Яндекс Браузере кнопка уходит под его нижнюю панель
+    const free = st.clientHeight - $('.stage__tabs').offsetHeight - $('#peekClose').offsetHeight - 12 * 2 - 24;
+    const h = live ? Math.max(130, st.clientHeight - 16) : Math.max(260, Math.min(free, 640));
     const pad = live ? 5 : 10;
     const s = (h - pad * 2) / 844;
     ph.style.cssText = `width:${Math.round(390 * s + pad * 2)}px;height:${Math.round(h)}px;padding:${pad}px;border-radius:${live ? 24 : 46}px;position:relative;overflow:hidden;flex:none`;

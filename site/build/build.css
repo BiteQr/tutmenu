@@ -128,7 +128,7 @@ button { background: none; border: 0; cursor: pointer; }
 @media (max-width: 979px) {
   .stage { display: flex; position: fixed; left: -200vw; top: 0; width: 100vw; height: 100vh; visibility: hidden; pointer-events: none; flex-direction: column; align-items: center; justify-content: center; }
   .stage .phone { width: auto; height: min(74vh, 640px); }
-  .stage.is-open { visibility: visible; pointer-events: auto; left: 0; display: flex; position: fixed; inset: 0; z-index: 50; background: #f2f2ef; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; animation: stepIn .3s var(--ease); }
+  .stage.is-open { visibility: visible; pointer-events: auto; left: 0; display: flex; position: fixed; inset: 0; height: auto; z-index: 50; background: #f2f2ef; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); animation: stepIn .3s var(--ease); }
   .stage.is-open .phone { width: auto; height: min(74vh, 640px); }
   .stage.is-open .stage__close { display: block; min-height: 50px; padding: 0 22px; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 600; }
 }
