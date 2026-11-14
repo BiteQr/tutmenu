@@ -100,11 +100,15 @@
     const h = live ? Math.max(130, st.clientHeight - 16) : Math.max(260, Math.min(free, 640));
     const pad = live ? 5 : 10;
     const s = (h - pad * 2) / 844;
-    ph.style.cssText = `width:${Math.round(390 * s + pad * 2)}px;height:${Math.round(h)}px;padding:${pad}px;border-radius:${live ? 24 : 46}px;position:relative;overflow:hidden;flex:none`;
-    pv.style.cssText = `width:390px;height:844px;transform:scale(${s});transform-origin:0 0;border-radius:${Math.round((live ? 19 : 36) / s)}px`;
+    ph.style.cssText = `width:${Math.round(390 * s + pad * 2)}px;height:${Math.round(h)}px;padding:${pad}px;border-radius:${live ? 24 : 46}px;position:relative;overflow:hidden;overflow:clip;flex:none`;
+    ph.scrollTop = 0; ph.scrollLeft = 0; st.scrollTop = 0;
+    pv.style.cssText = `position:absolute;left:${pad}px;top:${pad}px;width:390px;height:844px;transform:scale(${s});transform-origin:0 0;border-radius:${Math.round((live ? 19 : 36) / s)}px`;
     document.documentElement.style.setProperty('--hh', $('.b__top').offsetHeight + 'px');
   }
   addEventListener('resize', fitPhone);
+  // Меню внутри превью при нажатии на раздел делает scrollIntoView — браузер прокручивает и наши
+  // рамки вокруг (телефон, сцену), и телефон «уезжает» в чёрное. Возвращаем их на место.
+  ['.phone', '#stage'].forEach((sel) => $(sel).addEventListener('scroll', (e) => { e.target.scrollTop = 0; e.target.scrollLeft = 0; }));
   if (window.ResizeObserver) new ResizeObserver(() => fitPhone()).observe($('#stage'));
 
   /* ---------- шаги ---------- */
