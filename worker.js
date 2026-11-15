@@ -12,9 +12,9 @@ function safeVariants(raw) {
 /** Простой ограничитель запросов с одного IP (счётчик в кэше ближайшего сервера Cloudflare).
  *  Не идеально точный, но не даёт одному человеку завалить базу заказами/событиями
  *  или сжечь дневной лимит ИИ-поиска за минуту. */
-async function tooMany(request, name, limit, windowSec) {
+async function tooMany(request, name, limit, windowSec, keyOverride) {
   try {
-    const ip = request.headers.get('CF-Connecting-IP') || 'x';
+    const ip = keyOverride || request.headers.get('CF-Connecting-IP') || 'x';
     const slot = Math.floor(Date.now() / 1000 / windowSec);
     const key = new Request(`https://rl.local/${name}/${encodeURIComponent(ip)}/${slot}`);
     const cache = caches.default;
@@ -278,7 +278,24 @@ async function handleMenu(request, env) {
     }))
   };
 
+  // Фото и видео — с отдельного адреса хранилища (если настроен): такие запросы не идут через наш сервер
+  // и не тратят лимит запросов Workers. Ссылки в базе не меняем — только в ответе.
+  const cdn = await filesOrigin(env);
+  if (cdn) {
+    const own = [url.hostname, restaurant.domain].filter(Boolean).map((h) => h.replace(/[.]/g, '\\.')).join('|');
+    const re = new RegExp(`"(?:https?://(?:[a-z0-9.-]+\\.workers\\.dev${own ? '|' + own : ''}))?/files/`, 'gi');
+    return new Response(JSON.stringify(payload).replace(re, `"${cdn}/`), { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=20' } });
+  }
   return json(payload, { headers: { 'cache-control': 'public, max-age=20' } });
+}
+
+/** Адрес хранилища фото (R2 со своим поддоменом), например https://cdn.tutmenu.kz. Пусто — отдаём через /files/. */
+let filesOriginCache = null, filesOriginAt = 0;
+async function filesOrigin(env) {
+  if (filesOriginCache !== null && Date.now() - filesOriginAt < 300e3) return filesOriginCache;
+  const v = String(env.FILES_ORIGIN || await cfg(env, 'files_origin') || '').trim().replace(/\/+$/, '');
+  filesOriginCache = /^https:\/\/[a-z0-9.-]+$/i.test(v) ? v : ''; filesOriginAt = Date.now();
+  return filesOriginCache;
 }
 
 /* ---------- POST /api/orders — публично ---------- */
@@ -310,6 +327,7 @@ async function handleOrders(request, env) {
    Тело: { restaurantId, q, lang }  →  { items: [{ id, reason }], message }
    Модель: Gemma 4 на Workers AI (бесплатно до 10 000 нейронов в день). Повторные запросы — из кэша. */
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const AI_DAILY_CAP = 300; // вызовов ИИ на одно заведение в сутки (у Типа Граф сейчас ~3–10)
 const AI_LANG_NAME = { ru: 'Russian', kk: 'Kazakh', en: 'English' };
 
 async function sha256(text) {
@@ -334,17 +352,22 @@ async function handleAiSearch(request, env, ctx) {
   ).bind(slug).all()).results;
   if (!rows.length) return json({ items: [], message: '' });
 
-  // Компактный список: id | раздел | название | цена | короткое описание
+  // Компактное меню: раздел один раз заголовком, строки «id|блюдо|цена|описание до 70 знаков».
+  // Так запрос к ИИ примерно вдвое короче — и вдвое дешевле.
+  let lastSec = null;
   const menuText = rows.map((r) => {
     const d = String(r.description_ru || '').replace(/\s+/g, ' ').trim();
-    return `${r.id} | ${r.sec} | ${r.title_ru} | ${Math.round(r.price || 0)} ₸ | ${d.length > 110 ? d.slice(0, 107) + '…' : d}`;
+    const head = r.sec !== lastSec ? `## ${r.sec}\n` : ''; lastSec = r.sec;
+    return `${head}${r.id}|${r.title_ru}|${Math.round(r.price || 0)}|${d.length > 70 ? d.slice(0, 68) + '…' : d}`;
   }).join('\n');
 
   const cache = caches.default;
-  const AI_PROMPT_VERSION = 'v2'; // поменяли инструкции — старые ответы из кэша не берём
+  const AI_PROMPT_VERSION = 'v3'; // поменяли инструкции — старые ответы из кэша не берём
   const cacheKey = new Request(`https://ai-search.cache/${AI_PROMPT_VERSION}/${slug}/${lang}/${await sha256(menuText + '\n#' + q.toLowerCase())}`);
   const hit = await cache.match(cacheKey);
   if (hit) return new Response(hit.body, { headers: { 'content-type': 'application/json; charset=utf-8', 'x-ai-cache': 'hit' } });
+  // Потолок на заведение в сутки — чтобы один бот или шутник не сжёг бюджет ИИ всей сети
+  if (await tooMany(request, 'ai-day', AI_DAILY_CAP, 86400, slug)) return json({ error: 'ai_limit' }, { status: 429 });
 
   const system = `You are a friendly waiter at a restaurant. A guest describes in their own words what they feel like eating or drinking.
 Pick 3 to 5 items from the MENU below that best match the request.
@@ -360,7 +383,7 @@ Rules:
 - If the request is not about food or drinks, return an empty "items" list and a polite "message" in ${AI_LANG_NAME[lang]}.
 Answer with JSON only: {"message": "...", "items": [{"id": 123, "reason": "..."}]}
 
-MENU (id | section | dish | price | description):
+MENU (grouped by \"## section\"; each line: id|dish|price in tenge|description):
 ${menuText}`;
 
   let out;
@@ -1281,6 +1304,29 @@ async function handleLeadsApi(request, env, slug, action) {
 
 /** Раз в час: у истёкших демо удаляем файлы (логотип) в R2. Запись остаётся — это лид в админке;
  *  по старой ссылке открывается «Демо истекло». */
+/** Утренний отчёт: сколько гостей было вчера и насколько мы близки к бесплатным лимитам Cloudflare.
+ *  Точные числа запросов видит только панель Cloudflare; здесь — оценка по нашей статистике
+ *  (замер: один гость ≈ 80 запросов через сервер, если фото идут через /files, и ≈ 8 — если через CDN). */
+async function usageReport(env) {
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT restaurant_id r, COUNT(DISTINCT session_id) s, SUM(type = 'ai_search') ai
+         FROM events WHERE created_at >= datetime('now', '-1 day') GROUP BY restaurant_id ORDER BY s DESC`
+    ).all()).results || [];
+    const sessions = rows.reduce((a, r) => a + r.s, 0), ai = rows.reduce((a, r) => a + (r.ai || 0), 0);
+    const perGuest = (await filesOrigin(env)) ? 8 : 80;
+    const req = sessions * perGuest, reqPct = Math.round(req / 1000);            // от 100 тыс./сутки
+    const aiPct = Math.round(ai * 100 / 100);                                     // ≈100 вызовов/сутки бесплатно
+    const warn = reqPct >= 60 || aiPct >= 60;
+    const top = rows.slice(0, 5).map((r) => `• ${r.r}: ${r.s} гостей${r.ai ? `, ИИ ${r.ai}` : ''}`).join('\n');
+    if (!warn && new Date().getUTCDay() !== 1) return;                            // без проблем — только по понедельникам
+    await tgNotify(env, `${warn ? '⚠️ Пора на платный план Cloudflare ($5/мес)\n\n' : '📊 Еженедельный расход\n\n'}` +
+      `За сутки: ${sessions} гостей в ${rows.length} заведениях\n` +
+      `Запросы: ~${req.toLocaleString('ru-RU')} из 100 000 бесплатных (${reqPct}%)\n` +
+      `ИИ-поиск: ${ai} вызовов, ~${aiPct}% бесплатного лимита\n\n${top}`);
+  } catch { /* отчёт не должен ломать крон */ }
+}
+
 async function cleanupDemos(env) {
   const now = new Date().toISOString();
   const r = await env.DB.prepare('SELECT slug, logo FROM demos WHERE expires_at <= ?1 AND deleted_at IS NULL LIMIT 200').bind(now).all();
@@ -1307,6 +1353,7 @@ async function serveDemoPage(request, env) {
 const handler = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanupDemos(env));
+    if (new Date().getUTCHours() === 4) ctx.waitUntil(usageReport(env));   // 9:17 по Уральску
   },
   /* Обёртка: базовые заголовки безопасности на все ответы */
   async fetch(request, env, ctx) {
