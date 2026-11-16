@@ -286,7 +286,9 @@ async function handleMenu(request, env) {
   if (restaurant.plan === 'trial') {
     const until = restaurant.trial_until || '';
     settings.demo = { slug, trial: true, expiresAt: until, expired: !!until && Date.parse(until) <= Date.now(), restaurant: restaurant.name };
-    if (!payload.menuItems.length) {
+    // Пример — только пока своих блюд нет совсем (выключенные кухней блюда тоже свои)
+    const own = payload.menuItems.length || (await env.DB.prepare('SELECT 1 FROM menu_items WHERE restaurant_id = ?1 LIMIT 1').bind(slug).first());
+    if (!own) {
       const tpl = await demoTemplate(env, request);
       const ts = tpl.settings || {};
       for (const k of ['tagline_ru', 'tagline_kk', 'tagline_en', 'bgImage', 'bgVideo', 'hoursFrom', 'hoursTo']) if (!settings[k]) settings[k] = ts[k] || '';
@@ -1231,7 +1233,10 @@ async function handleDemoCreate(request, env, ctx) {
       .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
         now.toISOString(), until, editKey)
   ]);
-  const token = await cabNewSession(env, { slug });
+  const email = normEmail(info.email);
+  const mr = await env.DB.prepare('INSERT INTO cabinet_members (slug, role, name, email, phone, created_at) VALUES (?1, \'owner\', ?2, ?3, ?4, ?5)')
+    .bind(slug, owner, EMAIL_RE.test(email) ? email : '', normPhone(phone), now.toISOString()).run();
+  const token = await cabNewSession(env, { memberId: mr.meta.last_row_id });
   const origin = new URL(request.url).origin;
   const T = (k) => k ? k : '—';
   ctx.waitUntil(tgNotify(env, [
@@ -1327,7 +1332,7 @@ async function handleLeadsApi(request, env, slug, action) {
   if (!slug && method === 'GET') {
     const r = await env.DB.prepare(`SELECT d.slug, d.owner_name, d.restaurant_name, d.phone, d.city, d.kind, d.design, d.created_at, d.expires_at, d.views, d.last_view_at, d.status, d.note, d.deleted_at,
         d.converted_to, r.plan, r.trial_until, (SELECT COUNT(*) FROM menu_items m WHERE m.restaurant_id = d.converted_to) items,
-        (SELECT GROUP_CONCAT(email) FROM cabinet_users c WHERE c.slug = d.converted_to) emails
+        (SELECT GROUP_CONCAT(CASE WHEN c.email <> '' THEN c.email WHEN c.tg_id <> '' THEN c.name || ' (Telegram)' ELSE c.name END, ', ') FROM cabinet_members c WHERE c.slug = d.converted_to AND c.removed_at IS NULL) emails
       FROM demos d LEFT JOIN restaurants r ON r.slug = d.converted_to ORDER BY d.created_at DESC LIMIT 500`).all();
     return json({ items: r.results });
   }
@@ -1409,10 +1414,15 @@ async function serveDemoPage(request, env) {
 
 /* =========================================================
    КАБИНЕТ ВЛАДЕЛЬЦА ЗАВЕДЕНИЯ (/cabinet)
-   Та же админка, но вход не через Cloudflare Access (там 50 бесплатных мест), а свой:
-   • сразу после демо — сессия на этом телефоне (cookie);
-   • с других устройств — код на email (письма через Resend, секрет RESEND_KEY).
-   Видны только свои заведения; домен, лиды, Telegram и чужие заведения недоступны.
+   Та же админка, но вход не через Cloudflare Access (там 50 бесплатных мест), а свой.
+   У заведения есть команда (cabinet_members): владелец, менеджеры, «стоп-лист» (кухня/бар).
+   Сессия (cookie tm_cab) указывает на сотрудника и/или его email и Telegram — из них
+   собираются все заведения и роли человека. Способы входа:
+   • сразу после демо — сессия на этом телефоне;
+   • QR-код на компьютере, подтверждение с телефона (как WhatsApp Web);
+   • «Войти через Telegram» (OpenID, без переписки с ботом), с сопоставлением по номеру;
+   • код на email (письма через Resend, секрет RESEND_KEY);
+   • ссылка-приглашение от владельца (одноразовая, 24 часа).
    ========================================================= */
 const TRIAL_MS = 7 * 24 * 3600 * 1000;
 const CAB_COOKIE = 'tm_cab';
@@ -1421,6 +1431,8 @@ const CAB = new WeakMap();
 const RESERVED_SLUGS = new Set(['admin', 'api', 'cabinet', 'demo', 'files', 'media', 'ar', 'site', 'build', 'img', 'themes', 'welcomes',
   'login', 'logout', 'www', 'menu', 'help', 'price', 'about', 'terms', 'privacy', 'tutmenu', 'tut-menu', 'kabinet', 'blog', 'support']);
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
+const ROLES = ['owner', 'manager', 'stop'];
+const ROLE_RANK = { owner: 3, manager: 2, stop: 1 };
 
 function randHex(bytes) { return [...crypto.getRandomValues(new Uint8Array(bytes))].map((x) => x.toString(16).padStart(2, '0')).join(''); }
 async function sha256hex(str) {
@@ -1433,6 +1445,8 @@ function getCookie(request, name) {
 }
 function cabCookie(token, maxAgeSec) { return `${CAB_COOKIE}=${token}; Path=/; Max-Age=${Math.floor(maxAgeSec)}; HttpOnly; Secure; SameSite=Lax`; }
 const normEmail = (v) => String(v || '').trim().toLowerCase().slice(0, 254);
+const normPhone = (v) => String(v || '').replace(/\D/g, '').replace(/^8(?=\d{10}$)/, '7').slice(0, 15);
+const nowIso = () => new Date().toISOString();
 
 /** Адрес заведения: «Кофейня Арман» → kofeynya-arman (если занят — kofeynya-arman-2) */
 async function uniqueSlug(env, name) {
@@ -1447,25 +1461,35 @@ async function uniqueSlug(env, name) {
   return `${base}-${randHex(2)}`;
 }
 
-async function cabNewSession(env, { email = '', slug = '' }) {
+/* ---------- сессии ---------- */
+async function cabNewSession(env, { email = '', slug = '', memberId = 0, tgId = '' }) {
   const token = randHex(32);
   const now = Date.now();
-  await env.DB.prepare('INSERT INTO cabinet_sessions (token_hash, email, slug, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)')
-    .bind(await sha256hex(token), email, slug, new Date(now).toISOString(), new Date(now + CAB_TTL_MS).toISOString()).run();
+  await env.DB.prepare('INSERT INTO cabinet_sessions (token_hash, email, slug, member_id, tg_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)')
+    .bind(await sha256hex(token), email, slug, memberId || 0, tgId, new Date(now).toISOString(), new Date(now + CAB_TTL_MS).toISOString()).run();
   return token;
+}
+/** Все записи сотрудника, которые принадлежат этой сессии: по id, email или Telegram */
+async function cabMembers(env, row) {
+  const r = await env.DB.prepare(`SELECT * FROM cabinet_members WHERE removed_at IS NULL AND (
+      id = ?1 OR (?2 <> '' AND email = ?2) OR (?3 <> '' AND tg_id = ?3))`).bind(row.member_id || -1, row.email || '', row.tg_id || '').all();
+  return r.results;
 }
 async function cabSession(env, request) {
   const token = getCookie(request, CAB_COOKIE);
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   const hash = await sha256hex(token);
-  const row = await env.DB.prepare('SELECT email, slug, expires_at FROM cabinet_sessions WHERE token_hash = ?1').bind(hash).first();
+  const row = await env.DB.prepare('SELECT * FROM cabinet_sessions WHERE token_hash = ?1').bind(hash).first();
   if (!row || Date.parse(row.expires_at) <= Date.now()) return null;
-  const slugs = row.email
-    ? (await env.DB.prepare('SELECT slug FROM cabinet_users WHERE email = ?1').bind(row.email).all()).results.map((r) => r.slug) : [];
-  if (row.slug && !slugs.includes(row.slug)) slugs.push(row.slug);
-  return { hash, email: row.email || '', slugs };
+  const members = await cabMembers(env, row);
+  const roles = {};
+  for (const m of members) if (!roles[m.slug] || ROLE_RANK[m.role] > ROLE_RANK[roles[m.slug]]) roles[m.slug] = m.role;
+  // Самые первые сессии (до команды) указывали только на заведение — это его владелец
+  if (row.slug && !roles[row.slug] && !row.member_id) roles[row.slug] = 'owner';
+  return { hash, row, email: row.email || '', tgId: row.tg_id || '', memberId: row.member_id || 0, members, roles, slugs: Object.keys(roles) };
 }
 
+/* ---------- почта ---------- */
 async function mailCfg(env) {
   const key = env.RESEND_KEY || await cfg(env, 'resend_key');
   return key ? { key, from: env.MAIL_FROM || await cfg(env, 'mail_from') || 'tut.menu <hello@tutmenu.kz>' } : null;
@@ -1495,6 +1519,108 @@ async function cabCheckCode(env, email, code) {
   return ok;
 }
 
+/* ---------- Вход через Telegram (OpenID Connect, oauth.telegram.org) ----------
+   Бот @tutmenu_bot — только «вывеска» входа: писать ему и нажимать «Старт» не нужно.
+   Client ID = номер бота (начало токена), Client Secret — из @BotFather → Login Widget
+   (секрет TG_CLIENT_SECRET в Cloudflare или tg_client_secret в app_config). */
+async function tgLoginCfg(env) {
+  const secret = env.TG_CLIENT_SECRET || await cfg(env, 'tg_client_secret');
+  if (!secret) return null;
+  const id = String(env.TG_CLIENT_ID || await cfg(env, 'tg_client_id') || String(env.TG_TOKEN || await cfg(env, 'tg_token') || '').split(':')[0]).trim();
+  return /^\d{5,15}$/.test(id) ? { id, secret } : null;
+}
+let tgKeys = null, tgKeysAt = 0;
+async function tgJwks(force) {
+  if (!force && tgKeys && Date.now() - tgKeysAt < 3600e3) return tgKeys;
+  const r = await fetch('https://oauth.telegram.org/.well-known/jwks.json');
+  tgKeys = ((await r.json()) || {}).keys || []; tgKeysAt = Date.now();
+  return tgKeys;
+}
+async function verifyTgIdToken(token, clientId) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return null;
+  let head, pay;
+  try { head = JSON.parse(new TextDecoder().decode(b64url(parts[0]))); pay = JSON.parse(new TextDecoder().decode(b64url(parts[1]))); } catch { return null; }
+  if (head.alg !== 'RS256') return null;
+  let jwk = (await tgJwks(false)).find((k) => k.kid === head.kid);
+  if (!jwk) jwk = (await tgJwks(true)).find((k) => k.kid === head.kid);
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
+  if (!ok || pay.iss !== 'https://oauth.telegram.org') return null;
+  const aud = Array.isArray(pay.aud) ? pay.aud.map(String) : [String(pay.aud)];
+  if (!aud.includes(String(clientId)) || !pay.exp || pay.exp * 1000 < Date.now()) return null;
+  return pay;
+}
+const b64urlStr = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+async function handleTgLogin(request, env, p) {
+  const url = new URL(request.url);
+  const back = (q) => Response.redirect(`${url.origin}/cabinet${q ? '?' + q : ''}`, 302);
+  const tg = await tgLoginCfg(env);
+  if (!tg) return back('tgerr=off');
+  const redirectUri = `${url.origin}/cabinet/tg/callback`;
+  if (p === '/cabinet/tg/start') {
+    if (await tooMany(request, 'cab-tg', 20, 600)) return back('tgerr=limit');
+    const mode = url.searchParams.get('mode') === 'link' ? 'link' : 'login';
+    const s = mode === 'link' ? await cabSession(env, request) : null;
+    if (mode === 'link' && !s) return back('tgerr=nosession');
+    const state = randHex(16), verifier = randHex(32);
+    const challenge = b64urlStr(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    await env.DB.prepare('INSERT INTO cabinet_oauth (state, verifier, mode, session_hash, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)')
+      .bind(state, verifier, mode, s ? s.hash : '', new Date(Date.now() + 10 * 60e3).toISOString()).run();
+    const q = new URLSearchParams({ client_id: tg.id, redirect_uri: redirectUri, response_type: 'code', scope: 'openid profile phone', state, code_challenge: challenge, code_challenge_method: 'S256' });
+    return Response.redirect('https://oauth.telegram.org/auth?' + q.toString().replace(/\+/g, '%20'), 302);
+  }
+  // /cabinet/tg/callback
+  const state = url.searchParams.get('state') || '', code = url.searchParams.get('code') || '';
+  if (!/^[0-9a-f]{32}$/.test(state)) return back('tgerr=state');
+  const st = await env.DB.prepare('SELECT * FROM cabinet_oauth WHERE state = ?1').bind(state).first();
+  await env.DB.prepare('DELETE FROM cabinet_oauth WHERE state = ?1 OR expires_at < ?2').bind(state, nowIso()).run();
+  if (!st || Date.parse(st.expires_at) <= Date.now()) return back('tgerr=state');
+  if (!code) return back('tgerr=cancel');
+  const tr = await fetch('https://oauth.telegram.org/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: 'Basic ' + btoa(`${tg.id}:${tg.secret}`) },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: tg.id, code_verifier: st.verifier }).toString()
+  }).catch(() => null);
+  const tj = tr && tr.ok ? await tr.json().catch(() => null) : null;
+  const claims = tj && await verifyTgIdToken(tj.id_token, tg.id).catch(() => null);
+  if (!claims) return back('tgerr=token');
+  const tgId = String(claims.id || claims.sub || '').slice(0, 40);
+  const phone = normPhone(claims.phone_number);
+  if (!tgId) return back('tgerr=token');
+
+  if (st.mode === 'link') {
+    // Привязка Telegram к уже открытому кабинету: этот Telegram становится входом для всех заведений сессии
+    const srow = await env.DB.prepare('SELECT * FROM cabinet_sessions WHERE token_hash = ?1').bind(st.session_hash).first();
+    if (!srow) return back('tgerr=nosession');
+    const ms = await cabMembers(env, srow);
+    await env.DB.batch([
+      ...ms.map((m) => env.DB.prepare('UPDATE cabinet_members SET tg_id = ?2 WHERE id = ?1').bind(m.id, tgId)),
+      env.DB.prepare('UPDATE cabinet_sessions SET tg_id = ?2 WHERE token_hash = ?1').bind(st.session_hash, tgId)
+    ]);
+    return back('tg=linked');
+  }
+  // Вход: по привязанному Telegram, иначе по номеру телефона, который подтвердил сам Telegram
+  let found = await env.DB.prepare('SELECT id FROM cabinet_members WHERE removed_at IS NULL AND tg_id = ?1 LIMIT 1').bind(tgId).first();
+  if (!found && phone.length >= 10) {
+    const byPhone = (await env.DB.prepare("SELECT id FROM cabinet_members WHERE removed_at IS NULL AND phone = ?1 AND tg_id = ''").bind(phone).all()).results;
+    if (byPhone.length) {
+      await env.DB.batch(byPhone.map((m) => env.DB.prepare('UPDATE cabinet_members SET tg_id = ?2 WHERE id = ?1').bind(m.id, tgId)));
+      found = byPhone[0];
+    }
+  }
+  if (!found) return back('tgerr=nomember');
+  const token = await cabNewSession(env, { tgId });
+  return new Response(null, { status: 302, headers: { location: `${url.origin}/cabinet`, 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+}
+
+/* ---------- что разрешено ролям ---------- */
+// owner — всё; manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
+// stop — только включать/выключать блюда (кухня, бар)
+const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout']);
+
 async function handleCabinetApi(request, env, p) {
   const method = request.method;
   const sub = p.slice('/cabinet/api'.length) || '/';
@@ -1502,13 +1628,14 @@ async function handleCabinetApi(request, env, p) {
   if (method !== 'GET' && method !== 'HEAD' && request.headers.get('x-tm') !== '1') return json({ error: 'forbidden' }, { status: 403 });
   const readBody = async () => { try { return await request.json(); } catch { return {}; } };
 
+  /* --- вход без сессии --- */
   if (sub === '/login/start' && method === 'POST') {
     if (await tooMany(request, 'cab-login', 8, 600)) return slowDown();
     const email = normEmail((await readBody()).email);
     if (!EMAIL_RE.test(email)) return json({ error: 'bad_email', message: 'Проверьте email' }, { status: 400 });
-    if (!(await mailCfg(env))) return json({ error: 'mail_off', message: 'Вход по email скоро заработает. Пока откройте кабинет с телефона, на котором собирали демо.' }, { status: 503 });
+    if (!(await mailCfg(env))) return json({ error: 'mail_off', message: 'Вход по почте скоро заработает. Войдите через Telegram или по QR с телефона.' }, { status: 503 });
     if (await tooMany(request, 'cab-mail', 3, 600, email)) return slowDown();
-    const known = await env.DB.prepare('SELECT 1 FROM cabinet_users WHERE email = ?1 LIMIT 1').bind(email).first();
+    const known = await env.DB.prepare('SELECT 1 FROM cabinet_members WHERE removed_at IS NULL AND email = ?1 LIMIT 1').bind(email).first();
     if (known) await cabSendCode(env, email);
     return json({ ok: true });   // одинаковый ответ: по нему нельзя узнать, есть ли такой email
   }
@@ -1520,6 +1647,54 @@ async function handleCabinetApi(request, env, p) {
     const token = await cabNewSession(env, { email });
     return json({ ok: true }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
   }
+  // QR: компьютер просит вход, телефон с открытым кабинетом подтверждает
+  if (sub === '/qr/new' && method === 'POST') {
+    if (await tooMany(request, 'cab-qr', 30, 600)) return slowDown();
+    const id = randHex(16), secret = randHex(24);
+    await env.DB.prepare('INSERT INTO cabinet_qr (id_hash, secret_hash, approved_by, expires_at) VALUES (?1, ?2, \'\', ?3)')
+      .bind(await sha256hex(id), await sha256hex(secret), new Date(Date.now() + 5 * 60e3).toISOString()).run();
+    return json({ id, secret, ttl: 300 });
+  }
+  if (sub === '/qr/poll' && method === 'POST') {
+    if (await tooMany(request, 'cab-qrpoll', 400, 600)) return slowDown();
+    const b = await readBody();
+    if (!/^[0-9a-f]{32}$/.test(b.id || '') || !/^[0-9a-f]{48}$/.test(b.secret || '')) return json({ status: 'expired' });
+    const idh = await sha256hex(b.id);
+    const q = await env.DB.prepare('SELECT * FROM cabinet_qr WHERE id_hash = ?1').bind(idh).first();
+    if (!q || q.secret_hash !== await sha256hex(b.secret) || Date.parse(q.expires_at) <= Date.now()) return json({ status: 'expired' });
+    if (!q.approved_by) return json({ status: 'pending' });
+    const src = await env.DB.prepare('SELECT * FROM cabinet_sessions WHERE token_hash = ?1').bind(q.approved_by).first();
+    await env.DB.prepare('DELETE FROM cabinet_qr WHERE id_hash = ?1 OR expires_at < ?2').bind(idh, nowIso()).run();
+    if (!src || Date.parse(src.expires_at) <= Date.now()) return json({ status: 'expired' });
+    const token = await cabNewSession(env, { email: src.email, slug: src.slug, memberId: src.member_id, tgId: src.tg_id });
+    return json({ status: 'ok' }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+  }
+  // Приглашение в команду: что за заведение и роль (до входа)
+  if ((sub === '/invite/info' || sub === '/invite/accept') && method === 'POST') {
+    if (await tooMany(request, 'cab-invite', 20, 600)) return slowDown();
+    const b = await readBody();
+    if (!/^[0-9a-f]{48}$/.test(b.token || '')) return json({ error: 'bad_invite', message: 'Ссылка-приглашение неверная' }, { status: 400 });
+    const th = await sha256hex(b.token);
+    const inv = await env.DB.prepare('SELECT i.*, r.name FROM cabinet_invites i JOIN restaurants r ON r.slug = i.slug WHERE i.token_hash = ?1').bind(th).first();
+    if (!inv || inv.used_at || Date.parse(inv.expires_at) <= Date.now()) return json({ error: 'bad_invite', message: 'Приглашение уже использовано или истекло. Попросите новое.' }, { status: 410 });
+    if (sub === '/invite/info') return json({ restaurant: inv.name, role: inv.role });
+    const name = String(b.name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 60);
+    if (!name) return json({ error: 'no_name', message: 'Напишите своё имя' }, { status: 400 });
+    // Если человек уже вошёл (например, работает в другом заведении) — добавляем к его входу
+    const cur = await cabSession(env, request);
+    const r = await env.DB.prepare('INSERT INTO cabinet_members (slug, role, name, email, tg_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+      .bind(inv.slug, inv.role, name, cur ? cur.email : '', cur ? cur.tgId : '', nowIso()).run();
+    await env.DB.prepare('UPDATE cabinet_invites SET used_at = ?2 WHERE token_hash = ?1').bind(th, nowIso()).run();
+    const mid = r.meta.last_row_id;
+    if (cur && !cur.email && !cur.tgId) {
+      // Сессия «только этот телефон» без email/Telegram: даём новую сессию на нового сотрудника
+      const token = await cabNewSession(env, { memberId: mid });
+      return json({ ok: true, slug: inv.slug }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+    }
+    if (cur) return json({ ok: true, slug: inv.slug });
+    const token = await cabNewSession(env, { memberId: mid });
+    return json({ ok: true, slug: inv.slug }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+  }
   if (sub === '/logout' && method === 'POST') {
     const s0 = await cabSession(env, request);
     if (s0) await env.DB.prepare('DELETE FROM cabinet_sessions WHERE token_hash = ?1').bind(s0.hash).run();
@@ -1527,15 +1702,28 @@ async function handleCabinetApi(request, env, p) {
   }
 
   const s = await cabSession(env, request);
-  if (!s) return json({ error: 'no_session', mail: !!(await mailCfg(env)) }, { status: 401 });
+  if (!s || !s.slugs.length) return json({ error: 'no_session', mail: !!(await mailCfg(env)), tg: !!(await tgLoginCfg(env)) }, { status: 401 });
 
   if (sub === '/me' && method === 'GET') {
-    const rows = s.slugs.length
-      ? (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results
-      : [];
-    return json({ email: s.email, role: 'editor', cabinet: true, mail: !!(await mailCfg(env)), restaurants: rows });
+    const rows = (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results;
+    const me = s.members[0] || {};
+    return json({
+      email: s.email || s.members.map((m) => m.email).find(Boolean) || '',
+      telegram: !!(s.tgId || s.members.some((m) => m.tg_id)),
+      name: me.name || '', role: 'editor', cabinet: true,
+      mail: !!(await mailCfg(env)), tg: !!(await tgLoginCfg(env)),
+      restaurants: rows.map((r) => ({ ...r, myRole: s.roles[r.slug] }))
+    });
   }
-  // Привязать email к своим заведениям (чтобы входить с любого устройства)
+  if (sub === '/qr/approve' && method === 'POST') {
+    const b = await readBody();
+    if (!/^[0-9a-f]{32}$/.test(b.id || '')) return json({ error: 'bad_qr', message: 'QR-код устарел, обновите страницу на компьютере' }, { status: 400 });
+    const r = await env.DB.prepare("UPDATE cabinet_qr SET approved_by = ?2 WHERE id_hash = ?1 AND approved_by = '' AND expires_at > ?3")
+      .bind(await sha256hex(b.id), s.hash, nowIso()).run();
+    if (!r.meta.changes) return json({ error: 'bad_qr', message: 'QR-код устарел, обновите страницу на компьютере' }, { status: 410 });
+    return json({ ok: true });
+  }
+  // Привязать email ко всем своим записям в командах (чтобы входить с любого устройства)
   if (sub === '/email/start' && method === 'POST') {
     if (await tooMany(request, 'cab-login', 8, 600)) return slowDown();
     const email = normEmail((await readBody()).email);
@@ -1549,21 +1737,79 @@ async function handleCabinetApi(request, env, p) {
     const b = await readBody();
     const email = normEmail(b.email);
     if (!EMAIL_RE.test(email) || !(await cabCheckCode(env, email, b.code))) return json({ error: 'bad_code', message: 'Неверный или просроченный код' }, { status: 400 });
-    const now = new Date().toISOString();
     await env.DB.batch([
-      ...s.slugs.map((sl) => env.DB.prepare('INSERT OR IGNORE INTO cabinet_users (email, slug, created_at) VALUES (?1, ?2, ?3)').bind(email, sl, now)),
+      ...s.members.map((m) => env.DB.prepare('UPDATE cabinet_members SET email = ?2 WHERE id = ?1').bind(m.id, email)),
       env.DB.prepare('UPDATE cabinet_sessions SET email = ?2 WHERE token_hash = ?1').bind(s.hash, email)
     ]);
     return json({ ok: true, email });
   }
 
-  // Остальное — те же обработчики, что у админки, но с правами только на свои заведения
   const segments = sub.split('/').filter(Boolean);
+  const url = new URL(request.url);
+  const qSlug = normId(url.searchParams.get('restaurant'));
+  const myRole = s.roles[qSlug] || '';
+
+  /* --- команда заведения (только владелец) --- */
+  if (segments[0] === 'team') {
+    if (myRole !== 'owner') return json({ error: 'owner_only', message: 'Команду меняет только владелец' }, { status: 403 });
+    if (segments.length === 1 && method === 'GET') {
+      const r = await env.DB.prepare('SELECT id, role, name, email, tg_id, phone, created_at FROM cabinet_members WHERE slug = ?1 AND removed_at IS NULL ORDER BY id').bind(qSlug).all();
+      const mine = new Set(s.members.map((m) => m.id));
+      return json({ items: r.results.map((m) => ({ id: m.id, role: m.role, name: m.name, email: m.email, telegram: !!m.tg_id, phone: m.phone ? '+' + m.phone : '', me: mine.has(m.id) })) });
+    }
+    if (segments[1] === 'invite' && method === 'POST') {
+      if (await tooMany(request, 'cab-inv', 30, 3600)) return slowDown();
+      const role = (await readBody()).role;
+      if (!ROLES.includes(role)) return json({ error: 'bad_role' }, { status: 400 });
+      const token = randHex(24);
+      await env.DB.prepare('INSERT INTO cabinet_invites (token_hash, slug, role, created_by, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+        .bind(await sha256hex(token), qSlug, role, (s.members.find((m) => m.slug === qSlug) || {}).id || 0, nowIso(), new Date(Date.now() + 24 * 3600e3).toISOString()).run();
+      return json({ ok: true, url: `${url.origin}/cabinet?invite=${token}` });
+    }
+    const mid = Number(segments[1]);
+    const target = mid && await env.DB.prepare('SELECT * FROM cabinet_members WHERE id = ?1 AND slug = ?2 AND removed_at IS NULL').bind(mid, qSlug).first();
+    if (!target) return json({ error: 'not_found' }, { status: 404 });
+    const owners = (await env.DB.prepare("SELECT COUNT(*) n FROM cabinet_members WHERE slug = ?1 AND role = 'owner' AND removed_at IS NULL").bind(qSlug).first()).n;
+    if (segments[2] === 'role' && method === 'POST') {
+      const role = (await readBody()).role;
+      if (!ROLES.includes(role)) return json({ error: 'bad_role' }, { status: 400 });
+      if (target.role === 'owner' && role !== 'owner' && owners <= 1) return json({ error: 'last_owner', message: 'Нужен хотя бы один владелец' }, { status: 400 });
+      await env.DB.prepare('UPDATE cabinet_members SET role = ?2 WHERE id = ?1').bind(mid, role).run();
+      return json({ ok: true });
+    }
+    if (segments[2] === 'remove' && method === 'POST') {
+      if (target.role === 'owner' && owners <= 1) return json({ error: 'last_owner', message: 'Нельзя убрать единственного владельца' }, { status: 400 });
+      await env.DB.prepare('UPDATE cabinet_members SET removed_at = ?2 WHERE id = ?1').bind(mid, nowIso()).run();
+      return json({ ok: true });
+    }
+    return json({ error: 'not_found' }, { status: 404 });
+  }
+
+  // Остальное — обработчики админки, но только для своих заведений и по правам роли
   if (!segments.length || ['tg', 'leads', 'me'].includes(segments[0])) return json({ error: 'forbidden' }, { status: 403 });
+  if (!myRole) return json({ error: 'wrong_restaurant' }, { status: 403 });
+  const write = method !== 'GET' && method !== 'HEAD';
+  let body = null;
+  if (write && myRole !== 'owner') {
+    const deny = () => json({ error: 'role', message: 'Недостаточно прав для этого действия' }, { status: 403 });
+    if (myRole === 'stop') {
+      // Кухня/бар: только PUT /menu-items/<id> с полем active
+      if (!(segments[0] === 'menu-items' && method === 'PUT' && /^\d+$/.test(segments[1] || '') && segments.length === 2)) return deny();
+      const b = await readBody();
+      if (!Object.keys(b).length || Object.keys(b).some((k) => k !== 'active')) return deny();
+      body = JSON.stringify({ active: b.active });
+    } else if (segments[0] === 'restaurants') {
+      // Менеджер в настройках может менять только бизнес-ланч
+      if (method !== 'PUT') return deny();
+      const b = await readBody();
+      if (!('lunch' in b)) return deny();
+      body = JSON.stringify({ lunch: b.lunch });
+    } else if (!MANAGER_SECTIONS.has(segments[0])) return deny();
+  }
   const target = new URL(request.url);
   target.pathname = '/admin/api' + sub;
-  const req2 = new Request(target.toString(), request);
-  CAB.set(req2, s);
+  const req2 = body !== null ? new Request(target.toString(), { method, headers: request.headers, body }) : new Request(target.toString(), request);
+  CAB.set(req2, { email: s.email, slugs: s.slugs, role: myRole });
   if (sub === '/upload' && method === 'POST') return handleUpload(req2, env);
   if (sub === '/import-menu' && method === 'POST') return (await tooMany(request, 'cab-import', 60, 3600)) ? slowDown() : handleImportMenu(req2, env);
   if (sub === '/ar-cutout' && method === 'POST') return handleArCutout(req2, env);
@@ -1620,6 +1866,7 @@ const handler = {
       if (p === '/api/track' && method === 'POST') return (await tooMany(request, 'track', 600, 600)) ? json({ ok: false }, { status: 429 }) : await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return (await tooMany(request, 'ai', 30, 600)) ? slowDown() : await handleAiSearch(request, env, ctx);
       if (p.startsWith('/cabinet/api/')) return await handleCabinetApi(request, env, p);
+      if ((p === '/cabinet/tg/start' || p === '/cabinet/tg/callback') && method === 'GET') return await handleTgLogin(request, env, p);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);

@@ -252,8 +252,42 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .cab-mail{display:flex;gap:8px;flex-wrap:wrap;}
 .cab-mail input{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:16px;}
 .cab-tips{padding-left:18px;display:grid;gap:8px;font-size:14px;color:var(--muted);line-height:1.45;}
-.cab-step a.btn,.cab-hero a.btn{display:inline-flex;text-decoration:none;}
+a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .lead-paid{color:#2e9d5b;font-weight:700;font-size:13px;align-self:center;}
+
+.cab-tg{background:#2aabee;color:#fff;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;}
+.cab-login .cab-tg{width:100%;height:46px;margin-top:6px;font-size:15px;}
+.cab-qr{display:grid;justify-items:center;gap:10px;margin:6px 0 14px;padding:16px;border:1px solid var(--line);border-radius:14px;}
+.cab-qr__code{width:200px;height:200px;display:grid;place-items:center;color:var(--muted);font-size:13px;}
+.cab-qr p{text-align:center;font-size:14px;}
+.cab-mailbox{margin-top:12px;}
+.cab-mailbox summary{cursor:pointer;color:var(--muted);font-size:14px;padding:6px 0;}
+.cab-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:16px;}
+.cab-modal__card{background:var(--panel);border-radius:16px;padding:22px;max-width:380px;width:100%;}
+.cab-modal__card h3{font-size:18px;margin-bottom:8px;}
+.cab-modal__card p{font-size:14px;color:var(--muted);}
+.cab-modal__btns{display:grid;gap:8px;margin-top:14px;}
+.cab-modal__btns .btn{height:44px;justify-content:center;}
+.team{display:grid;gap:8px;}
+.team__row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:10px;}
+.team__who{flex:1;min-width:160px;display:grid;}
+.team__who small{color:var(--muted);font-size:12px;}
+.team__row select{height:36px;border:1px solid var(--line);border-radius:8px;padding:0 8px;background:#fff;}
+.team__roles{display:grid;gap:8px;margin-bottom:14px;}
+.team__role{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer;}
+.team__role span{display:grid;}
+.team__role small{color:var(--muted);font-size:12px;}
+.team__link{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.team__link input{flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;}
+.stop__find{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px;margin-bottom:6px;}
+.stop__sec{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 0 6px;}
+.stop__row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line);font-size:16px;cursor:pointer;position:relative;}
+.stop__row.is-off span{color:var(--muted);text-decoration:line-through;}
+.stop__row input{position:absolute;opacity:0;pointer-events:none;}
+.stop__sw{flex:none;width:50px;height:30px;border-radius:99px;background:#d9d9de;position:relative;transition:.2s;}
+.stop__sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:.2s;}
+.stop__row input:checked + .stop__sw{background:#2e9d5b;}
+.stop__row input:checked + .stop__sw::after{left:23px;}
 </style>
 </head>
 <body>
@@ -600,7 +634,7 @@ const TABS = [
 function renderTabs() {
   const nav = document.getElementById('tabs');
   // «Лиды» (демо из конструктора tut.menu) видит только владелец сервиса
-  const tabs = CABINET ? [['start', '🚀 Старт'], ...TABS.filter(([k]) => k !== 'buttons')]
+  const tabs = CABINET ? cabTabs()
     : state.me && state.me.role === 'owner' ? [['leads', '🎯 Лиды'], ...TABS] : TABS;
   nav.innerHTML = tabs.map(([key, label]) =>
     `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
@@ -615,6 +649,8 @@ function renderTabs() {
 function renderTab() {
   const c = document.getElementById('content');
   if (state.tab === 'start') return renderStartTab(c);
+  if (state.tab === 'team') return renderTeamTab(c);
+  if (state.tab === 'stop') return renderStopTab(c);
   if (state.tab === 'stats') return renderStatsTab(c);
   if (state.tab === 'settings') return renderSettingsTab(c);
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
@@ -2674,65 +2710,110 @@ function markQr() { try { localStorage.setItem('tm_qr_' + state.slug, '1'); } ca
 function qrDone() { try { return !!localStorage.getItem('tm_qr_' + state.slug); } catch { return false; } }
 function daysWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'день' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'дня' : 'дней'; }
 
+const ROLE_NAMES = { owner: 'Владелец', manager: 'Менеджер', stop: 'Стоп-лист' };
+const ROLE_HINTS = { owner: 'всё: меню, дизайн, настройки, команда, тариф', manager: 'меню, цены, фото, акции, бизнес-ланч, статистика', stop: 'только включать и выключать блюда (для кухни и бара)' };
+function myRole() { const r = (state.me.restaurants || []).find((x) => x.slug === state.slug); return (r && r.myRole) || 'stop'; }
+function cabTabs() {
+  const role = myRole();
+  if (role === 'stop') return [['stop', '⛔ Стоп-лист']];
+  const menuTabs = TABS.filter(([k]) => ['stats', 'categories', 'sections', 'menuItems', 'badges', 'promos', 'lunch', 'import'].includes(k));
+  if (role === 'manager') return [['stop', '⛔ Стоп-лист'], ...menuTabs];
+  return [['start', '🚀 Старт'], ['team', '👥 Команда'], ['stop', '⛔ Стоп-лист'], ...TABS.filter(([k]) => k !== 'buttons')];
+}
+const cabParams = new URLSearchParams(location.search);
+function cleanUrl() { history.replaceState(null, '', '/cabinet' + (location.hash || '')); }
+
 async function initCabinet() {
   document.title = 'Кабинет tut.menu';
   document.querySelector('.topbar h1').textContent = 'tut.menu · кабинет';
   document.getElementById('importBtn').hidden = true;
+  const invite = cabParams.get('invite');
+  if (invite) return showInvite(invite);
   const res = await fetch(API + '/me', { headers: { 'x-tm': '1' } });
   const me = await res.json().catch(() => ({}));
-  if (res.status === 401) return showLogin(me.mail);
+  if (res.status === 401) return showLogin(me);
   if (!res.ok) return showGate('error', me.message || ('HTTP ' + res.status));
-  if (!me.restaurants || !me.restaurants.length) return showLogin(me.mail, 'К этому входу пока не привязано ни одно заведение.');
   state.me = me;
-  document.getElementById('meEmail').textContent = me.email || '';
+  document.getElementById('meEmail').textContent = me.name || me.email || '';
   const out = document.createElement('button');
   out.className = 'btn btn-outline btn-sm'; out.textContent = 'Выйти';
-  out.onclick = async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.reload(); };
+  out.onclick = async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.href = '/cabinet'; };
   document.querySelector('.topbar').append(out);
-  const pick = () => { const v = new URLSearchParams(location.search).get('r'); return me.restaurants.some((r) => r.slug === v) ? v : me.restaurants[0].slug; };
+  const pick = () => { const v = cabParams.get('r'); return me.restaurants.some((r) => r.slug === v) ? v : me.restaurants[0].slug; };
+  const sel = document.getElementById('restaurantSelect');
   if (me.restaurants.length > 1) {
-    const sel = document.getElementById('restaurantSelect');
     sel.hidden = false;
-    sel.innerHTML = me.restaurants.map((r) => `<option value="${esc(r.slug)}">${esc(r.name)}</option>`).join('');
+    sel.innerHTML = me.restaurants.map((r) => `<option value="${esc(r.slug)}">${esc(r.name)} · ${ROLE_NAMES[r.myRole] || ''}</option>`).join('');
     sel.value = pick();
-    sel.onchange = () => selectRestaurant(sel.value);
+    sel.onchange = () => { state.tab = cabTabs()[0][0]; selectRestaurant(sel.value); };
   } else {
+    const r0 = me.restaurants[0];
     document.getElementById('restaurantName').hidden = false;
-    document.getElementById('restaurantName').textContent = me.restaurants[0].name;
+    document.getElementById('restaurantName').textContent = `${r0.name} · ${ROLE_NAMES[r0.myRole] || ''}`;
   }
-  state.tab = location.hash === '#import' ? 'import' : 'start';
+  state.slug = pick();
+  state.tab = location.hash === '#import' && myRole() !== 'stop' ? 'import' : cabTabs()[0][0];
   if (state.tab === 'import') state.imp = { pages: [], status: [], groups: [], busy: false, catId: 'new', newCat: 'Меню' };
-  await selectRestaurant(pick());
+  await selectRestaurant(state.slug);
   document.getElementById('loader').hidden = true;
   document.getElementById('app').hidden = false;
+  const qr = cabParams.get('qr');
+  if (cabParams.get('tg') === 'linked') toast('Telegram привязан: теперь можно входить через него с любого устройства');
+  const tgerr = cabParams.get('tgerr');
+  if (tgerr) toast(TG_ERRORS[tgerr] || 'Не получилось войти через Telegram');
+  cleanUrl();
+  if (qr) approveQr(qr);
 }
 
-/** Вход по коду на email (с другого устройства или после выхода) */
-function showLogin(mailOn, note) {
+const TG_ERRORS = {
+  nomember: 'Этот Telegram ещё не привязан ни к одному заведению. Войдите на телефоне, где собирали демо, и привяжите Telegram в «Старте».',
+  cancel: 'Вход через Telegram отменён', off: 'Вход через Telegram пока не настроен', token: 'Telegram не подтвердил вход, попробуйте ещё раз',
+  state: 'Ссылка входа устарела, попробуйте ещё раз', limit: 'Слишком много попыток, подождите пару минут', nosession: 'Сначала откройте кабинет'
+};
+
+/** Телефон подтверждает вход на компьютере (QR) */
+function approveQr(id) {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="cab-modal"><div class="cab-modal__card">
+    <h3>Войти в кабинет на компьютере?</h3>
+    <p>Подтвердите, только если сами открыли кабинет на компьютере и навели камеру на QR-код.</p>
+    <div class="cab-modal__btns"><button class="btn btn-dark" id="qrYes">Войти на компьютере</button><button class="btn btn-outline" id="qrNo">Отмена</button></div>
+    <p class="cab-err" id="qrErr"></p></div></div>`;
+  root.querySelector('#qrNo').onclick = () => { root.innerHTML = ''; };
+  root.querySelector('#qrYes').onclick = async () => {
+    try { await api('/qr/approve', { method: 'POST', body: { id } }); root.innerHTML = ''; toast('Готово: кабинет открылся на компьютере'); }
+    catch (er) { root.querySelector('#qrErr').textContent = er.message; }
+  };
+}
+
+/** Экран входа: Telegram, QR с телефона (на компьютере), код на почту */
+function showLogin(me) {
   document.getElementById('loader').hidden = true;
   const gate = document.getElementById('gate');
   gate.hidden = false;
+  const desktop = matchMedia('(hover: hover) and (pointer: fine)').matches;
   const help = `https://wa.me/${WA_SUPPORT}?text=${encodeURIComponent('Здравствуйте! Не могу войти в кабинет tut.menu')}`;
+  const tgerr = cabParams.get('tgerr');
   gate.innerHTML = `<div class="gate-box cab-login">
     <p class="cab-brand">tut<span>.</span>menu</p>
     <h1>Вход в кабинет</h1>
-    ${note ? `<p>${esc(note)}</p>` : ''}
-    ${mailOn ? `
-      <form id="lgEmailForm">
-        <p>Введите email, который вы привязали к заведению. Пришлём код из 6 цифр.</p>
-        <input type="email" id="lgEmail" required placeholder="you@mail.kz" autocomplete="email" inputmode="email">
-        <button class="btn btn-dark" type="submit">Получить код</button>
-      </form>
-      <form id="lgCodeForm" hidden>
-        <p id="lgSent"></p>
+    ${tgerr ? `<p class="cab-err">${esc(TG_ERRORS[tgerr] || 'Не получилось войти через Telegram')}</p>` : ''}
+    ${desktop ? `<div class="cab-qr"><div id="lgQr" class="cab-qr__code"></div>
+      <p><b>Наведите камеру телефона</b>, на котором открыт кабинет, и нажмите «Войти на компьютере».</p></div>` : ''}
+    ${me.tg ? `<a class="btn cab-tg" href="/cabinet/tg/start?mode=login">${TG_ICON} Войти через Telegram</a>` : ''}
+    ${me.mail ? `<details class="cab-mailbox" ${!me.tg && !desktop ? 'open' : ''}><summary>Войти по коду на почту</summary>
+      <form id="lgEmailForm"><input type="email" id="lgEmail" required placeholder="you@mail.kz" autocomplete="email" inputmode="email">
+        <button class="btn btn-dark" type="submit">Получить код</button></form>
+      <form id="lgCodeForm" hidden><p id="lgSent"></p>
         <input type="text" id="lgCode" required placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
-        <button class="btn btn-dark" type="submit">Войти</button>
-      </form>
-      <p class="cab-err" id="lgErr"></p>`
-    : `<p>Откройте кабинет с телефона, на котором собирали демо: кнопка «Настроить меню» внизу вашего меню.</p>`}
+        <button class="btn btn-dark" type="submit">Войти</button></form>
+      <p class="cab-err" id="lgErr"></p></details>` : ''}
+    ${!desktop && !me.tg && !me.mail ? '<p>Откройте кабинет на телефоне, где собирали демо: кнопка «Настроить меню» внизу вашего меню.</p>' : ''}
     <p class="cab-help">Не получается войти? <a href="${help}" target="_blank" rel="noopener">Напишите нам в WhatsApp</a></p>
   </div>`;
-  if (!mailOn) return;
+  cleanUrl();
+  if (desktop) startQrLogin(gate.querySelector('#lgQr'));
+  if (!me.mail) return;
   const err = (m) => { document.getElementById('lgErr').textContent = m || ''; };
   let email = '';
   document.getElementById('lgEmailForm').onsubmit = async (e) => {
@@ -2742,15 +2823,131 @@ function showLogin(mailOn, note) {
       await api('/login/start', { method: 'POST', body: { email } });
       document.getElementById('lgEmailForm').hidden = true;
       document.getElementById('lgCodeForm').hidden = false;
-      document.getElementById('lgSent').textContent = `Если ${email} привязан к заведению, код уже в почте. Проверьте и папку «Спам».`;
+      document.getElementById('lgSent').textContent = `Если ${email} привязан к заведению, код уже в почте. Проверьте и «Спам».`;
       document.getElementById('lgCode').focus();
     } catch (er) { err(er.message); }
   };
   document.getElementById('lgCodeForm').onsubmit = async (e) => {
     e.preventDefault(); err('');
-    try { await api('/login/verify', { method: 'POST', body: { email, code: document.getElementById('lgCode').value } }); location.reload(); }
+    try { await api('/login/verify', { method: 'POST', body: { email, code: document.getElementById('lgCode').value } }); location.href = '/cabinet'; }
     catch (er) { err(er.message); }
   };
+}
+const TG_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.9 4.3l-3.2 15.1c-.2 1.1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.3 13.1l-4.8-1.5c-1-.3-1.1-1 .2-1.5L20.5 2.9c.9-.3 1.6.2 1.4 1.4z"/></svg>';
+
+async function startQrLogin(box) {
+  let stop = false;
+  const draw = async () => {
+    let j;
+    try { j = await api('/qr/new', { method: 'POST' }); } catch { box.textContent = 'QR не загрузился, обновите страницу'; return; }
+    box.innerHTML = '';
+    new QRCode(box, { text: `${location.origin}/cabinet?qr=${j.id}`, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+    const until = Date.now() + (j.ttl - 5) * 1000;
+    while (!stop && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const r = await api('/qr/poll', { method: 'POST', body: { id: j.id, secret: j.secret } }).catch(() => ({ status: 'pending' }));
+      if (r.status === 'ok') { stop = true; location.href = '/cabinet'; return; }
+      if (r.status === 'expired') break;
+    }
+    if (!stop) draw();
+  };
+  draw();
+}
+
+/** Приглашение в команду: имя → кабинет заведения */
+async function showInvite(token) {
+  document.getElementById('loader').hidden = true;
+  const gate = document.getElementById('gate');
+  gate.hidden = false;
+  let info;
+  try { info = await api('/invite/info', { method: 'POST', body: { token } }); }
+  catch (er) { gate.innerHTML = `<div class="gate-box cab-login"><p class="cab-brand">tut<span>.</span>menu</p><h1>Приглашение не работает</h1><p>${esc(er.message)}</p></div>`; return; }
+  gate.innerHTML = `<div class="gate-box cab-login">
+    <p class="cab-brand">tut<span>.</span>menu</p>
+    <h1>Вас пригласили в «${esc(info.restaurant)}»</h1>
+    <p>Роль: <b>${ROLE_NAMES[info.role]}</b> — ${ROLE_HINTS[info.role]}.</p>
+    <form id="invForm"><input type="text" id="invName" required maxlength="60" placeholder="Ваше имя" autocomplete="name">
+      <button class="btn btn-dark" type="submit">Войти в кабинет</button></form>
+    <p class="cab-err" id="invErr"></p>
+  </div>`;
+  gate.querySelector('#invForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try { const r = await api('/invite/accept', { method: 'POST', body: { token, name: gate.querySelector('#invName').value } }); location.href = '/cabinet?r=' + encodeURIComponent(r.slug); }
+    catch (er) { gate.querySelector('#invErr').textContent = er.message; }
+  };
+}
+
+/** Команда: кто имеет доступ, приглашение ссылкой через WhatsApp, роли */
+async function renderTeamTab(c) {
+  c.innerHTML = '<p class="hint">Загружаю команду…</p>';
+  let items = [];
+  try { items = (await api(`/team?restaurant=${state.slug}`)).items; } catch (er) { c.innerHTML = `<p class="hint">${esc(er.message)}</p>`; return; }
+  const how = (m) => [m.telegram ? 'Telegram' : '', m.email || '', m.phone || ''].filter(Boolean).join(' · ') || 'вход по ссылке на своём телефоне';
+  c.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Команда «${esc(state.settings.name)}»</h2></div>
+      <div class="team">${items.map((m) => `
+        <div class="team__row" data-id="${m.id}">
+          <div class="team__who"><b>${esc(m.name || 'Без имени')}${m.me ? ' (вы)' : ''}</b><small>${esc(how(m))}</small></div>
+          <select data-role ${m.me ? 'disabled' : ''}>${Object.entries(ROLE_NAMES).map(([k, v]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          ${m.me ? '' : '<button class="btn btn-outline btn-sm btn-danger" data-remove>Убрать</button>'}
+        </div>`).join('')}</div>
+    </div>
+    <div class="panel">
+      <h3 style="margin-bottom:6px">Пригласить сотрудника</h3>
+      <p class="hint" style="margin-bottom:12px">Ссылка одноразовая и действует 24 часа. Сотрудник откроет её, напишет имя и сразу попадёт в кабинет со своими правами.</p>
+      <div class="team__roles">${Object.entries(ROLE_NAMES).map(([k, v]) => `<label class="team__role"><input type="radio" name="invRole" value="${k}" ${k === 'manager' ? 'checked' : ''}><span><b>${v}</b><small>${ROLE_HINTS[k]}</small></span></label>`).join('')}</div>
+      <button class="btn btn-dark" id="invMake">Создать ссылку-приглашение</button>
+      <div id="invOut"></div>
+    </div>`;
+  c.querySelectorAll('.team__row').forEach((row) => {
+    const id = row.dataset.id;
+    const sel = row.querySelector('[data-role]');
+    sel.onchange = () => api(`/team/${id}/role?restaurant=${state.slug}`, { method: 'POST', body: { role: sel.value } }).then(() => toast('Роль изменена')).catch((er) => { toast(er.message); renderTeamTab(c); });
+    const rm = row.querySelector('[data-remove]');
+    if (rm) rm.onclick = () => { if (confirm('Убрать сотрудника? Доступ закроется сразу на всех его устройствах.')) api(`/team/${id}/remove?restaurant=${state.slug}`, { method: 'POST' }).then(() => { toast('Сотрудник убран'); renderTeamTab(c); }).catch((er) => toast(er.message)); };
+  });
+  c.querySelector('#invMake').onclick = async () => {
+    const role = c.querySelector('input[name="invRole"]:checked').value;
+    try {
+      const r = await api(`/team/invite?restaurant=${state.slug}`, { method: 'POST', body: { role } });
+      const text = `Приглашаю вас в кабинет меню «${state.settings.name}» (${ROLE_NAMES[role]}). Откройте ссылку, она действует 24 часа: ${r.url}`;
+      c.querySelector('#invOut').innerHTML = `<div class="team__link"><input readonly value="${esc(r.url)}">
+        <a class="btn btn-dark btn-sm" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Отправить в WhatsApp</a>
+        <button class="btn btn-outline btn-sm" id="invCopy">Скопировать</button></div>`;
+      c.querySelector('#invCopy').onclick = () => navigator.clipboard.writeText(text).then(() => toast('Скопировано'));
+    } catch (er) { toast(er.message); }
+  };
+}
+
+/** Стоп-лист: кухня и бар выключают закончившиеся блюда одним касанием */
+function renderStopTab(c) {
+  const secs = state.sections.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0));
+  const bySec = (id) => state.menuItems.filter((x) => String(x.section_id) === String(id)).sort((a, b) => (a.sort || 0) - (b.sort || 0));
+  const orphan = state.menuItems.filter((x) => !secs.some((s0) => String(s0.id) === String(x.section_id)));
+  const off = state.menuItems.filter((x) => !x.active).length;
+  const group = (title, list) => list.length ? `<h3 class="stop__sec">${esc(title)}</h3>${list.map((x) => `
+      <label class="stop__row ${x.active ? '' : 'is-off'}"><span>${esc(x.title_ru || 'Без названия')}</span>
+        <input type="checkbox" data-id="${x.id}" ${x.active ? 'checked' : ''}><i class="stop__sw"></i></label>`).join('')}` : '';
+  c.innerHTML = `<div class="panel">
+    <div class="panel-head"><h2>Стоп-лист</h2></div>
+    <p class="hint" style="margin-bottom:10px">Блюдо закончилось — выключите его, и гости сразу перестанут его видеть. ${off ? `Сейчас выключено: <b>${off}</b>.` : ''}</p>
+    <input type="search" class="stop__find" placeholder="Найти блюдо" id="stopFind">
+    <div id="stopList">${state.menuItems.length ? secs.map((s0) => group(s0.title_ru, bySec(s0.id))).join('') + group('Без раздела', orphan)
+      : '<p class="hint">В меню пока нет своих блюд.</p>'}</div></div>`;
+  c.querySelector('#stopFind').oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    c.querySelectorAll('.stop__row').forEach((r) => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
+  };
+  c.querySelectorAll('.stop__row input').forEach((inp) => inp.onchange = async () => {
+    const it = state.menuItems.find((x) => String(x.id) === inp.dataset.id);
+    try {
+      await api(`/menu-items/${inp.dataset.id}?restaurant=${state.slug}`, { method: 'PUT', body: { active: inp.checked } });
+      it.active = inp.checked ? 1 : 0;
+      inp.closest('.stop__row').classList.toggle('is-off', !inp.checked);
+      toast(inp.checked ? 'Блюдо снова в меню' : 'Блюдо скрыто от гостей');
+    } catch (er) { inp.checked = !inp.checked; toast(er.message); }
+  });
 }
 
 /** «Старт»: что уже готово и что сделать дальше — по шагам, с переходом в нужный раздел */
@@ -2775,9 +2972,11 @@ function renderStartTab(c) {
     { done: !!String(s.whatsapp || '').replace(/\D/g, ''), title: '💬 WhatsApp для заказов',
       text: s.whatsapp ? `Заказы из корзины придут на +${esc(String(s.whatsapp).replace(/\D/g, ''))}. Можно поменять на номер администратора.` : 'Укажите номер, на который гости будут отправлять заказ из корзины.',
       btn: ['Открыть настройки', 'settings'] },
-    ...(me.mail ? [{ done: !!me.email, title: '🔐 Вход с любого устройства',
-      text: me.email ? `Вход по коду на ${esc(me.email)}.` : 'Сейчас кабинет открывается только на этом телефоне. Привяжите email, чтобы входить с компьютера или другого телефона.',
-      form: !me.email }] : []),
+    { done: !!(me.telegram || me.email), title: '🔐 Вход с компьютера и других устройств',
+      text: `${me.telegram ? '✓ Telegram привязан: на любом устройстве нажмите «Войти через Telegram». ' : ''}${me.email ? `✓ Вход по коду на ${esc(me.email)}. ` : ''}`
+        + 'На компьютере можно просто открыть <b>' + esc(location.host) + '/cabinet</b> и навести камеру этого телефона на QR-код.'
+        + (!me.telegram && me.tg ? ' Привяжите Telegram, чтобы входить в один тап.' : ''),
+      tgLink: me.tg && !me.telegram, form: me.mail && !me.email },
     { done: qrDone(), title: '🔳 QR-код на столы',
       text: 'Скачайте PNG для печати: наклейки, тейбл-тенты, меню у входа. Код ведёт на ваше меню и не меняется.', btn: ['Скачать QR', 'settings', 'qr'] },
     ...(trial ? [{ done: false, title: '✅ Подключите тариф',
@@ -2799,6 +2998,7 @@ function renderStartTab(c) {
         <p>${x.text}</p>
         ${x.btn ? `<button class="btn ${x.done ? 'btn-outline' : 'btn-dark'} btn-sm" data-go="${x.btn[1]}" ${x.btn[2] ? `data-scroll="${x.btn[2]}"` : ''}>${x.btn[0]}</button>` : ''}
         ${x.link ? `<a class="btn btn-dark btn-sm" href="${x.link[0]}" target="_blank" rel="noopener">${x.link[1]}</a>` : ''}
+        ${x.tgLink ? `<a class="btn cab-tg btn-sm" href="/cabinet/tg/start?mode=link">${TG_ICON} Привязать Telegram</a>` : ''}
         ${x.form ? `<form class="cab-mail" id="cabMail"><input type="email" id="cabMailIn" placeholder="you@mail.kz" required inputmode="email" autocomplete="email"><button class="btn btn-dark btn-sm" type="submit">Получить код</button></form>
           <form class="cab-mail" id="cabCode" hidden><input type="text" id="cabCodeIn" placeholder="Код из письма" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"><button class="btn btn-dark btn-sm" type="submit">Подтвердить</button></form>
           <p class="cab-err" id="cabMailErr"></p>` : ''}
@@ -2833,7 +3033,7 @@ function renderStartTab(c) {
     };
     c.querySelector('#cabCode').onsubmit = async (e) => {
       e.preventDefault(); err('');
-      try { const r = await api('/email/verify', { method: 'POST', body: { email, code: c.querySelector('#cabCodeIn').value } }); state.me.email = r.email; document.getElementById('meEmail').textContent = r.email; toast('Email привязан'); renderStartTab(c); }
+      try { const r = await api('/email/verify', { method: 'POST', body: { email, code: c.querySelector('#cabCodeIn').value } }); state.me.email = r.email; toast('Email привязан'); renderStartTab(c); }
       catch (er) { err(er.message); }
     };
   }
