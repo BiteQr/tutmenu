@@ -1431,8 +1431,10 @@ const CAB = new WeakMap();
 const RESERVED_SLUGS = new Set(['admin', 'api', 'cabinet', 'demo', 'files', 'media', 'ar', 'site', 'build', 'img', 'themes', 'welcomes',
   'login', 'logout', 'www', 'menu', 'help', 'price', 'about', 'terms', 'privacy', 'tutmenu', 'tut-menu', 'kabinet', 'blog', 'support']);
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
-const ROLES = ['owner', 'manager', 'stop'];
-const ROLE_RANK = { owner: 3, manager: 2, stop: 1 };
+// senior — старший менеджер: всё как у владельца, кроме назначения владельцев и действий с ними
+const ROLES = ['owner', 'senior', 'manager', 'stop'];
+const ROLE_RANK = { owner: 4, senior: 3, manager: 2, stop: 1 };
+const CAN_TEAM = new Set(['owner', 'senior']);
 
 function randHex(bytes) { return [...crypto.getRandomValues(new Uint8Array(bytes))].map((x) => x.toString(16).padStart(2, '0')).join(''); }
 async function sha256hex(str) {
@@ -1617,7 +1619,7 @@ async function handleTgLogin(request, env, p) {
 }
 
 /* ---------- что разрешено ролям ---------- */
-// owner — всё; manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
+// owner и senior — всё (senior не трогает владельцев); manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
 // stop — только включать/выключать блюда (кухня, бар)
 const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout']);
 
@@ -1751,7 +1753,8 @@ async function handleCabinetApi(request, env, p) {
 
   /* --- команда заведения (только владелец) --- */
   if (segments[0] === 'team') {
-    if (myRole !== 'owner') return json({ error: 'owner_only', message: 'Команду меняет только владелец' }, { status: 403 });
+    if (!CAN_TEAM.has(myRole)) return json({ error: 'owner_only', message: 'Команду меняют владелец и старший менеджер' }, { status: 403 });
+    const ownerOnly = () => json({ error: 'owner_only', message: 'Владельцев назначает и меняет только владелец' }, { status: 403 });
     if (segments.length === 1 && method === 'GET') {
       const r = await env.DB.prepare('SELECT id, role, name, email, tg_id, phone, created_at FROM cabinet_members WHERE slug = ?1 AND removed_at IS NULL ORDER BY id').bind(qSlug).all();
       const mine = new Set(s.members.map((m) => m.id));
@@ -1761,6 +1764,7 @@ async function handleCabinetApi(request, env, p) {
       if (await tooMany(request, 'cab-inv', 30, 3600)) return slowDown();
       const role = (await readBody()).role;
       if (!ROLES.includes(role)) return json({ error: 'bad_role' }, { status: 400 });
+      if (role === 'owner' && myRole !== 'owner') return ownerOnly();
       const token = randHex(24);
       await env.DB.prepare('INSERT INTO cabinet_invites (token_hash, slug, role, created_by, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
         .bind(await sha256hex(token), qSlug, role, (s.members.find((m) => m.slug === qSlug) || {}).id || 0, nowIso(), new Date(Date.now() + 24 * 3600e3).toISOString()).run();
@@ -1773,11 +1777,13 @@ async function handleCabinetApi(request, env, p) {
     if (segments[2] === 'role' && method === 'POST') {
       const role = (await readBody()).role;
       if (!ROLES.includes(role)) return json({ error: 'bad_role' }, { status: 400 });
+      if ((target.role === 'owner' || role === 'owner') && myRole !== 'owner') return ownerOnly();
       if (target.role === 'owner' && role !== 'owner' && owners <= 1) return json({ error: 'last_owner', message: 'Нужен хотя бы один владелец' }, { status: 400 });
       await env.DB.prepare('UPDATE cabinet_members SET role = ?2 WHERE id = ?1').bind(mid, role).run();
       return json({ ok: true });
     }
     if (segments[2] === 'remove' && method === 'POST') {
+      if (target.role === 'owner' && myRole !== 'owner') return ownerOnly();
       if (target.role === 'owner' && owners <= 1) return json({ error: 'last_owner', message: 'Нельзя убрать единственного владельца' }, { status: 400 });
       await env.DB.prepare('UPDATE cabinet_members SET removed_at = ?2 WHERE id = ?1').bind(mid, nowIso()).run();
       return json({ ok: true });
@@ -1790,7 +1796,7 @@ async function handleCabinetApi(request, env, p) {
   if (!myRole) return json({ error: 'wrong_restaurant' }, { status: 403 });
   const write = method !== 'GET' && method !== 'HEAD';
   let body = null;
-  if (write && myRole !== 'owner') {
+  if (write && !CAN_TEAM.has(myRole)) {
     const deny = () => json({ error: 'role', message: 'Недостаточно прав для этого действия' }, { status: 403 });
     if (myRole === 'stop') {
       // Кухня/бар: только PUT /menu-items/<id> с полем active

@@ -288,6 +288,15 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .stop__sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:.2s;}
 .stop__row input:checked + .stop__sw{background:#2e9d5b;}
 .stop__row input:checked + .stop__sw::after{left:23px;}
+.inv{margin-top:14px;padding:16px;border-radius:14px;background:#f2faf5;border:1px solid #cdebd8;}
+.inv__title{font-weight:800;font-size:15px;color:#1f7a45;}
+.inv__hint{font-size:13px;color:var(--muted);margin:4px 0 12px;}
+.inv__btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.inv__btn{height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:15px;background:#fff;border:1px solid var(--line);color:var(--text);text-decoration:none;cursor:pointer;}
+.inv__btn--wa{background:#25d366;border-color:#25d366;color:#fff;}
+.inv__btn--tg{background:#2aabee;border-color:#2aabee;color:#fff;}
+.inv__btns > :last-child:nth-child(odd){grid-column:1/-1;}
+.inv__url{margin-top:10px;font-size:12px;color:var(--muted);word-break:break-all;}
 </style>
 </head>
 <body>
@@ -2710,8 +2719,8 @@ function markQr() { try { localStorage.setItem('tm_qr_' + state.slug, '1'); } ca
 function qrDone() { try { return !!localStorage.getItem('tm_qr_' + state.slug); } catch { return false; } }
 function daysWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'день' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'дня' : 'дней'; }
 
-const ROLE_NAMES = { owner: 'Владелец', manager: 'Менеджер', stop: 'Стоп-лист' };
-const ROLE_HINTS = { owner: 'всё: меню, дизайн, настройки, команда, тариф', manager: 'меню, цены, фото, акции, бизнес-ланч, статистика', stop: 'только включать и выключать блюда (для кухни и бара)' };
+const ROLE_NAMES = { owner: 'Владелец', senior: 'Старший менеджер', manager: 'Менеджер', stop: 'Стоп-лист' };
+const ROLE_HINTS = { owner: 'всё: меню, дизайн, настройки, команда, тариф', senior: 'всё как у владельца: меню, настройки, приглашает и убирает сотрудников (кроме владельцев)', manager: 'меню, цены, фото, акции, бизнес-ланч, статистика', stop: 'только включать и выключать блюда (для кухни и бара)' };
 function myRole() { const r = (state.me.restaurants || []).find((x) => x.slug === state.slug); return (r && r.myRole) || 'stop'; }
 function cabTabs() {
   const role = myRole();
@@ -2833,6 +2842,9 @@ function showLogin(me) {
     catch (er) { err(er.message); }
   };
 }
+const WA_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 00-8.6 15.1L2 22l5-1.3A10 10 0 1012 2zm0 18.2a8.2 8.2 0 01-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1112 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 01-3.3-2.9c-.3-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 00-.7.3 3 3 0 00-.9 2.2 5.2 5.2 0 001.1 2.8 11.8 11.8 0 004.6 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 001.8-1.2 2.2 2.2 0 00.1-1.2c0-.1-.2-.2-.4-.3z"/></svg>';
+const COPY_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+const SHARE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>';
 const TG_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.9 4.3l-3.2 15.1c-.2 1.1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.3 13.1l-4.8-1.5c-1-.3-1.1-1 .2-1.5L20.5 2.9c.9-.3 1.6.2 1.4 1.4z"/></svg>';
 
 async function startQrLogin(box) {
@@ -2883,20 +2895,23 @@ async function renderTeamTab(c) {
   let items = [];
   try { items = (await api(`/team?restaurant=${state.slug}`)).items; } catch (er) { c.innerHTML = `<p class="hint">${esc(er.message)}</p>`; return; }
   const how = (m) => [m.telegram ? 'Telegram' : '', m.email || '', m.phone || ''].filter(Boolean).join(' · ') || 'вход по ссылке на своём телефоне';
+  const iAmOwner = myRole() === 'owner';
+  const roleOpts = (cur) => Object.entries(ROLE_NAMES).filter(([k]) => iAmOwner || k !== 'owner' || cur === 'owner');
+  const locked = (m) => m.me || (!iAmOwner && m.role === 'owner');
   c.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h2>Команда «${esc(state.settings.name)}»</h2></div>
       <div class="team">${items.map((m) => `
         <div class="team__row" data-id="${m.id}">
           <div class="team__who"><b>${esc(m.name || 'Без имени')}${m.me ? ' (вы)' : ''}</b><small>${esc(how(m))}</small></div>
-          <select data-role ${m.me ? 'disabled' : ''}>${Object.entries(ROLE_NAMES).map(([k, v]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
-          ${m.me ? '' : '<button class="btn btn-outline btn-sm btn-danger" data-remove>Убрать</button>'}
+          <select data-role ${locked(m) ? 'disabled' : ''}>${roleOpts(m.role).map(([k, v]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          ${locked(m) ? '' : '<button class="btn btn-outline btn-sm btn-danger" data-remove>Убрать</button>'}
         </div>`).join('')}</div>
     </div>
     <div class="panel">
       <h3 style="margin-bottom:6px">Пригласить сотрудника</h3>
       <p class="hint" style="margin-bottom:12px">Ссылка одноразовая и действует 24 часа. Сотрудник откроет её, напишет имя и сразу попадёт в кабинет со своими правами.</p>
-      <div class="team__roles">${Object.entries(ROLE_NAMES).map(([k, v]) => `<label class="team__role"><input type="radio" name="invRole" value="${k}" ${k === 'manager' ? 'checked' : ''}><span><b>${v}</b><small>${ROLE_HINTS[k]}</small></span></label>`).join('')}</div>
+      <div class="team__roles">${Object.entries(ROLE_NAMES).filter(([k]) => iAmOwner || k !== 'owner').map(([k, v]) => `<label class="team__role"><input type="radio" name="invRole" value="${k}" ${k === 'manager' ? 'checked' : ''}><span><b>${v}</b><small>${ROLE_HINTS[k]}</small></span></label>`).join('')}</div>
       <button class="btn btn-dark" id="invMake">Создать ссылку-приглашение</button>
       <div id="invOut"></div>
     </div>`;
@@ -2911,11 +2926,23 @@ async function renderTeamTab(c) {
     const role = c.querySelector('input[name="invRole"]:checked').value;
     try {
       const r = await api(`/team/invite?restaurant=${state.slug}`, { method: 'POST', body: { role } });
-      const text = `Приглашаю вас в кабинет меню «${state.settings.name}» (${ROLE_NAMES[role]}). Откройте ссылку, она действует 24 часа: ${r.url}`;
-      c.querySelector('#invOut').innerHTML = `<div class="team__link"><input readonly value="${esc(r.url)}">
-        <a class="btn btn-dark btn-sm" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Отправить в WhatsApp</a>
-        <button class="btn btn-outline btn-sm" id="invCopy">Скопировать</button></div>`;
-      c.querySelector('#invCopy').onclick = () => navigator.clipboard.writeText(text).then(() => toast('Скопировано'));
+      const text = `Здравствуйте! Приглашаю вас в кабинет меню «${state.settings.name}» — роль «${ROLE_NAMES[role]}». Откройте ссылку и напишите своё имя (ссылка действует 24 часа):\n${r.url}`;
+      const out = c.querySelector('#invOut');
+      out.innerHTML = `<div class="inv">
+        <p class="inv__title">✓ Приглашение готово · ${ROLE_NAMES[role]}</p>
+        <p class="inv__hint">Отправьте его сотруднику. Ссылка сработает один раз в течение 24 часов.</p>
+        <div class="inv__btns">
+          <a class="inv__btn inv__btn--wa" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${WA_ICON}WhatsApp</a>
+          <a class="inv__btn inv__btn--tg" href="https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent(text.replace('\n' + r.url, ''))}" target="_blank" rel="noopener">${TG_ICON}Telegram</a>
+          <button type="button" class="inv__btn" id="invCopy">${COPY_ICON}<span>Скопировать</span></button>
+          ${navigator.share ? `<button type="button" class="inv__btn" id="invShare">${SHARE_ICON}Другое</button>` : ''}
+        </div>
+        <p class="inv__url">${esc(r.url)}</p>
+      </div>`;
+      out.querySelector('#invCopy').onclick = (e) => navigator.clipboard.writeText(text).then(() => { e.currentTarget.querySelector('span').textContent = 'Скопировано'; toast('Текст приглашения скопирован'); });
+      const sh = out.querySelector('#invShare');
+      if (sh) sh.onclick = () => navigator.share({ title: 'Приглашение в tut.menu', text }).catch(() => {});
+      out.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (er) { toast(er.message); }
   };
 }
