@@ -229,7 +229,7 @@
     done() {
       const r = resolved(), i = S.info;
       return `<div class="step"><h1>${editKey ? 'Сохраните изменения' : 'Ваше демо почти готово'}</h1>
-        <p class="sub">${editKey ? 'Демо обновится по той же ссылке.' : 'Нажмите «Получить ссылку»: демо с вашим названием откроется по своей ссылке и проживёт 3 дня. Дизайн потом можно поменять кнопкой «Изменить дизайн» прямо в демо.'}</p>
+        <p class="sub">${editKey ? 'Демо обновится по той же ссылке.' : `Нажмите «Получить ссылку»: меню откроется по адресу <b>${esc(location.host)}/${esc(slugPreview(i.name))}</b>. 7 дней бесплатно: загрузите своё меню по фото в кабинете, поставьте QR на столы и посмотрите, как гости им пользуются.`}</p>
         <dl class="done-card">
           <dt>Заведение</dt><dd>${esc(i.name || '—')}, ${esc(i.city || '')}</dd>
           <dt>Дизайн</dt><dd>Тема «${T.THEMES[r.theme].name}» · цвета «${T.PALETTES[r.palette].name}» · шрифт «${T.FONTS[r.fonts].name}»</dd>
@@ -382,6 +382,12 @@
     S.mode = b.dataset.mode; save();
     cur = Math.max(0, order().indexOf(id)); render();
   }));
+
+  // Примерный адрес меню (точный выдаст сервер: если имя занято, добавит -2)
+  const TR = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',ә:'a',ғ:'g',қ:'k',ң:'n',ө:'o',ұ:'u',ү:'u',һ:'h',і:'i' };
+  function slugPreview(name) {
+    return String(name || '').toLowerCase().split('').map((c) => TR[c] ?? c).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 36) || 'vashe-kafe';
+  }
 
   async function createDemo() {
     const msg = $('#doneMsg');

@@ -228,6 +228,32 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
   .tgbox__row { display: flex; flex-wrap: wrap; gap: 8px; }
   .tgbox__row input { flex: 1; min-width: 200px; height: 38px; border: 1px solid #ddd; border-radius: 10px; padding: 0 10px; font: inherit; }
   .lead-dead { color: #c0392b; font-weight: 600; }
+
+/* Кабинет владельца */
+.cab-login input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:16px;margin:10px 0;}
+.cab-login .btn{width:100%;justify-content:center;}
+.cab-brand{font-size:20px;font-weight:800;margin-bottom:14px;color:var(--text)!important;}
+.cab-brand span{color:#2051ff;}
+.cab-err{color:#c62828!important;font-size:13px;min-height:1em;margin-top:6px;}
+.cab-help{margin-top:14px;font-size:13px;}
+.cab-hero__label{font-size:13px;color:var(--muted);}
+.cab-hero__url{display:inline-block;font-size:20px;font-weight:800;color:var(--text);word-break:break-all;margin:2px 0 8px;}
+.cab-hero__meta{font-size:14px;color:var(--muted);}
+.cab-progress{height:6px;border-radius:99px;background:var(--line);margin-top:10px;overflow:hidden;}
+.cab-progress i{display:block;height:100%;background:#2e9d5b;border-radius:99px;}
+.cab-note{margin-top:12px;font-size:14px;background:#fff7e0;border-radius:10px;padding:10px 12px;}
+.cab-steps{display:grid;gap:0;}
+.cab-step h3{font-size:16px;}
+.cab-step p{font-size:14px;color:var(--muted);margin:6px 0 12px;line-height:1.45;}
+.cab-step__head{display:flex;align-items:center;gap:10px;}
+.cab-step__mark{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--bg);font-weight:800;font-size:14px;}
+.cab-step.is-done .cab-step__mark{background:#2e9d5b;color:#fff;}
+.cab-step.is-done h3{color:var(--muted);}
+.cab-mail{display:flex;gap:8px;flex-wrap:wrap;}
+.cab-mail input{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:16px;}
+.cab-tips{padding-left:18px;display:grid;gap:8px;font-size:14px;color:var(--muted);line-height:1.45;}
+.cab-step a.btn,.cab-hero a.btn{display:inline-flex;text-decoration:none;}
+.lead-paid{color:#2e9d5b;font-weight:700;font-size:13px;align-self:center;}
 </style>
 </head>
 <body>
@@ -259,14 +285,16 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 /* =========================================================
    КОНФИГ
    ========================================================= */
-const API = '/admin/api';
+// /cabinet — кабинет владельца заведения (свой вход по коду на email), /admin — админка сервиса (Cloudflare Access)
+const CABINET = /^\/cabinet\/?$/.test(location.pathname);
+const API = CABINET ? '/cabinet/api' : '/admin/api';
 const LANGS = [['ru','Рус'],['kk','Қаз'],['en','Eng']];
 
 /* =========================================================
    API-ХЕЛПЕР
    ========================================================= */
 async function api(path, { method = 'GET', body, isForm } = {}) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: { 'x-tm': '1' } };
   if (body !== undefined) {
     if (isForm) { opts.body = body; }
     else { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(body); }
@@ -386,6 +414,7 @@ function secLabel(id) { const s = state.sections.find((x) => String(x.id) === St
    ЗАГРУЗКА / АВТОРИЗАЦИЯ
    ========================================================= */
 async function init() {
+  if (CABINET) return initCabinet().catch((err) => showGate('error', String(err)));
   try {
     const me = await api('/me');
     if (me.error === 'no_access_email') return showGate('noAuth');
@@ -529,10 +558,11 @@ async function renderLeadsTab(c) {
           <select data-lead-status>${Object.entries(LEAD_STATUS).map(([k, v]) => `<option value="${k}" ${l.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         </div>
         <div class="lead__meta">${esc(l.owner_name)} · <a href="https://wa.me/${wa}" target="_blank" rel="noopener">${esc(l.phone)}</a> · создано ${new Date(l.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · открывали ${l.views} раз · осталось ${left(l)}</div>
-        <div class="lead__meta">Дизайн: ${esc([d.theme, d.style, d.palette, d.fonts].filter(Boolean).join(' / ') || 'по умолчанию')}</div>
+        <div class="lead__meta">Дизайн: ${esc([d.theme, d.style, d.palette, d.fonts].filter(Boolean).join(' / ') || 'по умолчанию')}${l.converted_to ? ` · своих блюд: <b>${l.items || 0}</b> · email: ${esc(l.emails || 'не привязан')}` : ''}</div>
         <div class="lead__actions">
-          <a class="btn btn-dark btn-sm" href="${DEMO_ORIGIN}/demo/${esc(l.slug)}" target="_blank" rel="noopener">Открыть демо</a>
-          <button class="btn btn-outline btn-sm" data-lead-extend>Продлить на 3 дня</button>
+          <a class="btn btn-dark btn-sm" href="${DEMO_ORIGIN}/${l.converted_to ? esc(l.converted_to) : 'demo/' + esc(l.slug)}" target="_blank" rel="noopener">Открыть меню</a>
+          ${l.plan === 'trial' ? '<button class="btn btn-dark btn-sm" data-lead-activate>✓ Оплатил: включить навсегда</button>' : ''}
+          ${l.plan === 'paid' && l.converted_to ? '<span class="lead-paid">✓ Подключено</span>' : `<button class="btn btn-outline btn-sm" data-lead-extend>Продлить на ${l.converted_to ? '7' : '3'} дн.</button>`}
           <input class="lead__note" data-lead-note placeholder="Заметка" value="${esc(l.note || '')}">
         </div>
       </div>`;
@@ -544,7 +574,10 @@ async function renderLeadsTab(c) {
     const slug = row.dataset.slug;
     row.querySelector('[data-lead-status]').onchange = (e) => api(`/leads/${slug}`, { method: 'PUT', body: { status: e.target.value } }).then(() => toast('Статус сохранён')).catch((er) => toast(er.message));
     row.querySelector('[data-lead-note]').onchange = (e) => api(`/leads/${slug}`, { method: 'PUT', body: { note: e.target.value } }).then(() => toast('Заметка сохранена')).catch((er) => toast(er.message));
-    row.querySelector('[data-lead-extend]').onclick = () => api(`/leads/${slug}/extend`, { method: 'POST' }).then(() => { toast('Демо продлено на 3 дня'); renderLeadsTab(c); }).catch((er) => toast(er.message));
+    const ext = row.querySelector('[data-lead-extend]');
+    if (ext) ext.onclick = () => api(`/leads/${slug}/extend`, { method: 'POST' }).then(() => { toast('Продлено'); renderLeadsTab(c); }).catch((er) => toast(er.message));
+    const act = row.querySelector('[data-lead-activate]');
+    if (act) act.onclick = () => { if (confirm('Клиент оплатил? Меню станет постоянным, плашка пробного периода исчезнет.')) api(`/leads/${slug}/activate`, { method: 'POST' }).then(() => { toast('Подключено'); renderLeadsTab(c); }).catch((er) => toast(er.message)); };
   });
 }
 
@@ -567,17 +600,21 @@ const TABS = [
 function renderTabs() {
   const nav = document.getElementById('tabs');
   // «Лиды» (демо из конструктора tut.menu) видит только владелец сервиса
-  const tabs = state.me && state.me.role === 'owner' ? [['leads', '🎯 Лиды'], ...TABS] : TABS;
+  const tabs = CABINET ? [['start', '🚀 Старт'], ...TABS.filter(([k]) => k !== 'buttons')]
+    : state.me && state.me.role === 'owner' ? [['leads', '🎯 Лиды'], ...TABS] : TABS;
   nav.innerHTML = tabs.map(([key, label]) =>
     `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
   ).join('');
   nav.querySelectorAll('.tab').forEach((btn) => {
     btn.onclick = () => { state.tab = btn.dataset.tab; renderTabs(); renderTab(); };
   });
+  const act = nav.querySelector('.tab.active');
+  if (act && act.scrollIntoView) act.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
 function renderTab() {
   const c = document.getElementById('content');
+  if (state.tab === 'start') return renderStartTab(c);
   if (state.tab === 'stats') return renderStatsTab(c);
   if (state.tab === 'settings') return renderSettingsTab(c);
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
@@ -1859,7 +1896,7 @@ function renderSettingsTab(container) {
     <div class="panel">
       <div class="panel-head"><h2>Настройки — ${esc(s.name)}</h2></div>
       <form id="settingsForm">
-        ${SETTINGS_FIELDS.map((f) => fieldHTML(f, s[f.key])).join('')}
+        ${settingsFields().map((f) => fieldHTML(f, s[f.key])).join('')}
         <div class="form-actions"><button type="submit" class="btn btn-dark">Сохранить</button></div>
       </form>
     </div>
@@ -1916,15 +1953,15 @@ function renderSettingsTab(container) {
   SETTINGS_FIELDS.filter((f) => f.type === 'image').forEach((f) => attachUploader(f.key, 'image'));
   SETTINGS_FIELDS.filter((f) => f.type === 'video').forEach((f) => attachUploader(f.key, 'video'));
   renderAllQR();
-  document.getElementById('downloadQrBtn').onclick = () => downloadQR(menuUrl(), 'menu');
-  document.getElementById('downloadQrHomeBtn').onclick = () => downloadQR(homeUrl(), 'home');
+  document.getElementById('downloadQrBtn').onclick = () => { markQr(); downloadQR(menuUrl(), 'menu'); };
+  document.getElementById('downloadQrHomeBtn').onclick = () => { markQr(); downloadQR(homeUrl(), 'home'); };
   document.getElementById('downloadQrSvgBtn').onclick = () => downloadQRSvg(menuUrl(), 'menu');
   document.getElementById('downloadQrHomeSvgBtn').onclick = () => downloadQRSvg(homeUrl(), 'home');
 
   document.getElementById('settingsForm').onsubmit = async (e) => {
     e.preventDefault();
     const payload = {};
-    SETTINGS_FIELDS.forEach((f) => { payload[f.key] = readField(f); });
+    settingsFields().forEach((f) => { payload[f.key] = readField(f); });
     try {
       await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: payload });
       Object.assign(state.settings, payload);
@@ -1970,14 +2007,16 @@ function renderSettingsTab(container) {
 
 /** Ссылка на меню этого ресторана — свой домен, если задан, иначе текущий адрес с ?r=slug */
 function menuUrl() {
-  const s = state.settings;
-  return s.domain ? `https://${s.domain}/#/menu` : `${location.origin}/?r=${state.slug}#/menu`;
+  return homeUrl() + '#/menu';
 }
+/** В кабинете домен и включение заведения не редактируются — их ведёт владелец сервиса */
+function settingsFields() { return CABINET ? SETTINGS_FIELDS.filter((f) => f.key !== 'domain') : SETTINGS_FIELDS; }
 
 /** Ссылка на главный экран (с видео) — просто домен ресторана, без #/menu */
 function homeUrl() {
   const s = state.settings;
-  return s.domain ? `https://${s.domain}/` : `${location.origin}/?r=${state.slug}`;
+  // Без своего домена меню живёт по адресу tutmenu.kz/<slug> (старый slug «demo» — через ?r=)
+  return s.domain ? `https://${s.domain}/` : state.slug === 'demo' ? `${location.origin}/?r=${state.slug}` : `${location.origin}/${state.slug}`;
 }
 
 function renderAllQR() {
@@ -2626,6 +2665,179 @@ document.getElementById('importBtn').onclick = openImportModal;
 window.addEventListener('pageshow', (e) => {
   if (e.persisted && state.slug) selectRestaurant(state.slug);
 });
+
+/* =========================================================
+   КАБИНЕТ ВЛАДЕЛЬЦА ЗАВЕДЕНИЯ (/cabinet)
+   ========================================================= */
+const WA_SUPPORT = '77064150958';
+function markQr() { try { localStorage.setItem('tm_qr_' + state.slug, '1'); } catch {} }
+function qrDone() { try { return !!localStorage.getItem('tm_qr_' + state.slug); } catch { return false; } }
+function daysWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'день' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'дня' : 'дней'; }
+
+async function initCabinet() {
+  document.title = 'Кабинет tut.menu';
+  document.querySelector('.topbar h1').textContent = 'tut.menu · кабинет';
+  document.getElementById('importBtn').hidden = true;
+  const res = await fetch(API + '/me', { headers: { 'x-tm': '1' } });
+  const me = await res.json().catch(() => ({}));
+  if (res.status === 401) return showLogin(me.mail);
+  if (!res.ok) return showGate('error', me.message || ('HTTP ' + res.status));
+  if (!me.restaurants || !me.restaurants.length) return showLogin(me.mail, 'К этому входу пока не привязано ни одно заведение.');
+  state.me = me;
+  document.getElementById('meEmail').textContent = me.email || '';
+  const out = document.createElement('button');
+  out.className = 'btn btn-outline btn-sm'; out.textContent = 'Выйти';
+  out.onclick = async () => { await api('/logout', { method: 'POST' }).catch(() => {}); location.reload(); };
+  document.querySelector('.topbar').append(out);
+  const pick = () => { const v = new URLSearchParams(location.search).get('r'); return me.restaurants.some((r) => r.slug === v) ? v : me.restaurants[0].slug; };
+  if (me.restaurants.length > 1) {
+    const sel = document.getElementById('restaurantSelect');
+    sel.hidden = false;
+    sel.innerHTML = me.restaurants.map((r) => `<option value="${esc(r.slug)}">${esc(r.name)}</option>`).join('');
+    sel.value = pick();
+    sel.onchange = () => selectRestaurant(sel.value);
+  } else {
+    document.getElementById('restaurantName').hidden = false;
+    document.getElementById('restaurantName').textContent = me.restaurants[0].name;
+  }
+  state.tab = location.hash === '#import' ? 'import' : 'start';
+  if (state.tab === 'import') state.imp = { pages: [], status: [], groups: [], busy: false, catId: 'new', newCat: 'Меню' };
+  await selectRestaurant(pick());
+  document.getElementById('loader').hidden = true;
+  document.getElementById('app').hidden = false;
+}
+
+/** Вход по коду на email (с другого устройства или после выхода) */
+function showLogin(mailOn, note) {
+  document.getElementById('loader').hidden = true;
+  const gate = document.getElementById('gate');
+  gate.hidden = false;
+  const help = `https://wa.me/${WA_SUPPORT}?text=${encodeURIComponent('Здравствуйте! Не могу войти в кабинет tut.menu')}`;
+  gate.innerHTML = `<div class="gate-box cab-login">
+    <p class="cab-brand">tut<span>.</span>menu</p>
+    <h1>Вход в кабинет</h1>
+    ${note ? `<p>${esc(note)}</p>` : ''}
+    ${mailOn ? `
+      <form id="lgEmailForm">
+        <p>Введите email, который вы привязали к заведению. Пришлём код из 6 цифр.</p>
+        <input type="email" id="lgEmail" required placeholder="you@mail.kz" autocomplete="email" inputmode="email">
+        <button class="btn btn-dark" type="submit">Получить код</button>
+      </form>
+      <form id="lgCodeForm" hidden>
+        <p id="lgSent"></p>
+        <input type="text" id="lgCode" required placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+        <button class="btn btn-dark" type="submit">Войти</button>
+      </form>
+      <p class="cab-err" id="lgErr"></p>`
+    : `<p>Откройте кабинет с телефона, на котором собирали демо: кнопка «Настроить меню» внизу вашего меню.</p>`}
+    <p class="cab-help">Не получается войти? <a href="${help}" target="_blank" rel="noopener">Напишите нам в WhatsApp</a></p>
+  </div>`;
+  if (!mailOn) return;
+  const err = (m) => { document.getElementById('lgErr').textContent = m || ''; };
+  let email = '';
+  document.getElementById('lgEmailForm').onsubmit = async (e) => {
+    e.preventDefault(); err('');
+    email = document.getElementById('lgEmail').value.trim();
+    try {
+      await api('/login/start', { method: 'POST', body: { email } });
+      document.getElementById('lgEmailForm').hidden = true;
+      document.getElementById('lgCodeForm').hidden = false;
+      document.getElementById('lgSent').textContent = `Если ${email} привязан к заведению, код уже в почте. Проверьте и папку «Спам».`;
+      document.getElementById('lgCode').focus();
+    } catch (er) { err(er.message); }
+  };
+  document.getElementById('lgCodeForm').onsubmit = async (e) => {
+    e.preventDefault(); err('');
+    try { await api('/login/verify', { method: 'POST', body: { email, code: document.getElementById('lgCode').value } }); location.reload(); }
+    catch (er) { err(er.message); }
+  };
+}
+
+/** «Старт»: что уже готово и что сделать дальше — по шагам, с переходом в нужный раздел */
+function renderStartTab(c) {
+  const s = state.settings, me = state.me;
+  const own = state.menuItems.length;
+  const withPhoto = state.menuItems.filter((x) => x.image).length;
+  const url = homeUrl();
+  const trial = s.plan === 'trial';
+  const left = trial && s.trial_until ? Math.max(0, Math.ceil((Date.parse(s.trial_until) - Date.now()) / 864e5)) : null;
+  const wa = `https://wa.me/${WA_SUPPORT}?text=${encodeURIComponent(`Здравствуйте! Хочу подключить tut.menu для «${s.name}» (${url})`)}`;
+  const steps = [
+    { done: own > 0, title: '📷 Загрузите своё меню по фото',
+      text: own ? `В меню ${own} ${own % 10 === 1 && own % 100 !== 11 ? 'блюдо' : [2, 3, 4].includes(own % 10) && ![12, 13, 14].includes(own % 100) ? 'блюда' : 'блюд'}. Пример меню гости больше не видят.`
+        : 'Сфотографируйте каждую страницу бумажного меню (или загрузите PDF). AI найдёт блюда, состав и цены, вы проверите и нажмёте «Добавить». Пока своих блюд нет, гости видят пример.',
+      btn: own ? ['Добавить ещё страницы', 'import'] : ['Загрузить меню', 'import'] },
+    { done: own > 0 && withPhoto >= Math.ceil(own / 2), title: '🍽 Проверьте цены и добавьте фото блюд',
+      text: own ? `Фото есть у ${withPhoto} из ${own}. Блюда с фото заказывают чаще: снимите на телефон при дневном свете, сверху или под 45°.` : 'Станет доступно после загрузки меню.',
+      btn: own ? ['Открыть блюда', 'menuItems'] : null },
+    { done: !!(s.logo_welcome || s.logo_header), title: '🎨 Логотип и название',
+      text: 'Логотип на главном экране и в шапке меню. Лучше всего PNG с прозрачным фоном.', btn: ['Открыть настройки', 'settings'] },
+    { done: !!String(s.whatsapp || '').replace(/\D/g, ''), title: '💬 WhatsApp для заказов',
+      text: s.whatsapp ? `Заказы из корзины придут на +${esc(String(s.whatsapp).replace(/\D/g, ''))}. Можно поменять на номер администратора.` : 'Укажите номер, на который гости будут отправлять заказ из корзины.',
+      btn: ['Открыть настройки', 'settings'] },
+    ...(me.mail ? [{ done: !!me.email, title: '🔐 Вход с любого устройства',
+      text: me.email ? `Вход по коду на ${esc(me.email)}.` : 'Сейчас кабинет открывается только на этом телефоне. Привяжите email, чтобы входить с компьютера или другого телефона.',
+      form: !me.email }] : []),
+    { done: qrDone(), title: '🔳 QR-код на столы',
+      text: 'Скачайте PNG для печати: наклейки, тейбл-тенты, меню у входа. Код ведёт на ваше меню и не меняется.', btn: ['Скачать QR', 'settings', 'qr'] },
+    ...(trial ? [{ done: false, title: '✅ Подключите тариф',
+      text: `${left !== null ? `Пробный период: осталось ${left} ${daysWord(left)}. ` : ''}tutmenu.kz/ваше-название — 144 000 ₸ в год, свой домен — 240 000 ₸ в год. Всё, что вы настроили, сохранится.`,
+      link: [wa, 'Подключить в WhatsApp'] }] : [])
+  ];
+  const doneN = steps.filter((x) => x.done).length;
+  c.innerHTML = `
+    <div class="panel cab-hero">
+      <p class="cab-hero__label">Ваше меню</p>
+      <a class="cab-hero__url" href="${esc(url)}" target="_blank" rel="noopener">${esc(url.replace(/^https?:\/\//, ''))}</a>
+      <p class="cab-hero__meta">${trial ? (left > 0 ? `Пробный период: осталось <b>${left} ${daysWord(left)}</b>` : '<b>Пробный период закончился</b>: гости видят «Меню недоступно»') : '✓ Подключено'} · готово ${doneN} из ${steps.length}</p>
+      <div class="cab-progress"><i style="width:${Math.round(doneN * 100 / steps.length)}%"></i></div>
+      ${own ? '' : '<p class="cab-note">Сейчас гости видят <b>пример меню</b> в вашем дизайне. Он исчезнет, как только появится первое ваше блюдо.</p>'}
+    </div>
+    <div class="cab-steps">${steps.map((x, i) => `
+      <div class="panel cab-step ${x.done ? 'is-done' : ''}">
+        <div class="cab-step__head"><span class="cab-step__mark">${x.done ? '✓' : i + 1}</span><h3>${x.title}</h3></div>
+        <p>${x.text}</p>
+        ${x.btn ? `<button class="btn ${x.done ? 'btn-outline' : 'btn-dark'} btn-sm" data-go="${x.btn[1]}" ${x.btn[2] ? `data-scroll="${x.btn[2]}"` : ''}>${x.btn[0]}</button>` : ''}
+        ${x.link ? `<a class="btn btn-dark btn-sm" href="${x.link[0]}" target="_blank" rel="noopener">${x.link[1]}</a>` : ''}
+        ${x.form ? `<form class="cab-mail" id="cabMail"><input type="email" id="cabMailIn" placeholder="you@mail.kz" required inputmode="email" autocomplete="email"><button class="btn btn-dark btn-sm" type="submit">Получить код</button></form>
+          <form class="cab-mail" id="cabCode" hidden><input type="text" id="cabCodeIn" placeholder="Код из письма" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"><button class="btn btn-dark btn-sm" type="submit">Подтвердить</button></form>
+          <p class="cab-err" id="cabMailErr"></p>` : ''}
+      </div>`).join('')}
+    </div>
+    <div class="panel">
+      <h3 style="margin-bottom:8px">Подсказки</h3>
+      <ul class="cab-tips">
+        <li>Цены и стоп-лист меняются здесь и сразу видны гостям, ничего перепечатывать не нужно.</li>
+        <li>Блюдо закончилось? Во вкладке «Блюда» выключите его переключателем: гости его не увидят, пока не включите.</li>
+        <li>Гости ищут блюда своими словами («что-то лёгкое без мяса»): чем подробнее состав, тем точнее подбор.</li>
+        <li>В «Статистике» видно, сколько гостей открыли меню и что смотрят чаще всего.</li>
+        <li>Нужна помощь? <a href="https://wa.me/${WA_SUPPORT}" target="_blank" rel="noopener">Напишите нам в WhatsApp</a>, перенесём меню сами.</li>
+      </ul>
+    </div>`;
+  c.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => {
+    state.tab = b.dataset.go;
+    if (state.tab === 'import' && !state.imp) state.imp = { pages: [], status: [], groups: [], busy: false, catId: state.categories.length ? '' : 'new', newCat: 'Меню' };
+    renderTabs(); renderTab();
+    if (b.dataset.scroll === 'qr') setTimeout(() => { const q = document.querySelector('.qr-grid'); if (q) q.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+    else window.scrollTo(0, 0);
+  });
+  const mf = c.querySelector('#cabMail');
+  if (mf) {
+    let email = '';
+    const err = (m) => { c.querySelector('#cabMailErr').textContent = m || ''; };
+    mf.onsubmit = async (e) => {
+      e.preventDefault(); err('');
+      email = c.querySelector('#cabMailIn').value.trim();
+      try { await api('/email/start', { method: 'POST', body: { email } }); mf.hidden = true; c.querySelector('#cabCode').hidden = false; err(`Код отправлен на ${email}. Проверьте и «Спам».`); }
+      catch (er) { err(er.message); }
+    };
+    c.querySelector('#cabCode').onsubmit = async (e) => {
+      e.preventDefault(); err('');
+      try { const r = await api('/email/verify', { method: 'POST', body: { email, code: c.querySelector('#cabCodeIn').value } }); state.me.email = r.email; document.getElementById('meEmail').textContent = r.email; toast('Email привязан'); renderStartTab(c); }
+      catch (er) { err(er.message); }
+    };
+  }
+}
 
 init();
 </script>

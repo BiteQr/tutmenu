@@ -94,6 +94,9 @@ async function accessEmail(request) {
  * editor — только свой restaurant_id (slug).
  */
 export async function authorize(env, request, slug) {
+  // Запрос из кабинета владельца (/cabinet/api): права только на свои заведения, никогда не owner
+  const cab = CAB.get(request);
+  if (cab) return cab.slugs.includes(slug) ? { ok: true, email: cab.email, role: 'editor', cabinet: true } : { ok: false, status: 403, error: 'wrong_restaurant' };
   const email = await accessEmail(request);
   if (!email) return { ok: false, status: 401, error: 'no_access_email' };
 
@@ -277,6 +280,24 @@ async function handleMenu(request, env) {
         }))
     }))
   };
+
+  // Пробный период: плашка с остатком дней (видит только создатель), после — «меню недоступно».
+  // Пока своих блюд нет, гостям показываем пример меню в дизайне заведения.
+  if (restaurant.plan === 'trial') {
+    const until = restaurant.trial_until || '';
+    settings.demo = { slug, trial: true, expiresAt: until, expired: !!until && Date.parse(until) <= Date.now(), restaurant: restaurant.name };
+    if (!payload.menuItems.length) {
+      const tpl = await demoTemplate(env, request);
+      const ts = tpl.settings || {};
+      for (const k of ['tagline_ru', 'tagline_kk', 'tagline_en', 'bgImage', 'bgVideo', 'hoursFrom', 'hoursTo']) if (!settings[k]) settings[k] = ts[k] || '';
+      const bl = (settings.design && settings.design.blocks) || {};
+      if (!settings.lunch && bl.lunch !== false) settings.lunch = ts.lunch || null;
+      payload.categories = tpl.categories || []; payload.sections = tpl.sections || []; payload.menuItems = tpl.menuItems || [];
+      if (!payload.promos.length && bl.promos !== false) payload.promos = tpl.promos || [];
+      if (!payload.buttons.length) payload.buttons = tpl.buttons || [];
+      settings.example = true;
+    }
+  }
 
   // Фото и видео — с отдельного адреса хранилища (если настроен): такие запросы не идут через наш сервер
   // и не тратят лимит запросов Workers. Ссылки в базе не меняем — только в ответе.
@@ -497,16 +518,18 @@ async function handleAdminApi(request, env, segments) {
   }
 
   if (section === 'restaurants') {
-    const email = await accessEmail(request);
-    const me = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(email).first();
+    const cab = CAB.get(request);
+    const me = cab ? { role: 'editor', restaurant_id: null }
+      : await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(await accessEmail(request)).first();
     if (!me) return json({ error: 'not_registered' }, { status: 403 });
 
     const qSlug = normId(url.searchParams.get('restaurant'));
+    const mine = (sl) => me.role === 'owner' || (cab ? cab.slugs.includes(sl) : me.restaurant_id === sl);
 
     if (method === 'GET') {
       if (qSlug) {
         // Один ресторан — владелец или его собственный редактор
-        if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
+        if (!mine(qSlug)) return json({ error: 'forbidden' }, { status: 403 });
         const row = await env.DB.prepare('SELECT * FROM restaurants WHERE slug = ?').bind(qSlug).first();
         if (!row) return json({ error: 'not_found' }, { status: 404 });
         if (me.role === 'owner') {
@@ -540,8 +563,10 @@ async function handleAdminApi(request, env, segments) {
 
     if (method === 'PUT') {
       if (!qSlug) return json({ error: 'no_slug' }, { status: 400 });
-      if (me.role !== 'owner' && me.restaurant_id !== qSlug) return json({ error: 'forbidden' }, { status: 403 });
+      if (!mine(qSlug)) return json({ error: 'forbidden' }, { status: 403 });
       const b = await request.json();
+      // Из кабинета нельзя менять домен и включение — это делает только владелец сервиса
+      if (cab) { delete b.domain; delete b.active; delete b.editorEmails; }
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
                     'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style']
@@ -1000,7 +1025,7 @@ async function seoRestaurant(env, url) {
 
 function seoUrls(rest, url) {
   const origin = rest.domain ? `https://${rest.domain}` : url.origin;
-  const canonical = rest.domain ? `${origin}/` : `${origin}/?r=${encodeURIComponent(rest.slug)}`;
+  const canonical = rest.domain ? `${origin}/` : `${origin}/${encodeURIComponent(rest.slug)}`;
   const abs = (u) => {
     u = String(u || '').trim();
     if (!u) return '';
@@ -1139,18 +1164,19 @@ function cleanDesign(body) {
   const blocks = { promos: b.promos !== false, lunch: b.lunch !== false, stories: b.stories === true };
   return { design, blocks };
 }
-async function saveDemoLogo(env, slug, dataUrl) {
+async function saveDemoLogo(env, slug, dataUrl, prefix) {
   const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
   if (!m || m[2].length >= 2_000_000) return null;
   const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
-  const key = `demos/${slug}/logo-${Date.now().toString(36)}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+  // Пробное заведение хранит файлы в своей папке (как оплаченное): после оплаты ничего не переносим
+  const key = `${prefix || `demos/${slug}/`}logo-${Date.now().toString(36)}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
   await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: `image/${m[1]}` } });
   return `/files/${key}`;
 }
 
 /** Изменение своего демо из конструктора: по ключу, который выдан создателю */
 async function handleDemoUpdate(request, env, slug) {
-  const row = await env.DB.prepare('SELECT edit_key, expires_at, logo FROM demos WHERE slug = ?1').bind(slug).first();
+  const row = await env.DB.prepare('SELECT edit_key, expires_at, logo, converted_to FROM demos WHERE slug = ?1').bind(slug).first();
   if (!row) return json({ error: 'not_found' }, { status: 404 });
   const key = request.headers.get('x-edit-key') || '';
   if (!row.edit_key || key !== row.edit_key) return json({ error: 'forbidden' }, { status: 403 });
@@ -1159,10 +1185,16 @@ async function handleDemoUpdate(request, env, slug) {
   const { design, blocks } = cleanDesign(body);
   const name = String((body.info || {}).name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 60);
   let logo = row.logo || '';
+  const conv = row.converted_to || '';
   if (body.logo === '') logo = '';
-  else if (String(body.logo || '').startsWith('data:')) logo = (await saveDemoLogo(env, slug, body.logo)) || logo;
+  else if (String(body.logo || '').startsWith('data:')) logo = (await saveDemoLogo(env, slug, body.logo, conv ? `${conv}/` : '')) || logo;
   await env.DB.prepare('UPDATE demos SET design = ?2, blocks = ?3, logo = ?4, restaurant_name = COALESCE(NULLIF(?5, \'\'), restaurant_name) WHERE slug = ?1')
     .bind(slug, JSON.stringify(design), JSON.stringify(blocks), logo, name).run();
+  if (conv) {
+    await env.DB.prepare("UPDATE restaurants SET design = ?2, logo_welcome = ?3, logo_header = ?3, name = COALESCE(NULLIF(?4, ''), name) WHERE slug = ?1 AND plan = 'trial'")
+      .bind(conv, JSON.stringify(Object.assign({}, design, { blocks })), logo, name).run();
+    return json({ ok: true, url: `/${conv}` });
+  }
   return json({ ok: true, url: `/demo/${slug}` });
 }
 
@@ -1182,15 +1214,24 @@ async function handleDemoCreate(request, env, ctx) {
 
   const { design, blocks } = cleanDesign(body);
 
-  const slug = demoSlugFrom(name);
-  // Логотип приходит из конструктора уже уменьшенным (PNG data URL) — кладём в R2
-  const logo = (await saveDemoLogo(env, slug, body.logo)) || '';
-  const editKey = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  // Демо — это сразу настоящее заведение на пробном периоде: адрес tutmenu.kz/<название>,
+  // свой кабинет, а после оплаты меню просто остаётся (ничего не переносим)
+  const slug = await uniqueSlug(env, name);
+  const logo = (await saveDemoLogo(env, slug, body.logo, `${slug}/`)) || '';
+  const editKey = randHex(16);
   const now = new Date();
-  await env.DB.prepare(`INSERT INTO demos (slug, owner_name, restaurant_name, phone, city, kind, logo, design, blocks, ip, created_at, expires_at, views, status, edit_key)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new', ?13)`)
-    .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
-      now.toISOString(), new Date(now.getTime() + DEMO_TTL_MS).toISOString(), editKey).run();
+  const until = new Date(now.getTime() + TRIAL_MS).toISOString();
+  const wa = phone.replace(/\D/g, '').replace(/^8/, '7');
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO restaurants (slug, active, name, whatsapp, theme, logo_welcome, logo_header, design, plan, trial_until)
+      VALUES (?1, 1, ?2, ?3, 'modern', ?4, ?4, ?5, 'trial', ?6)`)
+      .bind(slug, name, wa, logo, JSON.stringify(Object.assign({}, design, { blocks })), until),
+    env.DB.prepare(`INSERT INTO demos (slug, owner_name, restaurant_name, phone, city, kind, logo, design, blocks, ip, created_at, expires_at, views, status, edit_key, converted_to)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 'new', ?13, ?1)`)
+      .bind(slug, owner, name, phone, city, kind, logo, JSON.stringify(design), JSON.stringify(blocks), ip,
+        now.toISOString(), until, editKey)
+  ]);
+  const token = await cabNewSession(env, { slug });
   const origin = new URL(request.url).origin;
   const T = (k) => k ? k : '—';
   ctx.waitUntil(tgNotify(env, [
@@ -1198,10 +1239,10 @@ async function handleDemoCreate(request, env, ctx) {
     `${name}${kind ? ' · ' + (KIND_NAMES[kind] || kind) : ''}${city ? ', ' + city : ''}`,
     `${owner} · ${phone}`,
     `Дизайн: ${T(design.theme)} / ${T(design.style)} / ${T(design.palette)} / ${T(design.fonts)}`,
-    `${origin}/demo/${slug}`,
-    `WhatsApp: https://wa.me/${phone.replace(/\D/g, '').replace(/^8/, '7')}`
+    `${origin}/${slug}`,
+    `WhatsApp: https://wa.me/${wa}`
   ].join('\n')));
-  return json({ ok: true, slug, url: `/demo/${slug}`, editKey });
+  return json({ ok: true, slug, url: `/${slug}`, cabinet: '/cabinet', editKey }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
 }
 
 /* ---------- Telegram: уведомления о новых демо (бот @tutmenu_bot) ----------
@@ -1284,7 +1325,10 @@ async function handleLeadsApi(request, env, slug, action) {
   if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
   const method = request.method;
   if (!slug && method === 'GET') {
-    const r = await env.DB.prepare('SELECT slug, owner_name, restaurant_name, phone, city, kind, design, created_at, expires_at, views, last_view_at, status, note, deleted_at FROM demos ORDER BY created_at DESC LIMIT 500').all();
+    const r = await env.DB.prepare(`SELECT d.slug, d.owner_name, d.restaurant_name, d.phone, d.city, d.kind, d.design, d.created_at, d.expires_at, d.views, d.last_view_at, d.status, d.note, d.deleted_at,
+        d.converted_to, r.plan, r.trial_until, (SELECT COUNT(*) FROM menu_items m WHERE m.restaurant_id = d.converted_to) items,
+        (SELECT GROUP_CONCAT(email) FROM cabinet_users c WHERE c.slug = d.converted_to) emails
+      FROM demos d LEFT JOIN restaurants r ON r.slug = d.converted_to ORDER BY d.created_at DESC LIMIT 500`).all();
     return json({ items: r.results });
   }
   if (slug && method === 'PUT' && !action) {
@@ -1295,9 +1339,21 @@ async function handleLeadsApi(request, env, slug, action) {
     return json({ ok: true });
   }
   if (slug && method === 'POST' && action === 'extend') {
-    // «Восстановим за минуту»: демо снова живёт 3 дня
-    await env.DB.prepare('UPDATE demos SET expires_at = ?2, deleted_at = NULL WHERE slug = ?1')
-      .bind(slug, new Date(Date.now() + DEMO_TTL_MS).toISOString()).run();
+    // «Восстановим за минуту»: демо снова живёт 3 дня, пробное заведение — ещё 7 дней
+    const d = await env.DB.prepare('SELECT converted_to FROM demos WHERE slug = ?1').bind(slug).first();
+    const until = new Date(Date.now() + (d && d.converted_to ? TRIAL_MS : DEMO_TTL_MS)).toISOString();
+    await env.DB.prepare('UPDATE demos SET expires_at = ?2, deleted_at = NULL WHERE slug = ?1').bind(slug, until).run();
+    if (d && d.converted_to) await env.DB.prepare("UPDATE restaurants SET trial_until = ?2 WHERE slug = ?1 AND plan = 'trial'").bind(d.converted_to, until).run();
+    return json({ ok: true });
+  }
+  if (slug && method === 'POST' && action === 'activate') {
+    // Оплатили: меню остаётся навсегда, плашка пробного периода исчезает
+    const d = await env.DB.prepare('SELECT converted_to FROM demos WHERE slug = ?1').bind(slug).first();
+    if (!d || !d.converted_to) return json({ error: 'not_trial', message: 'Это старое демо без своего меню' }, { status: 400 });
+    await env.DB.batch([
+      env.DB.prepare("UPDATE restaurants SET plan = 'paid', trial_until = '' WHERE slug = ?1").bind(d.converted_to),
+      env.DB.prepare("UPDATE demos SET status = 'paid' WHERE slug = ?1").bind(slug)
+    ]);
     return json({ ok: true });
   }
   return json({ error: 'not_found' }, { status: 404 });
@@ -1330,7 +1386,7 @@ async function usageReport(env) {
 
 async function cleanupDemos(env) {
   const now = new Date().toISOString();
-  const r = await env.DB.prepare('SELECT slug, logo FROM demos WHERE expires_at <= ?1 AND deleted_at IS NULL LIMIT 200').bind(now).all();
+  const r = await env.DB.prepare("SELECT slug, logo FROM demos WHERE expires_at <= ?1 AND deleted_at IS NULL AND COALESCE(converted_to, '') = '' LIMIT 200").bind(now).all();
   for (const d of r.results) {
     const list = await env.BUCKET.list({ prefix: `demos/${d.slug}/` });
     for (const o of list.objects) await env.BUCKET.delete(o.key);
@@ -1348,6 +1404,183 @@ async function serveDemoPage(request, env) {
     .replace(/(\s(?:src|href)=")(?![a-z]+:|\/|#)([^"]+)"/gi, '$1/$2"')
     .replace('<head>', '<head><meta name="robots" content="noindex">');
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+}
+
+
+/* =========================================================
+   КАБИНЕТ ВЛАДЕЛЬЦА ЗАВЕДЕНИЯ (/cabinet)
+   Та же админка, но вход не через Cloudflare Access (там 50 бесплатных мест), а свой:
+   • сразу после демо — сессия на этом телефоне (cookie);
+   • с других устройств — код на email (письма через Resend, секрет RESEND_KEY).
+   Видны только свои заведения; домен, лиды, Telegram и чужие заведения недоступны.
+   ========================================================= */
+const TRIAL_MS = 7 * 24 * 3600 * 1000;
+const CAB_COOKIE = 'tm_cab';
+const CAB_TTL_MS = 90 * 24 * 3600 * 1000;
+const CAB = new WeakMap();
+const RESERVED_SLUGS = new Set(['admin', 'api', 'cabinet', 'demo', 'files', 'media', 'ar', 'site', 'build', 'img', 'themes', 'welcomes',
+  'login', 'logout', 'www', 'menu', 'help', 'price', 'about', 'terms', 'privacy', 'tutmenu', 'tut-menu', 'kabinet', 'blog', 'support']);
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
+
+function randHex(bytes) { return [...crypto.getRandomValues(new Uint8Array(bytes))].map((x) => x.toString(16).padStart(2, '0')).join(''); }
+async function sha256hex(str) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+function getCookie(request, name) {
+  const m = (request.headers.get('cookie') || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+  return m ? m[1] : '';
+}
+function cabCookie(token, maxAgeSec) { return `${CAB_COOKIE}=${token}; Path=/; Max-Age=${Math.floor(maxAgeSec)}; HttpOnly; Secure; SameSite=Lax`; }
+const normEmail = (v) => String(v || '').trim().toLowerCase().slice(0, 254);
+
+/** Адрес заведения: «Кофейня Арман» → kofeynya-arman (если занят — kofeynya-arman-2) */
+async function uniqueSlug(env, name) {
+  let base = String(name || '').toLowerCase().split('').map((c) => TRANSLIT[c] ?? c).join('')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 36).replace(/-+$/, '');
+  if (base.length < 2 || RESERVED_SLUGS.has(base)) base = (base ? base + '-' : '') + 'menu';
+  for (let i = 1; i < 60; i++) {
+    const cand = i === 1 ? base : `${base}-${i}`;
+    const taken = await env.DB.prepare('SELECT 1 FROM restaurants WHERE slug = ?1 UNION SELECT 1 FROM demos WHERE slug = ?1').bind(cand).first();
+    if (!taken) return cand;
+  }
+  return `${base}-${randHex(2)}`;
+}
+
+async function cabNewSession(env, { email = '', slug = '' }) {
+  const token = randHex(32);
+  const now = Date.now();
+  await env.DB.prepare('INSERT INTO cabinet_sessions (token_hash, email, slug, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)')
+    .bind(await sha256hex(token), email, slug, new Date(now).toISOString(), new Date(now + CAB_TTL_MS).toISOString()).run();
+  return token;
+}
+async function cabSession(env, request) {
+  const token = getCookie(request, CAB_COOKIE);
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  const hash = await sha256hex(token);
+  const row = await env.DB.prepare('SELECT email, slug, expires_at FROM cabinet_sessions WHERE token_hash = ?1').bind(hash).first();
+  if (!row || Date.parse(row.expires_at) <= Date.now()) return null;
+  const slugs = row.email
+    ? (await env.DB.prepare('SELECT slug FROM cabinet_users WHERE email = ?1').bind(row.email).all()).results.map((r) => r.slug) : [];
+  if (row.slug && !slugs.includes(row.slug)) slugs.push(row.slug);
+  return { hash, email: row.email || '', slugs };
+}
+
+async function mailCfg(env) {
+  const key = env.RESEND_KEY || await cfg(env, 'resend_key');
+  return key ? { key, from: env.MAIL_FROM || await cfg(env, 'mail_from') || 'tut.menu <hello@tutmenu.kz>' } : null;
+}
+async function sendMail(env, to, subject, text) {
+  const m = await mailCfg(env);
+  if (!m) return false;
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${m.key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: m.from, to: [to], subject, text })
+  }).catch(() => null);
+  return !!(r && r.ok);
+}
+async function cabSendCode(env, email) {
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+  await env.DB.prepare('INSERT OR REPLACE INTO cabinet_codes (email, code_hash, expires_at, tries) VALUES (?1, ?2, ?3, 0)')
+    .bind(email, await sha256hex(email + ':' + code), new Date(Date.now() + 10 * 60e3).toISOString()).run();
+  return sendMail(env, email, `Код входа в tut.menu: ${code}`,
+    `Ваш код для входа в кабинет tut.menu: ${code}\n\nКод действует 10 минут. Если вы его не запрашивали, просто удалите это письмо.`);
+}
+async function cabCheckCode(env, email, code) {
+  const row = await env.DB.prepare('SELECT code_hash, expires_at, tries FROM cabinet_codes WHERE email = ?1').bind(email).first();
+  if (!row || Date.parse(row.expires_at) <= Date.now() || row.tries >= 5) return false;
+  const ok = row.code_hash === await sha256hex(email + ':' + String(code || '').replace(/\D/g, ''));
+  await env.DB.prepare(ok ? 'DELETE FROM cabinet_codes WHERE email = ?1' : 'UPDATE cabinet_codes SET tries = tries + 1 WHERE email = ?1').bind(email).run();
+  return ok;
+}
+
+async function handleCabinetApi(request, env, p) {
+  const method = request.method;
+  const sub = p.slice('/cabinet/api'.length) || '/';
+  // Защита от подделки запросов с чужих сайтов: все изменения — только из нашей страницы
+  if (method !== 'GET' && method !== 'HEAD' && request.headers.get('x-tm') !== '1') return json({ error: 'forbidden' }, { status: 403 });
+  const readBody = async () => { try { return await request.json(); } catch { return {}; } };
+
+  if (sub === '/login/start' && method === 'POST') {
+    if (await tooMany(request, 'cab-login', 8, 600)) return slowDown();
+    const email = normEmail((await readBody()).email);
+    if (!EMAIL_RE.test(email)) return json({ error: 'bad_email', message: 'Проверьте email' }, { status: 400 });
+    if (!(await mailCfg(env))) return json({ error: 'mail_off', message: 'Вход по email скоро заработает. Пока откройте кабинет с телефона, на котором собирали демо.' }, { status: 503 });
+    if (await tooMany(request, 'cab-mail', 3, 600, email)) return slowDown();
+    const known = await env.DB.prepare('SELECT 1 FROM cabinet_users WHERE email = ?1 LIMIT 1').bind(email).first();
+    if (known) await cabSendCode(env, email);
+    return json({ ok: true });   // одинаковый ответ: по нему нельзя узнать, есть ли такой email
+  }
+  if (sub === '/login/verify' && method === 'POST') {
+    if (await tooMany(request, 'cab-verify', 10, 600)) return slowDown();
+    const b = await readBody();
+    const email = normEmail(b.email);
+    if (!EMAIL_RE.test(email) || !(await cabCheckCode(env, email, b.code))) return json({ error: 'bad_code', message: 'Неверный или просроченный код' }, { status: 400 });
+    const token = await cabNewSession(env, { email });
+    return json({ ok: true }, { headers: { 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+  }
+  if (sub === '/logout' && method === 'POST') {
+    const s0 = await cabSession(env, request);
+    if (s0) await env.DB.prepare('DELETE FROM cabinet_sessions WHERE token_hash = ?1').bind(s0.hash).run();
+    return json({ ok: true }, { headers: { 'set-cookie': cabCookie('', 0) } });
+  }
+
+  const s = await cabSession(env, request);
+  if (!s) return json({ error: 'no_session', mail: !!(await mailCfg(env)) }, { status: 401 });
+
+  if (sub === '/me' && method === 'GET') {
+    const rows = s.slugs.length
+      ? (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results
+      : [];
+    return json({ email: s.email, role: 'editor', cabinet: true, mail: !!(await mailCfg(env)), restaurants: rows });
+  }
+  // Привязать email к своим заведениям (чтобы входить с любого устройства)
+  if (sub === '/email/start' && method === 'POST') {
+    if (await tooMany(request, 'cab-login', 8, 600)) return slowDown();
+    const email = normEmail((await readBody()).email);
+    if (!EMAIL_RE.test(email)) return json({ error: 'bad_email', message: 'Проверьте email' }, { status: 400 });
+    if (await tooMany(request, 'cab-mail', 3, 600, email)) return slowDown();
+    if (!(await cabSendCode(env, email))) return json({ error: 'mail_off', message: 'Не получилось отправить письмо, попробуйте позже' }, { status: 503 });
+    return json({ ok: true });
+  }
+  if (sub === '/email/verify' && method === 'POST') {
+    if (await tooMany(request, 'cab-verify', 10, 600)) return slowDown();
+    const b = await readBody();
+    const email = normEmail(b.email);
+    if (!EMAIL_RE.test(email) || !(await cabCheckCode(env, email, b.code))) return json({ error: 'bad_code', message: 'Неверный или просроченный код' }, { status: 400 });
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      ...s.slugs.map((sl) => env.DB.prepare('INSERT OR IGNORE INTO cabinet_users (email, slug, created_at) VALUES (?1, ?2, ?3)').bind(email, sl, now)),
+      env.DB.prepare('UPDATE cabinet_sessions SET email = ?2 WHERE token_hash = ?1').bind(s.hash, email)
+    ]);
+    return json({ ok: true, email });
+  }
+
+  // Остальное — те же обработчики, что у админки, но с правами только на свои заведения
+  const segments = sub.split('/').filter(Boolean);
+  if (!segments.length || ['tg', 'leads', 'me'].includes(segments[0])) return json({ error: 'forbidden' }, { status: 403 });
+  const target = new URL(request.url);
+  target.pathname = '/admin/api' + sub;
+  const req2 = new Request(target.toString(), request);
+  CAB.set(req2, s);
+  if (sub === '/upload' && method === 'POST') return handleUpload(req2, env);
+  if (sub === '/import-menu' && method === 'POST') return (await tooMany(request, 'cab-import', 60, 3600)) ? slowDown() : handleImportMenu(req2, env);
+  if (sub === '/ar-cutout' && method === 'POST') return handleArCutout(req2, env);
+  return handleAdminApi(req2, env, segments);
+}
+
+/** Меню заведения по адресу tutmenu.kz/<slug> */
+async function serveRestaurantPage(request, env, url, rest) {
+  const u = new URL(url);
+  u.pathname = '/';
+  u.search = '?r=' + encodeURIComponent(rest.slug);
+  const page = await serveIndexWithSeo(new Request(u.toString(), request), env, u);
+  const extra = `<meta name="tm-r" content="${escHtml(rest.slug)}">${rest.plan === 'trial' ? '<meta name="robots" content="noindex">' : ''}`;
+  const out = new HTMLRewriter().on('head', { element(el) { el.prepend(extra, { html: true }); } }).transform(page);
+  const res = new Response(out.body, out);
+  res.headers.set('cache-control', 'no-store');
+  return res;
 }
 
 /* ---------- Маршрутизация ---------- */
@@ -1386,6 +1619,7 @@ const handler = {
       if (p === '/api/orders' && method === 'POST') return (await tooMany(request, 'orders', 15, 600)) ? slowDown() : await handleOrders(request, env);
       if (p === '/api/track' && method === 'POST') return (await tooMany(request, 'track', 600, 600)) ? json({ ok: false }, { status: 429 }) : await handleTrack(request, env);
       if (p === '/api/ai-search' && method === 'POST') return (await tooMany(request, 'ai', 30, 600)) ? slowDown() : await handleAiSearch(request, env, ctx);
+      if (p.startsWith('/cabinet/api/')) return await handleCabinetApi(request, env, p);
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
@@ -1412,13 +1646,31 @@ const handler = {
     }
 
     // Демо из конструктора — только на продающем домене (и workers.dev для проверки)
-    const salesish = SALES_HOSTS.has(url.hostname) || url.hostname.endsWith('.workers.dev');
+    // DEV_SALES — только для локальной проверки (wrangler dev на localhost), в бою не задан
+    const salesish = SALES_HOSTS.has(url.hostname) || url.hostname.endsWith('.workers.dev') || env.DEV_SALES === '1';
     if (/^\/demo\/[a-z0-9-]{1,64}\/?$/i.test(p) && salesish && (method === 'GET' || method === 'HEAD')) {
       return await serveDemoPage(request, env);
     }
+    // Кабинет владельца: та же страница админки, без Cloudflare Access
+    if ((p === '/cabinet' || p === '/cabinet/') && (method === 'GET' || method === 'HEAD')) {
+      const page = await env.ASSETS.fetch(new Request(new URL('/admin/index.html', url).toString()));
+      const res = new Response(page.body, page);
+      res.headers.set('cache-control', 'no-store');
+      res.headers.set('x-robots-tag', 'noindex');
+      return res;
+    }
+    // Меню заведения по адресу tutmenu.kz/<название>
+    const pm = p.match(/^\/([a-z0-9][a-z0-9-]{1,40})(\/?)$/);
+    if (pm && salesish && !RESERVED_SLUGS.has(pm[1]) && (method === 'GET' || method === 'HEAD')) {
+      const rest = await env.DB.prepare('SELECT slug, plan FROM restaurants WHERE slug = ?1 AND active = 1').bind(pm[1]).first().catch(() => null);
+      if (rest) {
+        if (pm[2]) return Response.redirect(url.origin + '/' + rest.slug + url.search, 301);
+        return await serveRestaurantPage(request, env, url, rest);
+      }
+    }
 
     // Лендинг tut.menu живёт только на своём домене: на сайтах клиентов (tipagraf.kz и др.) папки /site нет
-    if (/^\/site(\/|$)/.test(p) && !SALES_HOSTS.has(url.hostname) && !url.hostname.endsWith('.workers.dev')) {
+    if (/^\/site(\/|$)/.test(p) && !salesish) {
       return new Response('Not found', { status: 404 });
     }
 

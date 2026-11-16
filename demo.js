@@ -17,12 +17,79 @@
     return `${m} мин`;
   }
   function waLink(name) {
-    const text = `Здравствуйте! Хочу подключить меню tut.menu для «${name}». Моё демо: ${location.origin}${location.pathname}`;
+    const text = `Здравствуйте! Хочу подключить меню tut.menu для «${name}». Моё меню: ${location.origin}${location.pathname}`;
     return `https://wa.me/${WA}?text=${encodeURIComponent(text)}`;
   }
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  function show(demo, name) {
+  function isMine(slug) {
+    try { return !!JSON.parse(localStorage.getItem('tm_demo_keys') || '{}')[slug]; } catch { return false; }
+  }
+
+  /* Пробный период заведения (tutmenu.kz/<название>): гости видят обычное меню без плашек,
+     создатель — остаток дней, кнопку «Настроить меню» и подсказку загрузить своё меню по фото. */
+  function showTrial(demo, name, example) {
+    const restaurant = demo.restaurant || name || 'ваше заведение';
+    const mine = isMine(demo.slug);
+    if (demo.expired) {
+      if (document.querySelector('.demo-dead')) return;
+      document.querySelectorAll('.demo-bar, .demo-pop, .demo-edit').forEach((n) => n.remove());
+      started = true;
+      const el = document.createElement('div');
+      el.className = 'demo-dead';
+      el.innerHTML = mine
+        ? `<div class="demo-dead__card">
+            <p class="demo-dead__brand">tut<span>.</span>menu</p>
+            <h1>Пробный период «${esc(restaurant)}» закончился</h1>
+            <p>Всё сохранено: меню, фото и дизайн. Подключите тариф, и меню сразу снова откроется для гостей.</p>
+            <a class="demo-btn" href="${waLink(restaurant)}" target="_blank" rel="noopener">Подключить в WhatsApp</a>
+          </div>`
+        : `<div class="demo-dead__card">
+            <h1>Меню временно недоступно</h1>
+            <p>Спросите меню у официанта.</p>
+          </div>`;
+      document.body.append(el);
+      document.documentElement.classList.add('demo-is-dead');
+      return;
+    }
+    if (started || !mine) return;
+    started = true;
+    const end = Date.parse(demo.expiresAt);
+    const bar = document.createElement('div');
+    bar.className = 'demo-bar';
+    bar.innerHTML = `<span class="demo-bar__t">Пробный период: осталось <b data-left>${left(end - Date.now())}</b></span>
+      <a class="demo-bar__btn" href="${waLink(restaurant)}" target="_blank" rel="noopener">Подключить</a>`;
+    document.body.prepend(bar);
+    document.documentElement.dataset.demo = '1';
+    setInterval(() => { const b = bar.querySelector('[data-left]'); if (b) b.textContent = left(end - Date.now()); }, 30000);
+
+    const edit = document.createElement('a');
+    edit.className = 'demo-edit';
+    edit.href = '/cabinet';
+    edit.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Настроить меню';
+    document.body.append(edit);
+
+    // Пока в меню пример блюд — сразу подсказываем главный шаг: загрузить своё меню по фото
+    let seen = false;
+    try { seen = !!sessionStorage.getItem('tm_ex_pop_' + demo.slug); sessionStorage.setItem('tm_ex_pop_' + demo.slug, '1'); } catch {}
+    if (example && !seen) setTimeout(() => {
+      const pop = document.createElement('div');
+      pop.className = 'demo-pop';
+      pop.innerHTML = `<div class="demo-pop__card" role="dialog" aria-modal="true" aria-label="Ваше меню готово">
+          <button type="button" class="demo-pop__x" aria-label="Закрыть">×</button>
+          <p class="demo-pop__big">Меню «${esc(restaurant)}» готово</p>
+          <p>Сейчас здесь пример блюд. Сфотографируйте своё бумажное меню, и мы перенесём блюда и цены за пару минут.</p>
+          <a class="demo-btn" href="/cabinet#import">📷 Загрузить своё меню по фото</a>
+          <button type="button" class="demo-pop__later">Сначала посмотрю</button>
+        </div>`;
+      document.body.append(pop);
+      const close = () => pop.remove();
+      pop.addEventListener('click', (e) => { if (e.target === pop || e.target.closest('.demo-pop__x, .demo-pop__later')) close(); });
+    }, 1800);
+  }
+
+  function show(demo, name, example) {
+    if (demo.trial) return showTrial(demo, name, example);
     const restaurant = demo.restaurant || name || 'ваше заведение';
     // Данные могли прийти сначала из кэша (демо ещё живое), а потом свежие (уже истекло)
     if (demo.expired && !document.querySelector('.demo-dead')) {
