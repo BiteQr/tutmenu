@@ -139,6 +139,7 @@
       </div>`;
     },
     logo() {
+      const BRANDS = [['logo', 'Только логотип'], ['logoname', 'Логотип + название'], ['name', 'Только название']];
       return `<div class="step"><h1>Логотип</h1>
         <p class="sub">PNG с прозрачным фоном выглядит лучше всего. Можно пропустить: тогда в шапке будет название.</p>
         <label class="drop" for="fLogo">
@@ -148,6 +149,9 @@
         </label>
         <input id="fLogo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
         ${S.logo ? '<button type="button" class="chip" data-logo-clear style="margin-top:12px">Убрать логотип</button>' : ''}
+        <p class="label">Как показывать</p>
+        <div class="chips">${BRANDS.map(([k, n]) => `<button type="button" class="chip" data-brand="${k}" ${pressed((S.logo ? (S.design.brand || 'logo') : 'name') === k)} ${!S.logo && k !== 'name' ? 'disabled' : ''}>${n}</button>`).join('')}</div>
+        ${S.logo ? '' : '<p class="sub" style="margin-top:8px">Без логотипа показываем название. Загрузите логотип, чтобы выбрать другой вид.</p>'}
       </div>`;
     },
     theme() {
@@ -225,7 +229,7 @@
     done() {
       const r = resolved(), i = S.info;
       return `<div class="step"><h1>${editKey ? 'Сохраните изменения' : 'Ваше демо почти готово'}</h1>
-        <p class="sub">${editKey ? 'Демо обновится по той же ссылке.' : 'Нажмите «Получить ссылку»: демо с вашим названием откроется по своей ссылке и проживёт 3 дня. Дизайн потом можно поменять кнопкой «Изменить дизайн» прямо в демо.'}</p>
+        <p class="sub">${editKey ? 'Демо обновится по той же ссылке.' : `Нажмите «Получить ссылку»: меню откроется по адресу <b>${esc(location.host)}/${esc(slugPreview(i.name))}</b>. 7 дней бесплатно: загрузите своё меню по фото в кабинете, поставьте QR на столы и посмотрите, как гости им пользуются.`}</p>
         <dl class="done-card">
           <dt>Заведение</dt><dd>${esc(i.name || '—')}, ${esc(i.city || '')}</dd>
           <dt>Дизайн</dt><dd>Тема «${T.THEMES[r.theme].name}» · цвета «${T.PALETTES[r.palette].name}» · шрифт «${T.FONTS[r.fonts].name}»</dd>
@@ -316,14 +320,14 @@
       save(); push(); render();
     } else if (d.theme) {
       // Новая тема меняет устройство, цвета и шрифты, но выбранный вид приветствия оставляем
-      S.themePicked = true; S.design = { theme: d.theme, welcomeStyle: S.design.welcomeStyle }; save(); push(); render();
+      S.themePicked = true; S.design = { theme: d.theme, welcomeStyle: S.design.welcomeStyle, brand: S.design.brand }; save(); push(); render();
     }
     else if ('dice' in d) {
       const keys = (o) => Object.keys(o);
       const rnd = (a) => a[Math.floor(Math.random() * a.length)];
       const base = rnd(keys(T.THEMES));
       S.themePicked = true;
-      S.design = { theme: base, style: rnd(keys(T.STYLES)), palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)), welcomeStyle: rnd(keys(T.WELCOMES)) };
+      S.design = { theme: base, style: rnd(keys(T.STYLES)), palette: rnd(keys(T.PALETTES)), fonts: rnd(keys(T.FONTS)), welcomeStyle: rnd(keys(T.WELCOMES)), brand: S.design.brand };
       save(); push(); render();
     }
     else if (d.pal) setDesign({ palette: d.pal, accent: '' });
@@ -335,6 +339,7 @@
     else if (d.wbg) { S.welcomeBg = d.wbg; save(); setScreen('#/'); render(); }
     else if (d.block) { S.blocks[d.block] = !S.blocks[d.block]; save(); setScreen('#/menu'); render(); }
     else if ('logoClear' in d) { S.logo = ''; save(); push(); render(); }
+    else if (d.brand) { S.design = Object.assign({}, S.design, { brand: d.brand }); save(); setScreen('#/'); push(); render(); }
   });
 
   function readLogo(file) {
@@ -347,6 +352,7 @@
       c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       S.logo = c.toDataURL('image/png');
+      if (!S.design.brand || S.design.brand === 'name') S.design = Object.assign({}, S.design, { brand: 'logo' });
       URL.revokeObjectURL(url); save(); push(); render();
     };
     img.onerror = () => { URL.revokeObjectURL(url); alertMsg('Не получилось открыть картинку. Попробуйте PNG или JPG.'); };
@@ -376,6 +382,12 @@
     S.mode = b.dataset.mode; save();
     cur = Math.max(0, order().indexOf(id)); render();
   }));
+
+  // Примерный адрес меню (точный выдаст сервер: если имя занято, добавит -2)
+  const TR = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',ә:'a',ғ:'g',қ:'k',ң:'n',ө:'o',ұ:'u',ү:'u',һ:'h',і:'i' };
+  function slugPreview(name) {
+    return String(name || '').toLowerCase().split('').map((c) => TR[c] ?? c).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 36) || 'vashe-kafe';
+  }
 
   async function createDemo() {
     const msg = $('#doneMsg');

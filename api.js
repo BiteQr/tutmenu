@@ -17,8 +17,10 @@
   /** slug из ?r=... или собственный домен сайта — им сайт представляется бэкенду */
   // Демо из конструктора: /demo/<slug> → «demo:<slug>» (тестовое меню в дизайне клиента)
   const demoSlug = (location.pathname.match(/^\/demo\/([a-z0-9-]{1,64})\/?$/i) || [])[1];
+  // Меню по адресу tutmenu.kz/<название>: сервер кладёт slug в <meta name="tm-r">
+  const metaR = (document.querySelector('meta[name="tm-r"]') || {}).content || '';
   const restaurantId = demoSlug ? 'demo:' + demoSlug.toLowerCase()
-    : (new URLSearchParams(location.search).get('r') || location.hostname).toLowerCase().replace(/^www\./, '');
+    : (metaR || new URLSearchParams(location.search).get('r') || location.hostname).toLowerCase().replace(/^www\./, '');
   App.restaurantId = restaurantId;
   const cacheKey = `${C.DATA_CACHE_KEY}:${restaurantId}`;
 

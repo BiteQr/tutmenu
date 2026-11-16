@@ -50,7 +50,12 @@
 
   function renderLogo(s) {
     const center = $('.welcome__center', root);
-    const logo = s.logoWelcome || s.logo;
+    // Вид бренда из конструктора: 'logo' — только логотип, 'logoname' — логотип и название, 'name' — только название.
+    // Без настройки (как у Типа Граф) — прежнее поведение.
+    const brand = (s.design && s.design.brand) || '';
+    const logo = brand === 'name' ? '' : (s.logoWelcome || s.logo);
+    center.classList.toggle('brand-logo', brand === 'logo' && !!logo);
+    center.classList.toggle('brand-both', brand === 'logoname' && !!logo);
     const old = $('.welcome__name', center);
     if (old) old.remove();
 

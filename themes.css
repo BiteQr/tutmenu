@@ -347,3 +347,19 @@ html[data-welcome="typo"] .welcome .wbtn--primary {
   html[data-welcome="taplink"] .welcome__center { padding-top: 24px; padding-bottom: 18px; }
   html[data-welcome="taplink"] .welcome .wbtn { min-height: 52px; }
 }
+
+/* Вид бренда (конструктор): только логотип / логотип + название под ним */
+.welcome__center.brand-logo .welcome__name { display: none !important; }
+.welcome__center.brand-both .welcome__name { display: block !important; margin-top: 14px; font-size: clamp(22px, 7vw, 30px); letter-spacing: .02em; line-height: 1.1; }
+/* Шапка с названием: одинаковые поля слева и справа (под кнопку языка), название ровно по центру,
+   длинное — с многоточием. Шапка только с логотипом (как у Типа Граф) не меняется. */
+.topbar:has(.topbar__name) { grid-template-columns: 40px minmax(0, 1fr) 40px; column-gap: 10px; }
+/* Кнопка языка — круглая, только флаг (по размеру как «назад»): названию остаётся вся середина */
+.topbar:has(.topbar__name) .lang__btn { width: 36px; height: 36px; padding: 0; gap: 0; justify-content: center; border-radius: 50%; }
+.topbar:has(.topbar__name) .lang__btn .lang__current, .topbar:has(.topbar__name) .lang__btn .lang__chev { display: none; }
+.topbar:has(.topbar__name) .lang__btn .flag { width: 24px; height: 24px; margin: 0; }
+.topbar:has(.topbar__name) > :last-child { justify-self: end; }
+.topbar:has(.topbar__name) .topbar__brand { justify-self: center; display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+html .topbar .topbar__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 18px; }
+html .topbar .topbar__name--with-logo { font-size: 16px; }
+.topbar:has(.topbar__name--with-logo) .topbar__logo { flex: none; height: 28px; }

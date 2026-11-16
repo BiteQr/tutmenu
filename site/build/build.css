@@ -207,3 +207,4 @@ button { background: none; border: 0; cursor: pointer; }
   body.live .b__nav #next { order: 0; flex: 1; }
   body.live .b__nav .btn--ghost { flex: 0 0 auto; }
 }
+.chip[disabled]{opacity:.4;pointer-events:none}
