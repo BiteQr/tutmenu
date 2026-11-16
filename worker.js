@@ -1618,6 +1618,57 @@ async function handleTgLogin(request, env, p) {
   return new Response(null, { status: 302, headers: { location: `${url.origin}/cabinet`, 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
 }
 
+/* ---------- Вход через кнопку Telegram (классический Login Widget, /setdomain в @BotFather) ----------
+   Включается app_config.tg_widget = '1' после того, как домен сайта привязан к боту.
+   Подпись проверяем по токену бота: secret = SHA256(token), hash = HMAC-SHA256(строка данных, secret).
+   Номер телефона виджет не передаёт — поэтому Telegram сначала привязывается в кабинете. */
+async function tgWidgetCfg(env) {
+  if (String(env.TG_WIDGET || await cfg(env, 'tg_widget') || '') !== '1') return null;
+  const token = env.TG_TOKEN || await cfg(env, 'tg_token');
+  const bot = String(env.TG_BOT || await cfg(env, 'tg_bot') || '').replace(/^@/, '');
+  return token && /^[A-Za-z0-9_]{5,40}$/.test(bot) ? { token, bot } : null;
+}
+async function verifyTgWidget(params, token) {
+  const hash = params.get('hash') || '';
+  if (!/^[0-9a-f]{64}$/.test(hash)) return null;
+  const dcs = [...params.keys()].filter((k) => k !== 'hash').sort().map((k) => `${k}=${params.get(k)}`).join('\n');
+  const secret = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  const key = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = [...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(dcs)))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  if (sig !== hash) return null;
+  const age = Date.now() / 1000 - Number(params.get('auth_date') || 0);
+  if (!(age >= -300 && age < 86400)) return null;
+  return /^\d{1,20}$/.test(params.get('id') || '') ? params.get('id') : null;
+}
+async function handleTgWidget(request, env, mode) {
+  const url = new URL(request.url);
+  const back = (q) => Response.redirect(`${url.origin}/cabinet${q ? '?' + q : ''}`, 302);
+  const w = await tgWidgetCfg(env);
+  if (!w) return back('tgerr=off');
+  if (await tooMany(request, 'cab-tgw', 20, 600)) return back('tgerr=limit');
+  const tgId = await verifyTgWidget(url.searchParams, w.token);
+  if (!tgId) return back('tgerr=token');
+  if (mode === 'link') {
+    const s = await cabSession(env, request);
+    if (!s || !s.slugs.length) return back('tgerr=nosession');
+    await env.DB.batch([
+      ...s.members.map((m) => env.DB.prepare('UPDATE cabinet_members SET tg_id = ?2 WHERE id = ?1').bind(m.id, tgId)),
+      env.DB.prepare('UPDATE cabinet_sessions SET tg_id = ?2 WHERE token_hash = ?1').bind(s.hash, tgId)
+    ]);
+    return back('tg=linked');
+  }
+  const found = await env.DB.prepare('SELECT id FROM cabinet_members WHERE removed_at IS NULL AND tg_id = ?1 LIMIT 1').bind(tgId).first();
+  if (!found) return back('tgerr=nomember');
+  const token = await cabNewSession(env, { tgId });
+  return new Response(null, { status: 302, headers: { location: `${url.origin}/cabinet`, 'set-cookie': cabCookie(token, CAB_TTL_MS / 1000) } });
+}
+/** Что показать на странице: кнопку-виджет (имя бота) или ссылку OpenID */
+async function tgFlags(env) {
+  const oidc = !!(await tgLoginCfg(env));
+  const w = oidc ? null : await tgWidgetCfg(env);
+  return { tg: oidc || !!w, tgBot: w ? w.bot : '' };
+}
+
 /* ---------- что разрешено ролям ---------- */
 // owner и senior — всё (senior не трогает владельцев); manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
 // stop — только включать/выключать блюда (кухня, бар)
@@ -1704,7 +1755,7 @@ async function handleCabinetApi(request, env, p) {
   }
 
   const s = await cabSession(env, request);
-  if (!s || !s.slugs.length) return json({ error: 'no_session', mail: !!(await mailCfg(env)), tg: !!(await tgLoginCfg(env)) }, { status: 401 });
+  if (!s || !s.slugs.length) return json({ error: 'no_session', mail: !!(await mailCfg(env)), ...(await tgFlags(env)) }, { status: 401 });
 
   if (sub === '/me' && method === 'GET') {
     const rows = (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results;
@@ -1713,7 +1764,7 @@ async function handleCabinetApi(request, env, p) {
       email: s.email || s.members.map((m) => m.email).find(Boolean) || '',
       telegram: !!(s.tgId || s.members.some((m) => m.tg_id)),
       name: me.name || '', role: 'editor', cabinet: true,
-      mail: !!(await mailCfg(env)), tg: !!(await tgLoginCfg(env)),
+      mail: !!(await mailCfg(env)), ...(await tgFlags(env)),
       restaurants: rows.map((r) => ({ ...r, myRole: s.roles[r.slug] }))
     });
   }
@@ -1873,6 +1924,7 @@ const handler = {
       if (p === '/api/ai-search' && method === 'POST') return (await tooMany(request, 'ai', 30, 600)) ? slowDown() : await handleAiSearch(request, env, ctx);
       if (p.startsWith('/cabinet/api/')) return await handleCabinetApi(request, env, p);
       if ((p === '/cabinet/tg/start' || p === '/cabinet/tg/callback') && method === 'GET') return await handleTgLogin(request, env, p);
+      if ((p === '/cabinet/tg/widget/login' || p === '/cabinet/tg/widget/link') && method === 'GET') return await handleTgWidget(request, env, p.split('/').pop());
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);

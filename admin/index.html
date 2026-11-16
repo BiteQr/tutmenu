@@ -297,6 +297,8 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .inv__btn--tg{background:#2aabee;border-color:#2aabee;color:#fff;}
 .inv__btns > :last-child:nth-child(odd){grid-column:1/-1;}
 .inv__url{margin-top:10px;font-size:12px;color:var(--muted);word-break:break-all;}
+.cab-tgw{display:flex;justify-content:center;min-height:44px;margin-top:6px;}
+.cab-step .cab-tgw{justify-content:flex-start;}
 </style>
 </head>
 <body>
@@ -2775,7 +2777,7 @@ async function initCabinet() {
 }
 
 const TG_ERRORS = {
-  nomember: 'Этот Telegram ещё не привязан ни к одному заведению. Войдите на телефоне, где собирали демо, и привяжите Telegram в «Старте».',
+  nomember: 'Этот Telegram ещё не привязан к заведению. Откройте кабинет на телефоне, где собирали демо, и нажмите «Привязать Telegram» во вкладке «Старт» — после этого вход через Telegram заработает везде.',
   cancel: 'Вход через Telegram отменён', off: 'Вход через Telegram пока не настроен', token: 'Telegram не подтвердил вход, попробуйте ещё раз',
   state: 'Ссылка входа устарела, попробуйте ещё раз', limit: 'Слишком много попыток, подождите пару минут', nosession: 'Сначала откройте кабинет'
 };
@@ -2809,7 +2811,7 @@ function showLogin(me) {
     ${tgerr ? `<p class="cab-err">${esc(TG_ERRORS[tgerr] || 'Не получилось войти через Telegram')}</p>` : ''}
     ${desktop ? `<div class="cab-qr"><div id="lgQr" class="cab-qr__code"></div>
       <p><b>Наведите камеру телефона</b>, на котором открыт кабинет, и нажмите «Войти на компьютере».</p></div>` : ''}
-    ${me.tg ? `<a class="btn cab-tg" href="/cabinet/tg/start?mode=login">${TG_ICON} Войти через Telegram</a>` : ''}
+    ${me.tgBot ? '<div class="cab-tgw" id="lgTgw"></div>' : me.tg ? `<a class="btn cab-tg" href="/cabinet/tg/start?mode=login">${TG_ICON} Войти через Telegram</a>` : ''}
     ${me.mail ? `<details class="cab-mailbox" ${!me.tg && !desktop ? 'open' : ''}><summary>Войти по коду на почту</summary>
       <form id="lgEmailForm"><input type="email" id="lgEmail" required placeholder="you@mail.kz" autocomplete="email" inputmode="email">
         <button class="btn btn-dark" type="submit">Получить код</button></form>
@@ -2821,6 +2823,7 @@ function showLogin(me) {
     <p class="cab-help">Не получается войти? <a href="${help}" target="_blank" rel="noopener">Напишите нам в WhatsApp</a></p>
   </div>`;
   cleanUrl();
+  if (me.tgBot) tgWidget(gate.querySelector('#lgTgw'), me.tgBot, 'login');
   if (desktop) startQrLogin(gate.querySelector('#lgQr'));
   if (!me.mail) return;
   const err = (m) => { document.getElementById('lgErr').textContent = m || ''; };
@@ -2845,6 +2848,21 @@ function showLogin(me) {
 const WA_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 00-8.6 15.1L2 22l5-1.3A10 10 0 1012 2zm0 18.2a8.2 8.2 0 01-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1112 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 01-3.3-2.9c-.3-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 00-.7.3 3 3 0 00-.9 2.2 5.2 5.2 0 001.1 2.8 11.8 11.8 0 004.6 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 001.8-1.2 2.2 2.2 0 00.1-1.2c0-.1-.2-.2-.4-.3z"/></svg>';
 const COPY_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
 const SHARE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>';
+/** Официальная кнопка Telegram: после подтверждения Telegram сам вернёт человека на /cabinet/tg/widget/<mode> */
+function tgWidget(el, bot, mode) {
+  if (!el) return;
+  const sc = document.createElement('script');
+  sc.async = true;
+  sc.src = 'https://telegram.org/js/telegram-widget.js?22';
+  sc.setAttribute('data-telegram-login', bot);
+  sc.setAttribute('data-size', 'large');
+  sc.setAttribute('data-radius', '10');
+  sc.setAttribute('data-lang', 'ru');
+  sc.setAttribute('data-userpic', 'false');
+  sc.setAttribute('data-auth-url', `${location.origin}/cabinet/tg/widget/${mode}`);
+  el.innerHTML = '';
+  el.append(sc);
+}
 const TG_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.9 4.3l-3.2 15.1c-.2 1.1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.3 13.1l-4.8-1.5c-1-.3-1.1-1 .2-1.5L20.5 2.9c.9-.3 1.6.2 1.4 1.4z"/></svg>';
 
 async function startQrLogin(box) {
@@ -3025,7 +3043,7 @@ function renderStartTab(c) {
         <p>${x.text}</p>
         ${x.btn ? `<button class="btn ${x.done ? 'btn-outline' : 'btn-dark'} btn-sm" data-go="${x.btn[1]}" ${x.btn[2] ? `data-scroll="${x.btn[2]}"` : ''}>${x.btn[0]}</button>` : ''}
         ${x.link ? `<a class="btn btn-dark btn-sm" href="${x.link[0]}" target="_blank" rel="noopener">${x.link[1]}</a>` : ''}
-        ${x.tgLink ? `<a class="btn cab-tg btn-sm" href="/cabinet/tg/start?mode=link">${TG_ICON} Привязать Telegram</a>` : ''}
+        ${x.tgLink ? (me.tgBot ? '<div class="cab-tgw" id="stTgw"></div>' : `<a class="btn cab-tg btn-sm" href="/cabinet/tg/start?mode=link">${TG_ICON} Привязать Telegram</a>`) : ''}
         ${x.form ? `<form class="cab-mail" id="cabMail"><input type="email" id="cabMailIn" placeholder="you@mail.kz" required inputmode="email" autocomplete="email"><button class="btn btn-dark btn-sm" type="submit">Получить код</button></form>
           <form class="cab-mail" id="cabCode" hidden><input type="text" id="cabCodeIn" placeholder="Код из письма" required inputmode="numeric" maxlength="6" autocomplete="one-time-code"><button class="btn btn-dark btn-sm" type="submit">Подтвердить</button></form>
           <p class="cab-err" id="cabMailErr"></p>` : ''}
@@ -3041,6 +3059,7 @@ function renderStartTab(c) {
         <li>Нужна помощь? <a href="https://wa.me/${WA_SUPPORT}" target="_blank" rel="noopener">Напишите нам в WhatsApp</a>, перенесём меню сами.</li>
       </ul>
     </div>`;
+  if (me.tgBot) tgWidget(c.querySelector('#stTgw'), me.tgBot, 'link');
   c.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => {
     state.tab = b.dataset.go;
     if (state.tab === 'import' && !state.imp) state.imp = { pages: [], status: [], groups: [], busy: false, catId: state.categories.length ? '' : 'new', newCat: 'Меню' };
