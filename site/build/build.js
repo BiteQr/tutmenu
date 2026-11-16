@@ -133,6 +133,7 @@
           <div class="field"><label for="fName">Название заведения</label><input id="fName" data-f="name" value="${esc(i.name)}" placeholder="Например, Бариста на Достык"></div>
           <div class="field"><label for="fPhone">Телефон / WhatsApp</label><input id="fPhone" data-f="phone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(fmtPhone(i.phone))}" placeholder="+7 7__ ___ __ __"></div>
           <div class="field"><label for="fCity">Город</label><input id="fCity" data-f="city" value="${esc(i.city)}"></div>
+          <div class="field"><label for="fEmail">Email <small style="font-weight:400;opacity:.6">— для входа в кабинет с компьютера, необязательно</small></label><input id="fEmail" data-f="email" type="email" inputmode="email" autocomplete="email" value="${esc(i.email || '')}" placeholder="you@mail.kz"></div>
         </div>
         <p class="label">Тип заведения</p>
         <div class="chips">${KINDS.map(([k, n]) => `<button type="button" class="chip" data-kind="${k}" ${pressed(i.kind === k)}>${n}</button>`).join('')}</div>
