@@ -148,23 +148,40 @@
 
 <!-- ЦЕНА -->
 <section class="price" id="price">
-  <h2 data-t="priceTitle">Одна цена, всё включено</h2>
+  <h2 data-t="priceTitle">Два тарифа, всё включено</h2>
   <div class="price__grid">
     <div class="price__num">
-      <p class="price__big">240 000 ₸</p>
-      <p class="price__per" data-t="pricePer">в год, это около 20 000 ₸ в месяц</p>
+      <div class="plans">
+        <div class="plan">
+          <p class="plan__name" data-t="planAName">На нашем адресе</p>
+          <p class="plan__addr">tutmenu.kz/<b data-t="planSlug">ваше-кафе</b></p>
+          <p class="plan__big">144 000 ₸</p>
+          <p class="plan__per" data-t="planAPer">в год, около 12 000 ₸ в месяц</p>
+        </div>
+        <div class="plan plan--main">
+          <p class="plan__name" data-t="planBName">На вашем домене</p>
+          <p class="plan__addr"><b data-t="planSlug">ваше-кафе</b>.kz</p>
+          <p class="plan__big">240 000 ₸</p>
+          <p class="plan__per" data-t="pricePer">в год, около 20 000 ₸ в месяц</p>
+          <p class="plan__note" data-t="planBNote">Домен покупаете вы, подключаем мы</p>
+        </div>
+      </div>
       <a class="btn" href="build/" data-t="priceCta">Собрать демо бесплатно</a>
+      <p class="price__trial" data-t="priceTrial">7 дней бесплатно, карта не нужна</p>
     </div>
+    <div>
+    <p class="price__both" data-t="priceBoth">В обоих тарифах</p>
     <ul class="price__list">
       <li data-t="p1">Меню на трёх языках с умным поиском</li>
       <li data-t="p2">«С этим берут», корзина и «Показать официанту»</li>
       <li data-t="p3">Админка с телефона: цены, стоп-лист, фото</li>
       <li data-t="p4">Сторис, акции и бизнес-ланч по дням</li>
       <li data-t="p5">Статистика: что смотрят и что ищут</li>
-      <li data-t="p6">Ваш домен, логотип и дизайн</li>
+      <li data-t="p6">Логотип и дизайн под ваше заведение</li>
       <li data-t="p7">Перенесём ваше меню сами, по PDF или фото</li>
       <li data-t="p8">Поддержка в WhatsApp</li>
     </ul>
+    </div>
   </div>
 </section>
 

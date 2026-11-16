@@ -44,13 +44,15 @@
      --------------------------------------------------------- */
   function renderHeader() {
     const s = data.settings;
-    const logo = s.logoHeader || s.logo;
+    const brand = (s.design && s.design.brand) || '';
+    const logo = brand === 'name' ? '' : (s.logoHeader || s.logo);
     const oldName = $('.topbar__name', els.brand);
     if (oldName) oldName.remove();
     if (logo) {
       els.logo.src = safeUrl(logo);
       els.logo.alt = s.name || '';
       els.logo.hidden = false;
+      if (brand === 'logoname') els.brand.insertAdjacentHTML('beforeend', `<span class="topbar__name topbar__name--with-logo">${esc(s.name || '')}</span>`);
     } else {
       els.logo.hidden = true;
       els.brand.insertAdjacentHTML('beforeend', `<span class="topbar__name">${esc(s.name || '')}</span>`);

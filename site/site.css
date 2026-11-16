@@ -242,3 +242,17 @@ p { max-width: 60ch; }
   .rv, .live__list li { opacity: 1 !important; transform: none !important; transition: none !important; }
   .live__q::after { animation: none; }
 }
+
+/* Два тарифа */
+.plans { display: grid; gap: 14px; margin-bottom: 28px; }
+.plan { background: #fff; border-radius: 22px; padding: 22px 22px 20px; border: 1.5px solid transparent; }
+.plan--main { border-color: var(--accent); }
+.plan__name { font-size: 15px; font-weight: 700; opacity: .65; }
+.plan__addr { font-size: 17px; margin-top: 4px; overflow-wrap: anywhere; }
+.plan__addr b { color: var(--accent); }
+.plan__big { font-size: 44px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin-top: 14px; white-space: nowrap; }
+.plan__per { font-size: 16px; margin-top: 8px; }
+.plan__note { font-size: 14px; margin-top: 8px; opacity: .65; }
+.price__trial { font-size: 15px; margin-top: 12px; opacity: .7; }
+.price__both { font-size: 15px; font-weight: 700; opacity: .65; margin-bottom: 16px; }
+@media (min-width: 640px) { .plans { grid-template-columns: 1fr 1fr; } .plan__big { font-size: clamp(30px, 3vw, 44px); } }

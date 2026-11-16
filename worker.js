@@ -1133,6 +1133,7 @@ function cleanDesign(body) {
   const design = {};
   for (const k of ['theme', 'style', 'palette', 'fonts', 'welcomeBg', 'welcomeStyle']) if (typeof d[k] === 'string' && /^[a-z]{2,12}$/.test(d[k])) design[k] = d[k];
   if (typeof d.accent === 'string' && /^#[0-9a-f]{6}$/i.test(d.accent)) design.accent = d.accent;
+  if (['logo', 'logoname', 'name'].includes(d.brand)) design.brand = d.brand;
   if (d.welcome === false) design.welcome = false;
   const b = body.blocks || {};
   const blocks = { promos: b.promos !== false, lunch: b.lunch !== false, stories: b.stories === true };
