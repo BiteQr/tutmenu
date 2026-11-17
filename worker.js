@@ -1493,8 +1493,9 @@ async function cabSession(env, request) {
 
 /* ---------- почта ---------- */
 async function mailCfg(env) {
-  const key = env.RESEND_KEY || await cfg(env, 'resend_key');
-  return key ? { key, from: env.MAIL_FROM || await cfg(env, 'mail_from') || 'tut.menu <hello@tutmenu.kz>' } : null;
+  // Ключ чистим от пробелов и переносов строк, которые часто попадают при вставке
+  const key = String(env.RESEND_KEY || await cfg(env, 'resend_key') || '').replace(/\s+/g, '');
+  return key ? { key, from: String(env.MAIL_FROM || await cfg(env, 'mail_from') || 'tut.menu <hello@tutmenu.kz>').trim() } : null;
 }
 async function sendMail(env, to, subject, text) {
   const m = await mailCfg(env);
@@ -1503,8 +1504,13 @@ async function sendMail(env, to, subject, text) {
     method: 'POST',
     headers: { authorization: `Bearer ${m.key}`, 'content-type': 'application/json' },
     body: JSON.stringify({ from: m.from, to: [to], subject, text })
-  }).catch(() => null);
-  return !!(r && r.ok);
+  }).catch((e) => ({ ok: false, status: 0, text: async () => String(e) }));
+  if (r.ok) return true;
+  // Причину отказа Resend сохраняем (без ключа), чтобы показать в кабинете и понять, что чинить
+  const why = (await r.text().catch(() => '')).slice(0, 300);
+  console.log('resend error', r.status, why);
+  sendMail.lastError = `${r.status} ${(() => { try { return JSON.parse(why).message || why; } catch { return why; } })()}`.trim();
+  return false;
 }
 async function cabSendCode(env, email) {
   const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
@@ -1782,7 +1788,7 @@ async function handleCabinetApi(request, env, p) {
     const email = normEmail((await readBody()).email);
     if (!EMAIL_RE.test(email)) return json({ error: 'bad_email', message: 'Проверьте email' }, { status: 400 });
     if (await tooMany(request, 'cab-mail', 3, 600, email)) return slowDown();
-    if (!(await cabSendCode(env, email))) return json({ error: 'mail_off', message: 'Не получилось отправить письмо, попробуйте позже' }, { status: 503 });
+    if (!(await cabSendCode(env, email))) return json({ error: 'mail_off', message: `Не получилось отправить письмо (почтовый сервис ответил: ${sendMail.lastError || 'нет ответа'})` }, { status: 503 });
     return json({ ok: true });
   }
   if (sub === '/email/verify' && method === 'POST') {
