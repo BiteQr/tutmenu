@@ -1910,6 +1910,11 @@ const handler = {
     const url = new URL(request.url);
     const p = url.pathname;
     const method = request.method;
+    // Только защищённое соединение: http:// → https:// (локальная проверка на localhost не трогается)
+    if (url.protocol === 'http:' && !/^(localhost|127\.0\.0\.1)$/.test(url.hostname)) {
+      url.protocol = 'https:';
+      return Response.redirect(url.toString(), 301);
+    }
 
     try {
       if (p === '/api/menu' && method === 'GET') {
