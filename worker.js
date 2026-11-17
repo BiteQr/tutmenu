@@ -1955,7 +1955,7 @@ const handler = {
     if (method === 'GET' || method === 'HEAD') {
       if (url.hostname === 'www.tutmenu.kz') return Response.redirect('https://tutmenu.kz' + p + url.search, 301);
       if (url.hostname.endsWith('.workers.dev') && env.DEV_SALES !== '1'
-        && (/^\/(site|cabinet|demo)(\/|$)/.test(p) || /^\/[a-z0-9][a-z0-9-]{1,40}\/?$/.test(p)) && !/^\/(admin|api|files|media)(\/|$)/.test(p)) {
+        && (/^\/(site|demo)(\/|$)/.test(p) || /^\/[a-z0-9][a-z0-9-]{1,40}\/?$/.test(p)) && !/^\/(admin|api|files|media|cabinet)(\/|$)/.test(p)) {
         return Response.redirect('https://tutmenu.kz' + p + url.search, 302);
       }
     }
