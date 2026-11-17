@@ -281,6 +281,11 @@ async function handleMenu(request, env) {
     }))
   };
 
+  // Оплата просрочена: в отсрочке гостям — небольшая плашка, после — «меню временно недоступно»
+  const bill = billingState(restaurant);
+  if (bill && bill.state === 'grace') settings.billing = { state: 'grace', slug, offAt: bill.offAt, offIn: bill.offIn };
+  if (bill && bill.state === 'off') settings.demo = { slug, trial: true, billing: true, expiresAt: bill.due, expired: true, restaurant: restaurant.name };
+
   // Пробный период: плашка с остатком дней (видит только создатель), после — «меню недоступно».
   // Пока своих блюд нет, гостям показываем пример меню в дизайне заведения.
   if (restaurant.plan === 'trial') {
@@ -1325,6 +1330,23 @@ async function ownerOnly(env, request) {
   if (!row || row.role !== 'owner') return { ok: false, status: 403, error: 'owner_only' };
   return { ok: true, email };
 }
+/* ---------- Оплата платящих заведений ----------
+   paid_until — дата следующей оплаты (ставит владелец сервиса в «Платформе»).
+   После неё 5 дней отсрочки: владельцу — плашка в кабинете и письмо каждый день, гостям —
+   небольшая плашка без слов об оплате. Потом меню отключается до оплаты. Пусто — без срока. */
+const GRACE_DAYS = 5;
+function billingState(r, now = Date.now()) {
+  if (!r || r.plan !== 'paid' || !r.paid_until) return null;
+  const due = Date.parse(r.paid_until);
+  if (!due) return null;
+  const day = 864e5;
+  const offAt = due + GRACE_DAYS * day;
+  if (now < due) return { state: 'ok', daysLeft: Math.ceil((due - now) / day), due: r.paid_until };
+  if (now < offAt) return { state: 'grace', overdue: Math.max(1, Math.ceil((now - due) / day)), offIn: Math.ceil((offAt - now) / day), offAt: new Date(offAt).toISOString(), due: r.paid_until };
+  return { state: 'off', overdue: Math.ceil((now - due) / day), due: r.paid_until };
+}
+const fmtDateRu = (iso) => { const d = new Date(iso); return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`; };
+
 /** Пульт платформы для владельца сервиса: все заведения с цифрами за 7 дней и сводка */
 async function handlePlatformApi(request, env) {
   const own = await ownerOnly(env, request);
@@ -1332,7 +1354,7 @@ async function handlePlatformApi(request, env) {
   const since = new Date(Date.now() - 7 * 864e5).toISOString().replace('T', ' ').slice(0, 19);
   const sinceIso = new Date(Date.now() - 7 * 864e5).toISOString();
   const [rs, leads7, leadsAll] = await Promise.all([
-    env.DB.prepare(`SELECT r.slug, r.name, r.domain, r.active, r.plan, r.trial_until, r.created_at, r.logo_header,
+    env.DB.prepare(`SELECT r.slug, r.name, r.domain, r.active, r.plan, r.trial_until, r.paid_until, r.created_at, r.logo_header,
         (SELECT COUNT(*) FROM menu_items m WHERE m.restaurant_id = r.slug) items,
         (SELECT COUNT(DISTINCT e.session_id) FROM events e WHERE e.restaurant_id = r.slug AND e.created_at >= ?1) guests7,
         (SELECT COUNT(*) FROM orders o WHERE o.restaurant_id = r.slug AND o.created_at >= ?1) orders7,
@@ -1343,7 +1365,20 @@ async function handlePlatformApi(request, env) {
     env.DB.prepare('SELECT COUNT(*) n FROM demos WHERE created_at >= ?1').bind(sinceIso).first(),
     env.DB.prepare('SELECT COUNT(*) n FROM demos').first()
   ]);
-  return json({ restaurants: rs.results, leads7: leads7.n, leadsAll: leadsAll.n });
+  return json({ restaurants: rs.results.map((r) => ({ ...r, billing: billingState(r) })), leads7: leads7.n, leadsAll: leadsAll.n, graceDays: GRACE_DAYS });
+}
+/** POST /admin/api/platform/<slug>/paid-until {date: 'YYYY-MM-DD' | ''} — дата следующей оплаты */
+async function handlePlatformPaidUntil(request, env, slug) {
+  const own = await ownerOnly(env, request);
+  if (!own.ok) return json({ error: own.error }, { status: own.status });
+  const b = await request.json().catch(() => ({}));
+  const date = String(b.date || '');
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'bad_date', message: 'Неверная дата' }, { status: 400 });
+  // Срок — конец выбранного дня по Уральску (UTC+5)
+  const iso = date ? new Date(Date.parse(date + 'T23:59:59+05:00')).toISOString() : '';
+  const r = await env.DB.prepare("UPDATE restaurants SET paid_until = ?2 WHERE slug = ?1 AND plan = 'paid'").bind(slug, iso).run();
+  if (!r.meta.changes) return json({ error: 'not_paid', message: 'Дату оплаты можно поставить только платящему заведению' }, { status: 400 });
+  return json({ ok: true, paid_until: iso });
 }
 
 async function handleLeadsApi(request, env, slug, action) {
@@ -1377,7 +1412,7 @@ async function handleLeadsApi(request, env, slug, action) {
     const d = await env.DB.prepare('SELECT converted_to FROM demos WHERE slug = ?1').bind(slug).first();
     if (!d || !d.converted_to) return json({ error: 'not_trial', message: 'Это старое демо без своего меню' }, { status: 400 });
     await env.DB.batch([
-      env.DB.prepare("UPDATE restaurants SET plan = 'paid', trial_until = '' WHERE slug = ?1").bind(d.converted_to),
+      env.DB.prepare("UPDATE restaurants SET plan = 'paid', trial_until = '', paid_until = ?2 WHERE slug = ?1").bind(d.converted_to, new Date(Date.now() + 365 * 864e5).toISOString()),
       env.DB.prepare("UPDATE demos SET status = 'paid' WHERE slug = ?1").bind(slug)
     ]);
     return json({ ok: true });
@@ -1390,6 +1425,34 @@ async function handleLeadsApi(request, env, slug, action) {
 /** Утренний отчёт: сколько гостей было вчера и насколько мы близки к бесплатным лимитам Cloudflare.
  *  Точные числа запросов видит только панель Cloudflare; здесь — оценка по нашей статистике
  *  (замер: один гость ≈ 80 запросов через сервер, если фото идут через /files, и ≈ 8 — если через CDN). */
+/** Каждый день в 9:17 по Уральску: письма владельцам за 7/3/1 день до оплаты и каждый день отсрочки,
+ *  и сводка владельцу сервиса в Telegram */
+async function billingReminders(env) {
+  const rs = (await env.DB.prepare("SELECT slug, name, domain, plan, paid_until FROM restaurants WHERE plan = 'paid' AND paid_until <> ''").all()).results;
+  const lines = [];
+  for (const r of rs) {
+    const b = billingState(r);
+    if (!b) continue;
+    const url = r.domain ? `https://${r.domain}` : `https://tutmenu.kz/${r.slug}`;
+    let subject = '', text = '';
+    if (b.state === 'ok' && [7, 3, 1].includes(b.daysLeft)) {
+      subject = `tut.menu: оплата меню «${r.name}» через ${b.daysLeft} дн.`;
+      text = `Здравствуйте!\n\nНапоминаем: оплата электронного меню «${r.name}» (${url}) — до ${fmtDateRu(b.due)}.\nЧтобы оплатить, напишите нам в WhatsApp: https://wa.me/77064150958\n\nКоманда tut.menu`;
+      lines.push(`⏰ ${r.name}: оплата через ${b.daysLeft} дн. (${fmtDateRu(b.due)})`);
+    } else if (b.state === 'grace') {
+      subject = `tut.menu: оплата меню «${r.name}» просрочена`;
+      text = `Здравствуйте!\n\nСрок оплаты электронного меню «${r.name}» (${url}) истёк ${fmtDateRu(b.due)}.\nМеню продолжит работать ещё ${b.offIn} дн. — до ${fmtDateRu(b.offAt)}, после этого гости его не увидят.\nОплатить: https://wa.me/77064150958\n\nВсё, что вы настроили, сохранится. Команда tut.menu`;
+      lines.push(`⚠️ ${r.name}: просрочено ${b.overdue} дн., отключится через ${b.offIn} дн.`);
+    } else if (b.state === 'off' && b.overdue === GRACE_DAYS + 1) {
+      lines.push(`⛔ ${r.name}: меню отключено за неуплату`);
+    }
+    if (!subject) continue;
+    const emails = (await env.DB.prepare("SELECT DISTINCT email FROM cabinet_members WHERE slug = ?1 AND removed_at IS NULL AND email <> '' AND role IN ('owner', 'senior')").bind(r.slug).all()).results.map((x) => x.email);
+    for (const e of emails) await sendMail(env, e, subject, text);
+  }
+  if (lines.length) await tgNotify(env, ['💳 Оплаты tut.menu', ...lines].join('\n'));
+}
+
 async function usageReport(env) {
   try {
     const rows = (await env.DB.prepare(
@@ -1785,14 +1848,14 @@ async function handleCabinetApi(request, env, p) {
   if (!s || !s.slugs.length) return json({ error: 'no_session', mail: !!(await mailCfg(env)), ...(await tgFlags(env)) }, { status: 401 });
 
   if (sub === '/me' && method === 'GET') {
-    const rows = (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results;
+    const rows = (await env.DB.prepare(`SELECT slug, name, active, plan, trial_until, paid_until, domain FROM restaurants WHERE slug IN (${s.slugs.map(() => '?').join(',')}) ORDER BY name`).bind(...s.slugs).all()).results;
     const me = s.members[0] || {};
     return json({
       email: s.email || s.members.map((m) => m.email).find(Boolean) || '',
       telegram: !!(s.tgId || s.members.some((m) => m.tg_id)),
       name: me.name || '', role: 'editor', cabinet: true,
       mail: !!(await mailCfg(env)), ...(await tgFlags(env)),
-      restaurants: rows.map((r) => ({ ...r, myRole: s.roles[r.slug] }))
+      restaurants: rows.map((r) => ({ ...r, myRole: s.roles[r.slug], billing: billingState(r) }))
     });
   }
   if (sub === '/qr/approve' && method === 'POST') {
@@ -1917,7 +1980,7 @@ async function serveRestaurantPage(request, env, url, rest) {
 const handler = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanupDemos(env));
-    if (new Date().getUTCHours() === 4) ctx.waitUntil(usageReport(env));   // 9:17 по Уральску
+    if (new Date().getUTCHours() === 4) { ctx.waitUntil(usageReport(env)); ctx.waitUntil(billingReminders(env)); }   // 9:17 по Уральску
   },
   /* Обёртка: базовые заголовки безопасности на все ответы */
   async fetch(request, env, ctx) {
@@ -1965,6 +2028,7 @@ const handler = {
         return await handleTgApi(request, env, p.split('/')[4] || '');
       }
       if (p === '/admin/api/platform' && method === 'GET') return await handlePlatformApi(request, env);
+      { const m = p.match(/^\/admin\/api\/platform\/([a-z0-9-]{1,64})\/paid-until$/); if (m && method === 'POST') return await handlePlatformPaidUntil(request, env, m[1]); }
       if (p.startsWith('/admin/api/leads')) {
         const [, , , , slug, action] = p.split('/');
         return await handleLeadsApi(request, env, (slug || '').replace(/[^a-z0-9-]/g, ''), action);

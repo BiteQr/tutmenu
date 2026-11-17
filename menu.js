@@ -639,12 +639,32 @@
     App.track('view_category', { id: catId });
   }
 
+  /** Переход к блюду из акции/истории: ставим блюдо в центр экрана и «подсвечиваем» его —
+   *  остальные блюда на пару секунд тускнеют, у нужного пульсирует рамка и плашка сверху. */
+  let spotTimer = 0;
   function goToItem(id) {
     if (els.search.value) { els.search.value = ''; applySearch(); }
     const el = document.getElementById('item-' + id);
     if (!el) return;
     scrollToEl(el);
-    bump(el, 'flash');
+    // докручиваем так, чтобы блюдо оказалось по центру, а не под шапкой
+    requestAnimationFrame(() => {
+      const r = el.getBoundingClientRect();
+      const free = window.innerHeight - stickyOffset();
+      const extra = r.height < free ? (free - r.height) / 2 : 0;
+      const top = r.top + window.scrollY - stickyOffset() - extra;
+      spyLockUntil = Date.now() + 1200;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    });
+    clearTimeout(spotTimer);
+    $$('.item.is-spot').forEach((x) => x.classList.remove('is-spot'));
+    main.classList.remove('has-spot');
+    el.dataset.spot = I18n.t('promoDish');
+    setTimeout(() => {
+      el.classList.add('is-spot');
+      main.classList.add('has-spot');
+      spotTimer = setTimeout(() => { main.classList.remove('has-spot'); el.classList.remove('is-spot'); }, 3200);
+    }, 450);
   }
 
   /* ---------------------------------------------------------

@@ -317,7 +317,7 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .pl-search{flex:1;min-width:180px;max-width:320px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;}
 .pl-row{display:flex;gap:14px;align-items:center;padding:14px 4px;border-top:1px solid var(--line);flex-wrap:wrap;}
 .pl-ava{flex:none;width:44px;height:44px;border-radius:12px;background:var(--bg);display:grid;place-items:center;font-weight:800;font-size:18px;overflow:hidden;}
-.pl-ava:has(img){background:#1c1c1e;}
+.pl-ava:has(img){background:#f2f1ee;}
 .pl-ava img{width:100%;height:100%;object-fit:contain;padding:5px;}
 .pl-main{flex:1;min-width:220px;display:grid;gap:3px;}
 .pl-name{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:16px;}
@@ -331,6 +331,14 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .pl-nums{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
 .pl-nums b{color:var(--text);}
 .pl-act{display:flex;gap:6px;flex-wrap:wrap;}
+.pl-due{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:2px 0;}
+.pl-due input{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;}
+.pl-due small{font-size:12px;}
+.pl-year{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700;cursor:pointer;}
+.cab-bill{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#fff3d6;color:#5c3d00;font-size:14px;}
+.cab-bill span{flex:1;min-width:200px;}
+.cab-bill--red{background:#fde7e7;color:#8c1d18;}
+.cab-bill .btn{background:#1c1c1e;color:#fff;text-decoration:none;}
 </style>
 </head>
 <body>
@@ -2806,6 +2814,8 @@ async function initCabinet() {
   state.tab = location.hash === '#import' && myRole() !== 'stop' ? 'import' : cabTabs()[0][0];
   if (state.tab === 'import') state.imp = { pages: [], status: [], groups: [], busy: false, catId: 'new', newCat: 'Меню' };
   await selectRestaurant(state.slug);
+  cabBillBanner();
+  if (me.restaurants.length > 1) sel.addEventListener('change', () => setTimeout(cabBillBanner, 0));
   document.getElementById('loader').hidden = true;
   document.getElementById('app').hidden = false;
   const qr = cabParams.get('qr');
@@ -2821,6 +2831,23 @@ const TG_ERRORS = {
   cancel: 'Вход через Telegram отменён', off: 'Вход через Telegram пока не настроен', token: 'Telegram не подтвердил вход, попробуйте ещё раз',
   state: 'Ссылка входа устарела, попробуйте ещё раз', limit: 'Слишком много попыток, подождите пару минут', nosession: 'Сначала откройте кабинет'
 };
+
+/** Плашка об оплате в кабинете: за 7 дней до срока, в дни отсрочки и после отключения */
+function cabBillBanner() {
+  let el = document.getElementById('cabBill');
+  const r = (state.me.restaurants || []).find((x) => x.slug === state.slug) || {};
+  const b = r.billing;
+  const fd = (iso) => new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  let html = '';
+  const wa = `https://wa.me/${WA_SUPPORT}?text=${encodeURIComponent(`Здравствуйте! Хочу оплатить tut.menu для «${r.name}»`)}`;
+  if (b && b.state === 'ok' && b.daysLeft <= 7) html = `<b>Оплата меню до ${fd(b.due)}</b> — осталось ${b.daysLeft} ${daysWord(b.daysLeft)}.`;
+  if (b && b.state === 'grace') html = `<b>Срок оплаты истёк ${fd(b.due)}.</b> Меню отключится для гостей через ${b.offIn} ${daysWord(b.offIn)}. Всё сохранится — просим оплатить.`;
+  if (b && b.state === 'off') html = '<b>Меню отключено для гостей: срок оплаты истёк.</b> После оплаты оно сразу снова откроется, всё сохранено.';
+  if (!html) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'cabBill'; document.getElementById('tabs').before(el); }
+  el.className = 'cab-bill' + (b.state === 'ok' ? '' : ' cab-bill--red');
+  el.innerHTML = `<span>${html}</span><a class="btn btn-sm" href="${wa}" target="_blank" rel="noopener">Оплатить</a>`;
+}
 
 /** Телефон подтверждает вход на компьютере (QR) */
 function approveQr(id) {
@@ -3134,6 +3161,10 @@ function fmtNum(n) { return Number(n || 0).toLocaleString('ru-RU'); }
 function restStatus(r) {
   if (!r.active) return { key: 'off', text: 'Выключено', cls: 'st-off' };
   if (r.plan === 'test') return { key: 'test', text: 'Тестовое', cls: 'st-off' };
+  const b = r.billing;
+  if (b && b.state === 'off') return { key: 'debt', text: `Отключено: долг ${b.overdue} ${daysWord(b.overdue)}`, cls: 'st-exp' };
+  if (b && b.state === 'grace') return { key: 'debt', text: `Просрочено ${b.overdue} ${daysWord(b.overdue)}`, cls: 'st-exp' };
+  if (b && b.state === 'ok' && b.daysLeft <= 7) return { key: 'debt', text: `Оплата через ${b.daysLeft} ${daysWord(b.daysLeft)}`, cls: 'st-trial' };
   if (r.plan === 'trial') {
     const left = r.trial_until ? Math.ceil((Date.parse(r.trial_until) - Date.now()) / 864e5) : 0;
     return left > 0 ? { key: 'trial', text: `Пробный · ${left} ${daysWord(left)}`, cls: 'st-trial' } : { key: 'expired', text: 'Пробный истёк', cls: 'st-exp' };
@@ -3147,9 +3178,10 @@ async function renderPlatformTab(c) {
   let d;
   try { d = await api('/platform'); } catch (er) { c.innerHTML = `<p class="hint">${esc(er.message)}</p>`; return; }
   // Тестовые и выключенные — в конце списка
-  const rank = { expired: 0, trial: 1, paid: 2, test: 3, off: 4 };
+  const rank = { debt: 0, expired: 1, trial: 2, paid: 3, test: 4, off: 5 };
   const rs = d.restaurants.map((r) => ({ ...r, st: restStatus(r) })).sort((a, b) => rank[a.st.key] - rank[b.st.key]);
-  const paid = rs.filter((r) => r.st.key === 'paid');
+  const paid = rs.filter((r) => r.st.key === 'paid' || r.st.key === 'debt');
+  const debt = rs.filter((r) => r.st.key === 'debt');
   const trial = rs.filter((r) => r.st.key === 'trial');
   const expired = rs.filter((r) => r.st.key === 'expired');
   const tests = rs.filter((r) => r.st.key === 'test' || r.st.key === 'off');
@@ -3158,12 +3190,13 @@ async function renderPlatformTab(c) {
   const kpis = [
     ['Заведений', rs.length - tests.length, `${paid.length} платят · ${trial.length} на пробном${tests.length ? ` · ${tests.length} тестовых` : ''}`],
     ['Доход в год', fmtNum(revenue) + ' ₸', 'оценка по тарифам 144 / 240 тыс.'],
+    ['К оплате', debt.length, debt.length ? 'оплата за 7 дней или просрочена' : 'никто не просрочил'],
     ['Пробный период', trial.length, expired.length ? `ещё ${expired.length} истекли — пора звонить` : 'истёкших нет'],
     ['Лиды за 7 дней', d.leads7, `всего ${d.leadsAll}`],
     ['Гостей за 7 дней', fmtNum(guests), 'открыли меню во всех заведениях']
   ];
-  const filters = [['all', 'Все', rs.length], ['paid', 'Платят', paid.length], ['trial', 'Пробные', trial.length], ['expired', 'Истекли', expired.length], ...(tests.length ? [['test', 'Тестовые', tests.length]] : [])];
-  const list = () => rs.filter((r) => (platFilter === 'all' || r.st.key === platFilter || (platFilter === 'test' && r.st.key === 'off'))
+  const filters = [['all', 'Все', rs.length], ...(debt.length ? [['debt', 'Оплата', debt.length]] : []), ['paid', 'Платят', paid.length], ['trial', 'Пробные', trial.length], ['expired', 'Истекли', expired.length], ...(tests.length ? [['test', 'Тестовые', tests.length]] : [])];
+  const list = () => rs.filter((r) => (platFilter === 'all' || r.st.key === platFilter || (platFilter === 'test' && r.st.key === 'off') || (platFilter === 'paid' && r.st.key === 'debt'))
     && (!platQuery || (r.name + ' ' + r.slug + ' ' + (r.domain || '')).toLowerCase().includes(platQuery)));
   const rowHTML = (r) => {
     const wa = r.phone ? String(r.phone).replace(/\D/g, '').replace(/^8/, '7') : '';
@@ -3172,6 +3205,7 @@ async function renderPlatformTab(c) {
       <div class="pl-main">
         <div class="pl-name"><b>${esc(r.name)}</b><span class="pl-st ${r.st.cls}">${r.st.text}</span></div>
         <a class="pl-url" href="${esc(restUrl(r))}" target="_blank" rel="noopener">${esc(restUrl(r).replace(/^https?:\/\//, ''))}</a>
+        ${r.plan === 'paid' ? `<label class="pl-due">Оплачено до <input type="date" data-due value="${r.paid_until ? new Date(Date.parse(r.paid_until) + 5 * 3600e3).toISOString().slice(0, 10) : ''}"><button type="button" class="pl-year" data-year>+1 год</button>${r.paid_until ? '' : '<small>без срока</small>'}</label>` : ''}
         <div class="pl-nums"><span><b>${fmtNum(r.items)}</b> блюд</span><span><b>${fmtNum(r.guests7)}</b> гостей за 7 дн.</span><span><b>${fmtNum(r.orders7)}</b> заказов</span><span><b>${r.team || 0}</b> в команде</span></div>
       </div>
       <div class="pl-act">
@@ -3204,6 +3238,15 @@ async function renderPlatformTab(c) {
       };
       const act = row.querySelector('[data-activate]');
       if (act) act.onclick = () => { if (confirm(`«${r.name}» оплатил? Меню станет постоянным.`)) api(`/leads/${r.lead_slug}/activate`, { method: 'POST' }).then(() => { toast('Подключено'); renderPlatformTab(c); }).catch((er) => toast(er.message)); };
+      const due = row.querySelector('[data-due]');
+      const saveDue = (date) => api(`/platform/${r.slug}/paid-until`, { method: 'POST', body: { date } }).then(() => { toast(date ? `Оплачено до ${date.split('-').reverse().join('.')}` : 'Срок оплаты убран'); renderPlatformTab(c); }).catch((er) => toast(er.message));
+      if (due) due.onchange = () => saveDue(due.value);
+      const yr = row.querySelector('[data-year]');
+      if (yr) yr.onclick = () => {
+        const base = Math.max(Date.now(), r.paid_until ? Date.parse(r.paid_until) : 0);
+        const d = new Date(base + 5 * 3600e3); d.setUTCFullYear(d.getUTCFullYear() + 1);
+        saveDue(d.toISOString().slice(0, 10));
+      };
       const ext = row.querySelector('[data-extend]');
       if (ext) ext.onclick = () => api(`/leads/${r.lead_slug}/extend`, { method: 'POST' }).then(() => { toast('Пробный период продлён на 7 дней'); renderPlatformTab(c); }).catch((er) => toast(er.message));
     });
