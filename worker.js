@@ -1951,6 +1951,14 @@ const handler = {
     }
 
     // Демо из конструктора — только на продающем домене (и workers.dev для проверки)
+    // Один адрес для клиентов: www и старый workers.dev → tutmenu.kz (админка, API и файлы на workers.dev остаются)
+    if (method === 'GET' || method === 'HEAD') {
+      if (url.hostname === 'www.tutmenu.kz') return Response.redirect('https://tutmenu.kz' + p + url.search, 301);
+      if (url.hostname.endsWith('.workers.dev') && env.DEV_SALES !== '1'
+        && (/^\/(site|cabinet|demo)(\/|$)/.test(p) || /^\/[a-z0-9][a-z0-9-]{1,40}\/?$/.test(p)) && !/^\/(admin|api|files|media)(\/|$)/.test(p)) {
+        return Response.redirect('https://tutmenu.kz' + p + url.search, 302);
+      }
+    }
     // DEV_SALES — только для локальной проверки (wrangler dev на localhost), в бою не задан
     const salesish = SALES_HOSTS.has(url.hostname) || url.hostname.endsWith('.workers.dev') || env.DEV_SALES === '1';
     if (/^\/demo\/[a-z0-9-]{1,64}\/?$/i.test(p) && salesish && (method === 'GET' || method === 'HEAD')) {
