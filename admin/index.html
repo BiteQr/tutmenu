@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<link rel="icon" href="/brand/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png"><link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Админка меню</title>
@@ -299,6 +300,37 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;}
 .inv__url{margin-top:10px;font-size:12px;color:var(--muted);word-break:break-all;}
 .cab-tgw{display:flex;justify-content:center;min-height:44px;margin-top:6px;}
 .cab-step .cab-tgw{justify-content:flex-start;}
+
+.tabs__sep{flex:none;width:1px;background:var(--line);margin:4px 8px;}
+.tabs__label{flex:none;align-self:center;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-right:2px;white-space:nowrap;}
+.pl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;}
+.pl-kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;gap:2px;}
+.pl-kpi p{font-size:13px;color:var(--muted);font-weight:600;}
+.pl-kpi b{font-size:26px;font-weight:800;letter-spacing:-.02em;}
+.pl-kpi small{font-size:12px;color:var(--muted);}
+.pl-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.pl-filters{display:flex;gap:6px;flex-wrap:wrap;}
+.chip-f{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;}
+.chip-f span{color:var(--muted);margin-left:2px;}
+.chip-f.on{background:var(--dark);color:var(--on-dark);border-color:var(--dark);}
+.chip-f.on span{color:inherit;opacity:.7;}
+.pl-search{flex:1;min-width:180px;max-width:320px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;}
+.pl-row{display:flex;gap:14px;align-items:center;padding:14px 4px;border-top:1px solid var(--line);flex-wrap:wrap;}
+.pl-ava{flex:none;width:44px;height:44px;border-radius:12px;background:var(--bg);display:grid;place-items:center;font-weight:800;font-size:18px;overflow:hidden;}
+.pl-ava:has(img){background:#1c1c1e;}
+.pl-ava img{width:100%;height:100%;object-fit:contain;padding:5px;}
+.pl-main{flex:1;min-width:220px;display:grid;gap:3px;}
+.pl-name{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:16px;}
+.pl-st{font-size:12px;font-weight:700;padding:3px 8px;border-radius:99px;}
+.st-paid{background:#e3f6ea;color:#1f7a45;}
+.st-trial{background:#fff3d6;color:#8a5a00;}
+.st-exp{background:#fde7e7;color:#b3261e;}
+.st-off{background:var(--bg);color:var(--muted);}
+.pl-url{font-size:13px;color:var(--muted);text-decoration:none;word-break:break-all;}
+.pl-url:hover{text-decoration:underline;}
+.pl-nums{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);}
+.pl-nums b{color:var(--text);}
+.pl-act{display:flex;gap:6px;flex-wrap:wrap;}
 </style>
 </head>
 <body>
@@ -473,9 +505,14 @@ async function init() {
       const sel = document.getElementById('restaurantSelect');
       sel.hidden = false;
       sel.innerHTML = me.restaurants.map((r) => `<option value="${esc(r.slug)}">${esc(r.name)} (${esc(r.slug)})</option>`).join('');
-      sel.onchange = () => selectRestaurant(sel.value);
+      const withDomain = me.restaurants.find((r) => r.domain);
+      if (withDomain) sel.value = withDomain.slug;
+      sel.onchange = () => { if (['platform', 'leads'].includes(state.tab)) state.tab = 'stats'; selectRestaurant(sel.value); };
       document.getElementById('addRestaurantBtn').hidden = false;
       document.getElementById('addRestaurantBtn').onclick = openCreateRestaurantModal;
+      // Владелец сервиса начинает с пульта всей платформы, а не с одного заведения
+      document.querySelector('.topbar h1').textContent = 'tut.menu · платформа';
+      state.tab = 'platform';
       await selectRestaurant(sel.value);
     } else {
       document.getElementById('restaurantName').hidden = false;
@@ -646,9 +683,11 @@ function renderTabs() {
   const nav = document.getElementById('tabs');
   // «Лиды» (демо из конструктора tut.menu) видит только владелец сервиса
   const tabs = CABINET ? cabTabs()
-    : state.me && state.me.role === 'owner' ? [['leads', '🎯 Лиды'], ...TABS] : TABS;
-  nav.innerHTML = tabs.map(([key, label]) =>
-    `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
+    : state.me && state.me.role === 'owner' ? [['platform', '🏠 Платформа'], ['leads', '🎯 Лиды'], ['|', ''], ...TABS] : TABS;
+  const curName = (state.settings && state.settings.name) || '';
+  nav.innerHTML = tabs.map(([key, label]) => key === '|'
+    ? `<span class="tabs__sep"></span><span class="tabs__label">${esc(curName)}:</span>`
+    : `<button class="tab ${state.tab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`
   ).join('');
   nav.querySelectorAll('.tab').forEach((btn) => {
     btn.onclick = () => { state.tab = btn.dataset.tab; renderTabs(); renderTab(); };
@@ -659,6 +698,7 @@ function renderTabs() {
 
 function renderTab() {
   const c = document.getElementById('content');
+  if (state.tab === 'platform') return renderPlatformTab(c);
   if (state.tab === 'start') return renderStartTab(c);
   if (state.tab === 'team') return renderTeamTab(c);
   if (state.tab === 'stop') return renderStopTab(c);
@@ -3083,6 +3123,94 @@ function renderStartTab(c) {
       catch (er) { err(er.message); }
     };
   }
+}
+
+/* =========================================================
+   ПУЛЬТ ПЛАТФОРМЫ (только владелец сервиса): все заведения, статусы, цифры
+   ========================================================= */
+const PLAN_PRICE = { domain: 240000, path: 144000 };
+let platFilter = 'all', platQuery = '';
+function fmtNum(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+function restStatus(r) {
+  if (!r.active) return { key: 'off', text: 'Выключено', cls: 'st-off' };
+  if (r.plan === 'test') return { key: 'test', text: 'Тестовое', cls: 'st-off' };
+  if (r.plan === 'trial') {
+    const left = r.trial_until ? Math.ceil((Date.parse(r.trial_until) - Date.now()) / 864e5) : 0;
+    return left > 0 ? { key: 'trial', text: `Пробный · ${left} ${daysWord(left)}`, cls: 'st-trial' } : { key: 'expired', text: 'Пробный истёк', cls: 'st-exp' };
+  }
+  return { key: 'paid', text: 'Платит', cls: 'st-paid' };
+}
+function restUrl(r) { return r.domain ? `https://${r.domain}` : `${DEMO_ORIGIN}/${r.slug}`; }
+
+async function renderPlatformTab(c) {
+  c.innerHTML = '<p class="hint">Загружаю платформу…</p>';
+  let d;
+  try { d = await api('/platform'); } catch (er) { c.innerHTML = `<p class="hint">${esc(er.message)}</p>`; return; }
+  // Тестовые и выключенные — в конце списка
+  const rank = { expired: 0, trial: 1, paid: 2, test: 3, off: 4 };
+  const rs = d.restaurants.map((r) => ({ ...r, st: restStatus(r) })).sort((a, b) => rank[a.st.key] - rank[b.st.key]);
+  const paid = rs.filter((r) => r.st.key === 'paid');
+  const trial = rs.filter((r) => r.st.key === 'trial');
+  const expired = rs.filter((r) => r.st.key === 'expired');
+  const tests = rs.filter((r) => r.st.key === 'test' || r.st.key === 'off');
+  const revenue = paid.reduce((sum, r) => sum + (r.domain ? PLAN_PRICE.domain : PLAN_PRICE.path), 0);
+  const guests = rs.reduce((sum, r) => sum + (r.guests7 || 0), 0);
+  const kpis = [
+    ['Заведений', rs.length - tests.length, `${paid.length} платят · ${trial.length} на пробном${tests.length ? ` · ${tests.length} тестовых` : ''}`],
+    ['Доход в год', fmtNum(revenue) + ' ₸', 'оценка по тарифам 144 / 240 тыс.'],
+    ['Пробный период', trial.length, expired.length ? `ещё ${expired.length} истекли — пора звонить` : 'истёкших нет'],
+    ['Лиды за 7 дней', d.leads7, `всего ${d.leadsAll}`],
+    ['Гостей за 7 дней', fmtNum(guests), 'открыли меню во всех заведениях']
+  ];
+  const filters = [['all', 'Все', rs.length], ['paid', 'Платят', paid.length], ['trial', 'Пробные', trial.length], ['expired', 'Истекли', expired.length], ...(tests.length ? [['test', 'Тестовые', tests.length]] : [])];
+  const list = () => rs.filter((r) => (platFilter === 'all' || r.st.key === platFilter || (platFilter === 'test' && r.st.key === 'off'))
+    && (!platQuery || (r.name + ' ' + r.slug + ' ' + (r.domain || '')).toLowerCase().includes(platQuery)));
+  const rowHTML = (r) => {
+    const wa = r.phone ? String(r.phone).replace(/\D/g, '').replace(/^8/, '7') : '';
+    return `<div class="pl-row" data-slug="${esc(r.slug)}">
+      <div class="pl-ava">${r.logo_header ? `<img src="${esc(r.logo_header)}" alt="">` : esc((r.name || '?').trim().charAt(0).toUpperCase())}</div>
+      <div class="pl-main">
+        <div class="pl-name"><b>${esc(r.name)}</b><span class="pl-st ${r.st.cls}">${r.st.text}</span></div>
+        <a class="pl-url" href="${esc(restUrl(r))}" target="_blank" rel="noopener">${esc(restUrl(r).replace(/^https?:\/\//, ''))}</a>
+        <div class="pl-nums"><span><b>${fmtNum(r.items)}</b> блюд</span><span><b>${fmtNum(r.guests7)}</b> гостей за 7 дн.</span><span><b>${fmtNum(r.orders7)}</b> заказов</span><span><b>${r.team || 0}</b> в команде</span></div>
+      </div>
+      <div class="pl-act">
+        <button class="btn btn-dark btn-sm" data-open>Открыть</button>
+        ${r.plan === 'trial' && r.lead_slug ? '<button class="btn btn-outline btn-sm" data-activate>✓ Оплатил</button><button class="btn btn-outline btn-sm" data-extend>+7 дней</button>' : ''}
+        ${wa ? `<a class="btn btn-outline btn-sm" href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+      </div>
+    </div>`;
+  };
+  c.innerHTML = `
+    <div class="pl-kpis">${kpis.map(([t, v, h]) => `<div class="pl-kpi"><p>${t}</p><b>${typeof v === 'number' ? fmtNum(v) : v}</b><small>${esc(h)}</small></div>`).join('')}</div>
+    <div class="panel">
+      <div class="pl-tools">
+        <div class="pl-filters">${filters.map(([k, t, n]) => `<button class="chip-f ${platFilter === k ? 'on' : ''}" data-f="${k}">${t} <span>${n}</span></button>`).join('')}</div>
+        <input type="search" class="pl-search" placeholder="Найти заведение" value="${esc(platQuery)}">
+      </div>
+      <div class="pl-list"></div>
+    </div>`;
+  const listEl = c.querySelector('.pl-list');
+  const draw = () => {
+    const items = list();
+    listEl.innerHTML = items.length ? items.map(rowHTML).join('') : '<p class="hint" style="padding:16px 0">Ничего не найдено</p>';
+    listEl.querySelectorAll('.pl-row').forEach((row) => {
+      const r = rs.find((x) => x.slug === row.dataset.slug);
+      row.querySelector('[data-open]').onclick = async () => {
+        const sel = document.getElementById('restaurantSelect');
+        if (![...sel.options].some((o) => o.value === r.slug)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(r.slug)}">${esc(r.name)} (${esc(r.slug)})</option>`);
+        sel.value = r.slug; state.tab = 'stats';
+        await selectRestaurant(r.slug); window.scrollTo(0, 0);
+      };
+      const act = row.querySelector('[data-activate]');
+      if (act) act.onclick = () => { if (confirm(`«${r.name}» оплатил? Меню станет постоянным.`)) api(`/leads/${r.lead_slug}/activate`, { method: 'POST' }).then(() => { toast('Подключено'); renderPlatformTab(c); }).catch((er) => toast(er.message)); };
+      const ext = row.querySelector('[data-extend]');
+      if (ext) ext.onclick = () => api(`/leads/${r.lead_slug}/extend`, { method: 'POST' }).then(() => { toast('Пробный период продлён на 7 дней'); renderPlatformTab(c); }).catch((er) => toast(er.message));
+    });
+  };
+  c.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { platFilter = b.dataset.f; c.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('on', x === b)); draw(); });
+  c.querySelector('.pl-search').oninput = (e) => { platQuery = e.target.value.trim().toLowerCase(); draw(); };
+  draw();
 }
 
 init();
