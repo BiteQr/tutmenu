@@ -514,7 +514,7 @@ async function handleAdminApi(request, env, segments) {
     const me = await env.DB.prepare('SELECT restaurant_id, role FROM admin_users WHERE email = ?').bind(email).first();
     if (!me) return json({ error: 'not_registered', email });
     const restaurants = me.role === 'owner'
-      ? (await env.DB.prepare('SELECT slug, name, active FROM restaurants ORDER BY name').all()).results
+      ? (await env.DB.prepare('SELECT slug, name, active, domain, plan FROM restaurants ORDER BY (domain IS NULL), name').all()).results
       : (await env.DB.prepare('SELECT slug, name, active FROM restaurants WHERE slug = ?').bind(me.restaurant_id).all()).results;
     return json({ email, role: me.role, restaurants });
   }
@@ -1325,6 +1325,27 @@ async function ownerOnly(env, request) {
   if (!row || row.role !== 'owner') return { ok: false, status: 403, error: 'owner_only' };
   return { ok: true, email };
 }
+/** Пульт платформы для владельца сервиса: все заведения с цифрами за 7 дней и сводка */
+async function handlePlatformApi(request, env) {
+  const own = await ownerOnly(env, request);
+  if (!own.ok) return json({ error: own.error }, { status: own.status });
+  const since = new Date(Date.now() - 7 * 864e5).toISOString().replace('T', ' ').slice(0, 19);
+  const sinceIso = new Date(Date.now() - 7 * 864e5).toISOString();
+  const [rs, leads7, leadsAll] = await Promise.all([
+    env.DB.prepare(`SELECT r.slug, r.name, r.domain, r.active, r.plan, r.trial_until, r.created_at, r.logo_header,
+        (SELECT COUNT(*) FROM menu_items m WHERE m.restaurant_id = r.slug) items,
+        (SELECT COUNT(DISTINCT e.session_id) FROM events e WHERE e.restaurant_id = r.slug AND e.created_at >= ?1) guests7,
+        (SELECT COUNT(*) FROM orders o WHERE o.restaurant_id = r.slug AND o.created_at >= ?1) orders7,
+        (SELECT COUNT(*) FROM cabinet_members c WHERE c.slug = r.slug AND c.removed_at IS NULL) team,
+        (SELECT d.slug FROM demos d WHERE d.converted_to = r.slug LIMIT 1) lead_slug,
+        (SELECT d.phone FROM demos d WHERE d.converted_to = r.slug LIMIT 1) phone
+      FROM restaurants r ORDER BY r.created_at DESC`).bind(since).all(),
+    env.DB.prepare('SELECT COUNT(*) n FROM demos WHERE created_at >= ?1').bind(sinceIso).first(),
+    env.DB.prepare('SELECT COUNT(*) n FROM demos').first()
+  ]);
+  return json({ restaurants: rs.results, leads7: leads7.n, leadsAll: leadsAll.n });
+}
+
 async function handleLeadsApi(request, env, slug, action) {
   const auth = await ownerOnly(env, request);
   if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
@@ -1943,6 +1964,7 @@ const handler = {
       if (p === '/admin/api/tg' || p.startsWith('/admin/api/tg/')) {
         return await handleTgApi(request, env, p.split('/')[4] || '');
       }
+      if (p === '/admin/api/platform' && method === 'GET') return await handlePlatformApi(request, env);
       if (p.startsWith('/admin/api/leads')) {
         const [, , , , slug, action] = p.split('/');
         return await handleLeadsApi(request, env, (slug || '').replace(/[^a-z0-9-]/g, ''), action);
