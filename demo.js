@@ -40,9 +40,9 @@
       el.innerHTML = mine
         ? `<div class="demo-dead__card">
             <p class="demo-dead__brand">tut<span>.</span>menu</p>
-            <h1>Пробный период «${esc(restaurant)}» закончился</h1>
-            <p>Всё сохранено: меню, фото и дизайн. Подключите тариф, и меню сразу снова откроется для гостей.</p>
-            <a class="demo-btn" href="${waLink(restaurant)}" target="_blank" rel="noopener">Подключить в WhatsApp</a>
+            <h1>${demo.billing ? `Меню «${esc(restaurant)}» отключено: срок оплаты истёк` : `Пробный период «${esc(restaurant)}» закончился`}</h1>
+            <p>${demo.billing ? 'Гости сейчас видят «Меню временно недоступно». Всё сохранено — после оплаты меню сразу снова откроется.' : 'Всё сохранено: меню, фото и дизайн. Подключите тариф, и меню сразу снова откроется для гостей.'}</p>
+            <a class="demo-btn" href="${waLink(restaurant)}" target="_blank" rel="noopener">${demo.billing ? 'Оплатить в WhatsApp' : 'Подключить в WhatsApp'}</a>
           </div>`
         : `<div class="demo-dead__card">
             <h1>Меню временно недоступно</h1>
@@ -86,6 +86,23 @@
       const close = () => pop.remove();
       pop.addEventListener('click', (e) => { if (e.target === pop || e.target.closest('.demo-pop__x, .demo-pop__later')) close(); });
     }, 1800);
+  }
+
+  /* Оплата просрочена, идёт отсрочка: гостям — небольшая плашка без слов об оплате,
+     владельцу (на его телефоне) — сколько дней осталось и кнопка оплаты. */
+  function billing(b, name) {
+    if (document.querySelector('.bill-note')) return;
+    const mine = isMine(b.slug);
+    const d = new Date(b.offAt);
+    const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const el = document.createElement('div');
+    el.className = 'bill-note' + (mine ? ' bill-note--owner' : '');
+    el.innerHTML = mine
+      ? `<span>Оплата меню просрочена: для гостей оно отключится ${date}.</span><a href="${waLink(name || 'заведение')}" target="_blank" rel="noopener">Оплатить</a>`
+      : `<span>Электронное меню скоро будет временно недоступно</span><button type="button" aria-label="Скрыть">×</button>`;
+    document.body.append(el);
+    const x = el.querySelector('button');
+    if (x) x.onclick = () => el.remove();
   }
 
   function show(demo, name, example) {
@@ -148,5 +165,5 @@
     }, 2500);
   }
 
-  App.Demo = { show };
+  App.Demo = { show, billing };
 })(window.App = window.App || {});

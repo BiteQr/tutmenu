@@ -118,6 +118,7 @@
     App.Menu.render(data);
     App.CartView.render();
     if (data.settings.demo && App.Demo) App.Demo.show(data.settings.demo, data.settings.name, !!data.settings.example);
+    if (data.settings.billing && App.Demo && App.Demo.billing) App.Demo.billing(data.settings.billing, data.settings.name);
   }
 
   function showError(err) {
