@@ -104,7 +104,10 @@
       ${lines.map(lineHTML).join('')}
       <div class="totals">
         <div class="totals__row totals__row--muted"><span>${esc(I18n.t('positions'))}</span><span>${Cart.count()}</span></div>
-        <div class="totals__row"><span>${esc(I18n.t('total'))}</span><strong>${money(Cart.total())}</strong></div>
+        ${Cart.feePct() ? `
+        <div class="totals__row totals__row--muted"><span>${esc(I18n.t('subtotal'))}</span><span>${money(Cart.total())}</span></div>
+        <div class="totals__row totals__row--muted"><span>${esc(I18n.t('serviceFee').replace('{p}', Cart.feePct()))}</span><span>${money(Cart.fee())}</span></div>` : ''}
+        <div class="totals__row"><span>${esc(I18n.t('total'))}</span><strong>${money(Cart.grand())}</strong></div>
       </div>
       ${recs.length ? `
         <h3 class="recs__title">${esc(I18n.t('addToOrder'))}</h3>
@@ -139,7 +142,8 @@
       const v = l.variant && l.variant.label ? ` (${l.variant.label})` : '';
       return `${i + 1}. ${I18n.f(l.item, 'title')}${v} × ${l.qty} — ${money(l.sum)}`;
     });
-    return `${I18n.t('orderMsgTitle')}:\n${rows.join('\n')}\n\n${I18n.t('total')}: ${money(Cart.total())}`;
+    const fee = Cart.feePct() ? `${I18n.t('subtotal')}: ${money(Cart.total())}\n${I18n.t('serviceFee').replace('{p}', Cart.feePct())}: ${money(Cart.fee())}\n` : '';
+    return `${I18n.t('orderMsgTitle')}:\n${rows.join('\n')}\n\n${fee}${I18n.t('total')}: ${money(Cart.grand())}`;
   }
 
   /** "77001234567" → "+7 700 123 45 67" — только для показа гостю, не для ссылок */
@@ -183,7 +187,7 @@
           const ls = Cart.lines();
           // В историю заказов админки — как и раньше, только без WhatsApp
           fetch('/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
-            restaurantId: App.restaurantId, lang: I18n.lang, total: Cart.total(), text: buildOrderText(ls) + '\n\n(показан официанту)',
+            restaurantId: App.restaurantId, lang: I18n.lang, total: Cart.grand(), text: buildOrderText(ls) + '\n\n(показан официанту)',
             items: ls.map((l) => ({ id: l.item.id, title: I18n.f(l.item, 'title'), variant: l.variant?.label || '', qty: l.qty, price: l.price }))
           }) }).catch(() => {});
           App.track('order_placed', { total: Cart.total(), count: Cart.count() });
@@ -208,7 +212,8 @@
             <span class="waiter__sum">${money(l.sum)}</span>
           </li>`).join('')}
         </ol>
-        <div class="waiter__total"><span>${esc(I18n.t('positions'))}: ${Cart.count()}</span><strong>${money(Cart.total())}</strong></div>
+        ${Cart.feePct() ? `<div class="waiter__fee"><span>${esc(I18n.t('serviceFee').replace('{p}', Cart.feePct()))}</span><span>${money(Cart.fee())}</span></div>` : ''}
+        <div class="waiter__total"><span>${esc(I18n.t('positions'))}: ${Cart.count()}</span><strong>${money(Cart.grand())}</strong></div>
         <p class="waiter__note">${esc(I18n.t('waiterNote'))}</p>
       </div>
       <div class="waiter__foot">
@@ -244,7 +249,7 @@
       body: JSON.stringify({
         restaurantId: App.restaurantId,
         lang: I18n.lang,
-        total: Cart.total(),
+        total: Cart.grand(),
         text,
         items: lines.map((l) => ({ id: l.item.id, title: I18n.f(l.item, 'title'), variant: l.variant?.label || '', qty: l.qty, price: l.price }))
       })

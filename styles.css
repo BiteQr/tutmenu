@@ -981,6 +981,7 @@ body.is-locked { overflow: hidden; }
 .waiter__sum { font-size: 17px; font-weight: 600; white-space: nowrap; color: var(--muted-2); }
 .waiter__total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; padding-top: 16px; border-top: 2px solid var(--text); font-size: 16px; color: var(--muted-2); }
 .waiter__total strong { font-size: 28px; color: var(--text); }
+.waiter__fee { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 12px; font-size: 16px; color: var(--muted-2); }
 .waiter__note { margin-top: 14px; font-size: 13px; color: var(--muted); text-align: center; }
 .waiter__foot { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 12px var(--pad) calc(12px + var(--safe-b)); border-top: 1px solid var(--line, #eee); background: #fff; }
 .waiter__edit { height: 56px; padding: 0 22px; border-radius: var(--pill); background: var(--surface); font-size: 16px; font-weight: 700; }
