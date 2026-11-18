@@ -64,6 +64,11 @@
     },
 
     total() { return Cart.lines().reduce((s, l) => s + l.sum, 0); },
+    /** Процент за обслуживание из настроек заведения (0 — нет) */
+    feePct() { return Math.max(0, Math.min(50, Number(window.App?.data?.settings?.serviceFee) || 0)); },
+    fee() { return Math.round(Cart.total() * Cart.feePct() / 100); },
+    /** Итог к оплате: блюда + обслуживание */
+    grand() { return Cart.total() + Cart.fee(); },
     count() { return Cart.lines().reduce((s, l) => s + l.qty, 0); },
 
     /** Сколько штук блюда (все вариации) в корзине */

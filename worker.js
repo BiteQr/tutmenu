@@ -228,6 +228,7 @@ async function handleMenu(request, env) {
     langStyle: restaurant.lang_style || 'card', langColor: restaurant.lang_color || '',
     orderMode: restaurant.order_mode === 'waiter' ? 'waiter' : 'whatsapp',
     promoStyle: restaurant.promo_style === 'stories' ? 'stories' : 'banner',
+    serviceFee: Math.max(0, Math.min(50, Number(restaurant.service_fee) || 0)),
     design: (() => { try { return restaurant.design ? JSON.parse(restaurant.design) : null; } catch { return null; } })(),
     lunch: parseLunch(restaurant.lunch)
   };
@@ -576,8 +577,9 @@ async function handleAdminApi(request, env, segments) {
       if (cab) { delete b.domain; delete b.active; delete b.editorEmails; }
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style', 'service_fee']
         .filter((c) => c in b);
+      if (cols.includes('service_fee')) b.service_fee = Math.max(0, Math.min(50, Math.round(Number(String(b.service_fee).replace(',', '.')) || 0)));
       if (cols.includes('lunch')) {
         const v = b.lunch == null || b.lunch === '' ? null : (typeof b.lunch === 'string' ? b.lunch : JSON.stringify(b.lunch));
         if (v && (v.length > 60000 || !parseLunch(v))) return json({ error: 'bad_lunch' }, { status: 400 });
