@@ -5,6 +5,14 @@
 
   const T = {
     kk: {
+      navStats: 'Аналитика',
+      stTitle: 'Қонақтар нені қарайтыны, нені алатыны және нені өткізіп жіберетіні көрінеді', stLead: 'Қағаз мәзір үнсіз. tut.menu қай тағамдарды ашатынын, қайсысына тапсырыс беретінін және қайсысын қарап өтіп кететінін көрсетеді — суретті, бағаны және позицияларды болжаммен емес, цифрмен өзгертуіңіз үшін.',
+      stDash: 'Статистика', stDemo: 'есеп үлгісі', st7: '7 күн', st30: '30 күн', stC1: 'қазір мәзірде', stC2: 'қонақ мәзірді ашты', stC3: 'себетке қосты', stC4: 'минут мәзірде (орташа)',
+      stDishes: 'Қай тағамдарды ашады', stColDish: 'Тағам', stColV: '👁 Ашты', stColA: '🛒 Алды', stColC: 'Алады',
+      stWeak: 'Қарайды, бірақ алмайды', stWeakDish: 'Бұқтырылған қозы жауырыны', stWeakHint: 'Мүмкін, суретті немесе бағаны өзгерткен жөн', stSrc: 'Себетке қайдан қосады',
+      sp1t: 'Хиттер өзі жиналады', sp1p: 'Ең жиі ашатын және тапсырыс беретін тағамдар бойынша. Ештеңе баптаудың қажеті жоқ.',
+      sp2t: 'Шерту емес, қонақтар саналады', sp2p: 'Бір қонақ тағамды бес рет ашты — бұл бір қаралым. Цифрларға сенуге болады.',
+      sp3t: '30 секунд сайын жаңарады', sp3p: 'Тікелей телефоннан, админкада, бөлек сервистерсіз қараңыз.',
       navWhy: 'Не үшін', navSteps: 'Іске қосу',
       heroLead: 'Қонақ QR-ды сканерлеп, тағамды өз тілінде бірнеше секундта табады. Мәзір тапсырысқа не қосуға болатынын өзі ұсынады, ал бағалар мен стоп-парақты телефоннан бір минутта өзгертесіз.',
       heroKicker: 'Қазақстандағы кафе мен мейрамханаларға арналған QR-мәзір',
@@ -70,6 +78,14 @@
       footLine: 'Қазақстандағы кафе мен мейрамханаларға арналған ақылды QR-мәзір'
     },
     en: {
+      navStats: 'Analytics',
+      stTitle: 'See what guests view, order and skip', stLead: 'A paper menu tells you nothing. tut.menu shows which dishes get opened, which get ordered and which get viewed and skipped, so you change photos, prices and items by the numbers, not by guesswork.',
+      stDash: 'Analytics', stDemo: 'sample report', st7: '7 days', st30: '30 days', stC1: 'in the menu now', stC2: 'guests opened the menu', stC3: 'added to cart', stC4: 'min in the menu on average',
+      stDishes: 'Which dishes get opened', stColDish: 'Dish', stColV: '👁 Opened', stColA: '🛒 Ordered', stColC: 'Take rate',
+      stWeak: 'Viewed but not ordered', stWeakDish: 'Braised lamb shoulder', stWeakHint: 'Maybe it’s time to change the photo or the price', stSrc: 'Where add-to-cart comes from',
+      sp1t: 'Hits build themselves', sp1p: 'From what guests open and order most. Nothing to set up.',
+      sp2t: 'Guests, not clicks', sp2p: 'One guest opening a dish five times counts as one view. Numbers you can trust.',
+      sp3t: 'Updates every 30 seconds', sp3p: 'Check it right from your phone, in the admin panel, no extra services.',
       navWhy: 'Why', navSteps: 'Launch',
       heroLead: 'Guests scan the QR and find a dish in seconds, in their own language. The menu suggests what to add to the order, and you change prices and sold-out items from your phone in a minute.',
       heroKicker: 'QR menus for cafés and restaurants in Kazakhstan',
@@ -153,6 +169,7 @@
     nodes.forEach((n) => { const v = d[n.dataset.t]; if (v) n.textContent = v; });
     phs.forEach((n) => { const v = d[n.dataset.tp]; if (v) n.placeholder = v; });
     renderOffer(false);
+    if (typeof renderStats === 'function') renderStats(false);
     document.documentElement.lang = HTML_LANG[l];
     document.querySelectorAll('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === l)));
     try { localStorage.setItem('tm_lang', l); } catch {}
@@ -283,8 +300,65 @@
     });
   });
 
+  /* ---------- Аналитика: пример отчёта (как вкладка «Статистика» в админке) ---------- */
+  const STAT_DISHES = {
+    ru: ['Бургер с курицей', 'Пицца пепперони', 'Салат с баклажанами и страчателлой', 'Томлёная лопатка ягнёнка', 'Удон с креветкой', 'Чизкейк'],
+    kk: ['Тауық бургері', 'Пепперони пиццасы', 'Баклажан мен страчателла салаты', 'Бұқтырылған қозы жауырыны', 'Асшаян қосылған удон', 'Чизкейк'],
+    en: ['Chicken burger', 'Pepperoni pizza', 'Aubergine & stracciatella salad', 'Braised lamb shoulder', 'Udon with prawns', 'Cheesecake']
+  };
+  const STAT = {
+    7: { c2: 1284, c3: 731, c4: 4.2, d: [[142, 61], [118, 47], [96, 38], [88, 9], [74, 29], [51, 12]], src: [41, 34, 15, 10] },
+    30: { c2: 5310, c3: 2988, c4: 4.5, d: [[598, 251], [487, 201], [402, 160], [355, 41], [311, 118], [214, 52]], src: [39, 36, 14, 11] }
+  };
+  const SRC_NAMES = {
+    ru: ['📋 Список меню', '🔥 Хиты', '✨ ИИ-подбор', '🤝 «С этим берут»'],
+    kk: ['📋 Мәзір тізімі', '🔥 Хиттер', '✨ ЖИ таңдауы', '🤝 «Бұны бірге алады»'],
+    en: ['📋 Menu list', '🔥 Hits', '✨ AI picks', '🤝 “Goes well with”']
+  };
+  const WEAK_TXT = { ru: (v, a, c) => `открыли ${v} · взяли ${a} (${c}%)`, kk: (v, a, c) => `ашты ${v} · алды ${a} (${c}%)`, en: (v, a, c) => `opened ${v} · ordered ${a} (${c}%)` };
+  let statP = 7, statShown = false;
+  const fmt = (n) => (n % 1 ? n.toFixed(1).replace('.', LANG === 'en' ? '.' : ',') : Math.round(n).toLocaleString(LANG === 'en' ? 'en-US' : 'ru-RU')).replace(/[  ]/g, ' ');
+  function countTo(el, to, anim) {
+    if (!anim || reduce) { el.textContent = fmt(to); el.dataset.v = to; return; }
+    const from = parseFloat(el.dataset.v || 0), t0 = performance.now(), dur = 900;
+    el.dataset.v = to;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3), v = from + (to - from) * e; el.textContent = fmt(to % 1 ? Math.round(v * 10) / 10 : Math.round(v)); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+  function renderStats(anim) {
+    const rows = document.getElementById('stRows');
+    if (!rows) return;
+    const D = STAT[statP], names = STAT_DISHES[LANG] || STAT_DISHES.ru;
+    document.querySelectorAll('[data-n]').forEach((el) => countTo(el, D[el.dataset.n], anim && statShown));
+    const max = Math.max(...D.d.map((x) => x[0]));
+    rows.innerHTML = D.d.map(([v, a], i) => { const c = Math.round(a / v * 100); return `
+      <div class="drow${c < 15 ? ' is-weak' : ''}"><span class="dname"><b>${names[i]}</b><i data-w="${Math.round(v / max * 100)}"></i></span>
+      <span>${fmt(v)}</span><span>${fmt(a)}</span><span class="${c >= 35 ? 'good' : c < 15 ? 'bad' : ''}">${c}%</span></div>`; }).join('');
+    const wk = D.d[3];
+    document.getElementById('stWeak').textContent = (WEAK_TXT[LANG] || WEAK_TXT.ru)(fmt(wk[0]), fmt(wk[1]), Math.round(wk[1] / wk[0] * 100));
+    const cols = ['#1f4bff', '#ff7a1a', '#1fa855', '#8b5cf6'], sn = SRC_NAMES[LANG] || SRC_NAMES.ru;
+    document.getElementById('stSrc').innerHTML = D.src.map((p, i) => `<div class="dsrc__row"><b>${sn[i]}</b><em>${p}%</em><span class="dsrc__bar"><i data-w="${p * 2}" style="background:${cols[i]}"></i></span></div>`).join('');
+    const fill = () => document.querySelectorAll('#stats [data-w]').forEach((x) => { x.style.width = Math.min(100, +x.dataset.w) + '%'; });
+    if (statShown) requestAnimationFrame(() => requestAnimationFrame(fill));
+  }
+  document.querySelectorAll('.dash__period button').forEach((b) => b.addEventListener('click', () => {
+    statP = +b.dataset.p;
+    document.querySelectorAll('.dash__period button').forEach((x) => x.classList.toggle('is-on', x === b));
+    renderStats(true);
+  }));
+  const dash = document.querySelector('.dash');
+  if (dash) {
+    const show = () => { if (statShown) return; statShown = true; renderStats(true); };
+    if ('IntersectionObserver' in window && !reduce) new IntersectionObserver(([e], o) => { if (e.isIntersecting) { show(); o.disconnect(); } }, { threshold: .25 }).observe(dash);
+    else show();
+    // «сейчас в меню» — живой счётчик
+    const live = document.getElementById('stLive');
+    let n = 7;
+    if (!reduce) setInterval(() => { n = Math.max(3, Math.min(14, n + (Math.random() < .5 ? -1 : 1))); live.textContent = n; }, 3200);
+  }
+
   /* ---------- появление частей секций ---------- */
-  const targets = document.querySelectorAll('section h2, .why__card, .steps__list li, .move, .budget, .price__head p, .point, .ask, .guest__phone, .shot, .feats > div, .admin, .example__head > *, .example__phones figure, .price__grid, .faq details, .final > *');
+  const targets = document.querySelectorAll('section h2, .stats__head p, .dash, .stats__points li, .why__card, .steps__list li, .move, .budget, .price__head p, .point, .ask, .guest__phone, .shot, .feats > div, .admin, .example__head > *, .example__phones figure, .price__grid, .faq details, .final > *');
   if (!reduce && 'IntersectionObserver' in window) {
     targets.forEach((el) => el.classList.add('rv'));
     const io = new IntersectionObserver((es) => es.forEach((e) => {

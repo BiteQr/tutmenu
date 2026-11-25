@@ -20,6 +20,7 @@
     <a href="#why" data-t="navWhy">Зачем</a>
     <a href="#guest" data-t="navGuest">Гостю</a>
     <a href="#owner" data-t="navOwner">Владельцу</a>
+    <a href="#stats" data-t="navStats">Аналитика</a>
     <a href="#example" data-t="navExample">Пример</a>
     <a href="#steps" data-t="navSteps">Запуск</a>
     <a href="#price" data-t="navPrice">Цена</a>
@@ -160,6 +161,54 @@
       <p class="admin__note" data-t="adminNote">Поменяйте цену или выключите блюдо: так это выглядит в админке.</p>
     </div>
   </div>
+</section>
+
+<!-- АНАЛИТИКА -->
+<section class="stats" id="stats">
+  <div class="stats__head">
+    <h2 data-t="stTitle">Видно, что гости смотрят, берут и пропускают</h2>
+    <p data-t="stLead">Бумажное меню молчит. tut.menu показывает, какие блюда открывают, какие заказывают, а какие смотрят и пропускают — чтобы вы меняли фото, цены и позиции по цифрам, а не наугад.</p>
+  </div>
+  <div class="dash" data-ui>
+    <div class="dash__top">
+      <div class="dash__title"><b data-t="stDash">Статистика</b><span class="dash__demo" data-t="stDemo">пример отчёта</span></div>
+      <div class="dash__period" role="group" aria-label="Период">
+        <button type="button" class="is-on" data-p="7" data-t="st7">7 дней</button>
+        <button type="button" data-p="30" data-t="st30">30 дней</button>
+      </div>
+    </div>
+    <div class="dash__cards">
+      <div class="dcard dcard--live"><b id="stLive">7</b><span><i class="live-dot"></i><span data-t="stC1">сейчас в меню</span></span></div>
+      <div class="dcard"><b data-n="c2">0</b><span data-t="stC2">гостей открыли меню</span></div>
+      <div class="dcard"><b data-n="c3">0</b><span data-t="stC3">добавили в корзину</span></div>
+      <div class="dcard"><b data-n="c4">0</b><span data-t="stC4">минуты в меню в среднем</span></div>
+    </div>
+    <div class="dash__grid">
+      <div class="dpanel">
+        <p class="dpanel__h" data-t="stDishes">Какие блюда открывают</p>
+        <div class="dtable">
+          <div class="drow drow--head"><span data-t="stColDish">Блюдо</span><span data-t="stColV">👁 Открыли</span><span data-t="stColA">🛒 Взяли</span><span data-t="stColC">Берут</span></div>
+          <div id="stRows"></div>
+        </div>
+      </div>
+      <div class="dside">
+        <div class="dpanel dpanel--warn">
+          <p class="dpanel__h" data-t="stWeak">Смотрят, но не берут</p>
+          <p class="dweak"><b data-t="stWeakDish">Томлёная лопатка ягнёнка</b><span id="stWeak"></span></p>
+          <p class="dhint" data-t="stWeakHint">Возможно, стоит поменять фото или цену</p>
+        </div>
+        <div class="dpanel">
+          <p class="dpanel__h" data-t="stSrc">Откуда добавляют в корзину</p>
+          <div id="stSrc" class="dsrc"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="stats__points">
+    <li><b data-t="sp1t">Хиты собираются сами</b><span data-t="sp1p">По тому, что чаще открывают и заказывают. Ничего не нужно настраивать.</span></li>
+    <li><b data-t="sp2t">Считаются гости, а не клики</b><span data-t="sp2p">Один гость открыл блюдо пять раз — это один просмотр. Цифрам можно верить.</span></li>
+    <li><b data-t="sp3t">Обновляется каждые 30 секунд</b><span data-t="sp3p">Смотрите прямо с телефона, в админке, без отдельных сервисов.</span></li>
+  </ul>
 </section>
 
 <!-- ПРИМЕР -->
