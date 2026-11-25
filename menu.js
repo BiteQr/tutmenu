@@ -30,7 +30,8 @@
     promoModal: $('#promoModal'),
     variantSheet: $('#variantSheet'),
     lunch: $('#lunch'),
-    lunchSheet: $('#lunchSheet')
+    lunchSheet: $('#lunchSheet'),
+    hits: $('#hits')
   };
 
   let data = null;
@@ -248,6 +249,51 @@
       </article>`;
   }
 
+  /* ---------------------------------------------------------
+     ХИТЫ: лента карточек с большими номерами 1, 2, 3…
+     Список готовит сервер (settings.hits.ids): по добавлениям в корзину или вручную из админки.
+     --------------------------------------------------------- */
+  const PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+  function hitPrice(it) {
+    if (!it.variants.length) return it.price ? money(it.price) : '';
+    const min = Math.min(...it.variants.map((v) => Number(v.price) || 0).filter(Boolean));
+    if (!isFinite(min)) return '';
+    if (it.variants.length < 2) return money(min);
+    // «от 1 500 ₸», а по-казахски «1 500 ₸ бастап»
+    return I18n.lang === 'kk' ? `${money(min)} ${esc(I18n.t('from'))}` : `${esc(I18n.t('from'))} ${money(min)}`;
+  }
+  function renderHits() {
+    const h = data.settings.hits;
+    const items = (h && Array.isArray(h.ids) ? h.ids : []).map((id) => Cart.getItem(String(id))).filter(Boolean);
+    els.hits.hidden = items.length < 2;
+    if (els.hits.hidden) { els.hits.innerHTML = ''; return; }
+    const title = I18n.f(h, 'title') || I18n.t('hitsTitle');
+    const sub = I18n.f(h, 'sub') || I18n.t('hitsSub');
+    els.hits.innerHTML = `
+      <div class="hits__head">
+        <h2 class="hits__title"><span aria-hidden="true">🔥</span> ${esc(title)}</h2>
+        ${sub ? `<span class="hits__sub">${esc(sub)}</span>` : ''}
+      </div>
+      <div class="hscroll hits__row">${items.map((it, i) => {
+        const t = I18n.f(it, 'title');
+        const price = hitPrice(it);
+        return `
+          <article class="hit" data-hit="${esc(it.id)}">
+            <div class="hit__media">
+              ${photoHTML(it.image, 'hit__img', t, i < 3)}
+              <span class="hit__num" aria-hidden="true">${i + 1}</span>
+            </div>
+            <div class="hit__body">
+              <h3 class="hit__title">${esc(t)}</h3>
+              <div class="hit__foot">
+                ${price ? `<span class="hit__price">${price}</span>` : ''}
+                <button type="button" class="add-btn hit__add" data-add="${esc(it.id)}" aria-label="+ ${esc(t)}">${PLUS}</button>
+              </div>
+            </div>
+          </article>`;
+      }).join('')}</div>`;
+  }
+
   function renderBody() {
     const { tree, ordered, itemsBySec } = buildTree();
 
@@ -396,6 +442,7 @@
     renderHeader();
     renderPromos();
     renderLunch();
+    renderHits();
     renderBody();
     I18n.applyStatic();
     hintPromosScroll();
@@ -1145,13 +1192,11 @@
 
   /** Бейджи количества на кнопках «+» и плавающая кнопка корзины */
   function updateBadges() {
-    $$('.add-btn', els.sections).forEach((btn) => {
+    [...$$('.add-btn', els.sections), ...$$('.add-btn', els.hits)].forEach((btn) => {
       const q = Cart.qtyOf(btn.dataset.add);
       btn.classList.toggle('is-in', q > 0);
       if (q > 0) btn.textContent = q;
-      else if (!btn.querySelector('svg')) {
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
-      }
+      else if (!btn.querySelector('svg')) btn.innerHTML = PLUS;
     });
 
     const count = Cart.count();
@@ -1250,6 +1295,9 @@
 
     const add = t.closest('[data-add]');
     if (add) { handleAdd(add.dataset.add, add); return; }
+
+    const hit = t.closest('[data-hit]');
+    if (hit) { const it = Cart.getItem(hit.dataset.hit); if (it) openItemDetail(it, hit); return; }
 
     const aiCard = t.closest('[data-ai-open]');
     if (aiCard) { const it = Cart.getItem(aiCard.dataset.aiOpen); if (it) openItemDetail(it, aiCard); return; }

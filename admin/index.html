@@ -145,6 +145,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .period-switch{display:flex;gap:6px;}
 .period-switch button{padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);background:var(--bg);}
 .period-switch button.active{background:var(--dark);color:#fff;}
+.hit-num{flex:none;width:26px;text-align:center;font-size:20px;font-weight:800;}
 .qr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
 .qr-box{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:10px;}
 .qr-box__title{margin:0;font-size:15px;}
@@ -565,6 +566,7 @@ async function selectRestaurant(slug) {
   ]);
   state.settings = settingsRes.restaurant;
   state.lunchDraft = null;
+  state.hitsDraft = null; state.hitsRanking = null;
   state.categories = cats.items;
   state.sections = secs.items;
   state.menuItems = items.items;
@@ -683,6 +685,7 @@ const TABS = [
   ['badges', '🏷 Метки'],
   ['promos', '📣 Акции'],
   ['lunch', '🍱 Бизнес-ланч'],
+  ['hits', '🔥 Хиты'],
   ['import', '📥 Импорт меню'],
   ['buttons', '🔘 Кнопки']
 ];
@@ -715,6 +718,7 @@ function renderTab() {
   if (state.tab === 'menuItems') return renderMenuItemsTab(c);
   if (state.tab === 'badges') return renderBadgesTab(c);
   if (state.tab === 'lunch') return renderLunchTab(c);
+  if (state.tab === 'hits') return renderHitsTab(c);
   if (state.tab === 'import') return renderImportTab(c);
   if (state.tab === 'leads') return renderLeadsTab(c);
   renderGenericTab(c, state.tab, SCHEMAS[state.tab]);
@@ -1752,6 +1756,176 @@ function renderLunchTab(container) {
 }
 
 /* =========================================================
+   ХИТЫ — лента «🔥 Хиты · чаще всего заказывают» над поиском в меню.
+   Хранится JSON в restaurants.hits: { mode:'off'|'auto'|'manual', count, days, ids:[], exclude:[],
+   title_ru/kk/en, sub_ru/kk/en }. Авто — по добавлениям в корзину за период (считает сервер).
+   ========================================================= */
+function hitsState() {
+  let H = null;
+  try { H = typeof state.settings.hits === 'string' ? JSON.parse(state.settings.hits || 'null') : state.settings.hits; } catch { H = null; }
+  H = H || {};
+  const ids = (a) => (Array.isArray(a) ? a : []).map(String);
+  return {
+    mode: ['auto', 'manual'].includes(H.mode) ? H.mode : 'off',
+    count: Math.max(3, Math.min(12, Number(H.count) || 8)),
+    days: [7, 30, 90].includes(Number(H.days)) ? Number(H.days) : 30,
+    ids: ids(H.ids), exclude: ids(H.exclude),
+    title_ru: H.title_ru || '', title_kk: H.title_kk || '', title_en: H.title_en || '',
+    sub_ru: H.sub_ru || '', sub_kk: H.sub_kk || '', sub_en: H.sub_en || ''
+  };
+}
+const hitItem = (id) => state.menuItems.find((r) => String(r.id) === String(id));
+const hitLive = (r) => r && r.active !== false && r.active !== 0;
+async function loadHitsRanking(days) {
+  const r = await api(`/hits?restaurant=${state.slug}&days=${days}`);
+  state.hitsRanking = { days, rows: r.ranking || [], slug: state.slug };
+  return state.hitsRanking;
+}
+function hitRowHTML(r, num, extra, actions) {
+  const thumb = r.image ? `<img class="row-thumb" src="${esc(r.image)}">` : '<div class="row-thumb"></div>';
+  return `
+    <div class="row-card ${hitLive(r) ? '' : 'inactive'}" style="${num === 0 ? 'opacity:.6;' : ''}">
+      <div class="hit-num">${num || (num === 0 ? '–' : '+')}</div>
+      ${thumb}
+      <div class="row-body">
+        <div class="row-title">${esc(r.title_ru || '(без названия)')}</div>
+        <div class="row-sub">${esc(secLabel(r.section_id))} · ${esc(priceLabel(r))}${extra ? ' · ' + extra : ''}${hitLive(r) ? '' : ' · <b>выключено — на сайте не видно</b>'}</div>
+      </div>
+      <div class="row-actions">${actions}</div>
+    </div>`;
+}
+function renderHitsTab(container) {
+  const H = state.hitsDraft || hitsState();
+  state.hitsDraft = H;
+  const rk = state.hitsRanking && state.hitsRanking.slug === state.slug && state.hitsRanking.days === H.days ? state.hitsRanking : null;
+  if (H.mode === 'auto' && !rk) {
+    container.innerHTML = '<p class="empty-hint">Считаю, что чаще всего заказывают…</p>';
+    loadHitsRanking(H.days).then(() => { if (state.tab === 'hits') renderHitsTab(container); })
+      .catch((err) => { container.innerHTML = `<p class="empty-hint">Не получилось посчитать: ${esc(err.message)}</p>`; });
+    return;
+  }
+  const seg = (name, opts, cur) => `<div class="period-switch" style="flex-wrap:wrap;">${opts.map(([v, l]) =>
+    `<button type="button" data-${name}="${v}" class="${String(v) === String(cur) ? 'active' : ''}">${l}</button>`).join('')}</div>`;
+
+  let body = '';
+  if (H.mode === 'auto') {
+    const ex = new Set(H.exclude);
+    const ranked = rk.rows.map((x) => ({ r: hitItem(x.id), n: x.n })).filter((x) => x.r && hitLive(x.r));
+    const shown = ranked.filter((x) => !ex.has(String(x.r.id))).slice(0, H.count);
+    const hidden = H.exclude.map(hitItem).filter(Boolean);
+    body = `
+      <h2 style="margin:18px 0 6px;">Сейчас в Хитах</h2>
+      <p class="field-hint" style="margin-bottom:10px;">Порядок — по тому, сколько раз блюдо добавили в корзину за ${H.days} дн. Обновляется само.
+        Не хотите что-то видеть в Хитах (например, хлеб или пиво)? Нажмите «Скрыть» — на его место встанет следующее.</p>
+      <div class="rows">${shown.length ? shown.map((x, i) => hitRowHTML(x.r, i + 1, `${x.n} раз в корзину`,
+        `<button type="button" class="btn btn-outline btn-sm" data-hit-hide="${x.r.id}">Скрыть</button>`)).join('')
+        : '<p class="empty-hint">Пока мало данных — гости ещё ничего не добавляли в корзину за этот период. Попробуйте период побольше или выберите «Вручную».</p>'}</div>
+      ${shown.length === 1 ? '<p class="field-hint">Лента появится на сайте, когда в ней будет хотя бы 2 блюда.</p>' : ''}
+      ${hidden.length ? `<h2 style="margin:18px 0 10px;">Скрыты из Хитов</h2><div class="rows">${hidden.map((r) => hitRowHTML(r, 0, '',
+        `<button type="button" class="btn btn-outline btn-sm" data-hit-unhide="${r.id}">Вернуть</button>`)).join('')}</div>` : ''}`;
+  } else if (H.mode === 'manual') {
+    const picked = H.ids.map(hitItem).filter(Boolean);
+    body = `
+      <h2 style="margin:18px 0 6px;">Ваши Хиты</h2>
+      <p class="field-hint" style="margin-bottom:10px;">Номера на карточках — в этом порядке. Показываются первые ${H.count}, выключенные блюда на сайте пропускаются.</p>
+      <div class="rows">${picked.length ? picked.map((r, i) => hitRowHTML(r, i < H.count ? i + 1 : 0, i < H.count ? '' : 'не поместится',
+        `<button type="button" class="btn btn-outline btn-sm" data-hit-up="${i}" ${i ? '' : 'disabled'} aria-label="Выше">↑</button>
+         <button type="button" class="btn btn-outline btn-sm" data-hit-down="${i}" ${i < picked.length - 1 ? '' : 'disabled'} aria-label="Ниже">↓</button>
+         <button type="button" class="btn btn-outline btn-sm btn-danger" data-hit-del="${i}">Убрать</button>`)).join('')
+        : '<p class="empty-hint">Пока пусто — найдите блюда ниже и добавьте.</p>'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 8px;">
+        <input type="text" id="hitFind" placeholder="🔍 Найти блюдо, чтобы добавить…" style="flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;">
+        <button type="button" class="btn btn-outline btn-sm" id="hitFromAuto" style="height:auto;">Взять популярные по заказам</button>
+      </div>
+      <div class="rows" id="hitFound"></div>`;
+  } else {
+    body = '<p class="field-hint" style="margin-top:14px;">Ленты Хитов на сайте нет. Выберите «Автоматически» или «Вручную», чтобы она появилась над поиском.</p>';
+  }
+
+  container.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>🔥 Хиты</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+        Лента карточек с крупными номерами 1, 2, 3… над поиском: фото, название, цена и кнопка «+».
+        Гость листает её вбок, нажатие на карточку открывает блюдо.
+      </p>
+      <div class="field"><label>Как подбирать</label>${seg('hmode', [['off', 'Выключено'], ['auto', 'Автоматически — по заказам'], ['manual', 'Вручную']], H.mode)}</div>
+      ${H.mode !== 'off' ? `
+        <div class="field-row">
+          <div class="field"><label>Сколько карточек</label>
+            <select id="hCount">${[3,4,5,6,7,8,9,10,11,12].map((n) => `<option value="${n}" ${n === H.count ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+          ${H.mode === 'auto' ? `<div class="field"><label>Считать заказы за</label>${seg('hdays', [[7, '7 дней'], [30, '30 дней'], [90, '90 дней']], H.days)}</div>` : '<div></div>'}
+        </div>` : ''}
+      ${body}
+      ${H.mode !== 'off' ? `
+        <details style="margin-top:18px;">
+          <summary style="cursor:pointer;font-weight:600;font-size:14px;">Свои подписи (необязательно)</summary>
+          <div style="margin-top:12px;">
+            ${[['ru', 'рус', 'Хиты', 'чаще всего заказывают'], ['kk', 'қаз', 'Хиттер', 'ең көп тапсырыс беретіні'], ['en', 'англ', 'Hits', 'most ordered']].map(([l, n, t, sb]) => `
+              <div class="field-row">
+                <div class="field"><label>Заголовок (${n})</label><input type="text" data-htext="title_${l}" value="${esc(H['title_' + l])}" placeholder="${t}" maxlength="60"></div>
+                <div class="field"><label>Подпись справа (${n})</label><input type="text" data-htext="sub_${l}" value="${esc(H['sub_' + l])}" placeholder="${sb}" maxlength="60"></div>
+              </div>`).join('')}
+          </div>
+        </details>` : ''}
+      <div class="form-actions" style="margin-top:16px;"><button type="button" class="btn btn-dark" id="hSave">Сохранить</button></div>
+    </div>`;
+
+  const redraw = () => renderHitsTab(container);
+  const readTexts = () => container.querySelectorAll('[data-htext]').forEach((i) => { H[i.dataset.htext] = i.value.trim(); });
+  container.querySelectorAll('[data-hmode]').forEach((b) => { b.onclick = () => { readTexts(); H.mode = b.dataset.hmode; redraw(); }; });
+  container.querySelectorAll('[data-hdays]').forEach((b) => { b.onclick = () => { readTexts(); H.days = Number(b.dataset.hdays); redraw(); }; });
+  const cnt = document.getElementById('hCount');
+  if (cnt) cnt.onchange = () => { readTexts(); H.count = Number(cnt.value); redraw(); };
+  const act = (sel, fn) => container.querySelectorAll(sel).forEach((b) => { b.onclick = () => { readTexts(); fn(b); redraw(); }; });
+  act('[data-hit-hide]', (b) => { if (!H.exclude.includes(b.dataset.hitHide)) H.exclude.push(b.dataset.hitHide); });
+  act('[data-hit-unhide]', (b) => { H.exclude = H.exclude.filter((x) => x !== b.dataset.hitUnhide); });
+  act('[data-hit-up]', (b) => { const i = +b.dataset.hitUp; [H.ids[i - 1], H.ids[i]] = [H.ids[i], H.ids[i - 1]]; });
+  act('[data-hit-down]', (b) => { const i = +b.dataset.hitDown; [H.ids[i + 1], H.ids[i]] = [H.ids[i], H.ids[i + 1]]; });
+  act('[data-hit-del]', (b) => { H.ids.splice(+b.dataset.hitDel, 1); });
+  // ручной список хранит только существующие блюда
+  H.ids = H.ids.filter((id) => hitItem(id));
+
+  const find = document.getElementById('hitFind');
+  if (find) {
+    const found = document.getElementById('hitFound');
+    find.oninput = () => {
+      const q = find.value.trim().toLowerCase();
+      const list = q ? state.menuItems.filter((r) => !H.ids.includes(String(r.id)) && (r.title_ru || '').toLowerCase().includes(q)).slice(0, 8) : [];
+      found.innerHTML = q && !list.length ? '<p class="empty-hint">Ничего не найдено</p>' : list.map((r) => hitRowHTML(r, null, '',
+        `<button type="button" class="btn btn-dark btn-sm" data-hit-add="${r.id}">+ Добавить</button>`)).join('');
+      found.querySelectorAll('[data-hit-add]').forEach((b) => {
+        b.onclick = () => { readTexts(); H.ids.push(String(b.dataset.hitAdd)); redraw(); const f = document.getElementById('hitFind'); if (f) f.focus(); };
+      });
+    };
+    document.getElementById('hitFromAuto').onclick = async (e) => {
+      readTexts();
+      e.target.disabled = true;
+      try {
+        const r = await loadHitsRanking(H.days);
+        const ex = new Set(H.exclude);
+        const top = r.rows.map((x) => String(x.id)).filter((id) => hitLive(hitItem(id)) && !ex.has(id) && !H.ids.includes(id));
+        if (!top.length) { toast('Пока нет данных о заказах'); e.target.disabled = false; return; }
+        H.ids = [...H.ids, ...top].slice(0, Math.max(H.count, H.ids.length));
+        redraw();
+      } catch (err) { toast('Ошибка: ' + err.message); e.target.disabled = false; }
+    };
+  }
+
+  document.getElementById('hSave').onclick = async (e) => {
+    readTexts();
+    e.target.disabled = true;
+    const body = JSON.stringify(H);
+    try {
+      await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body: { hits: body } });
+      state.settings.hits = body;
+      toast('Сохранено — на сайте обновится в течение минуты');
+    } catch (err) { toast('Ошибка: ' + err.message); }
+    e.target.disabled = false;
+  };
+}
+
+/* =========================================================
    ИМПОРТ МЕНЮ ИЗ PDF / ФОТО — AI читает страницы, человек проверяет, потом добавляем.
    PDF разбираем на картинки прямо в браузере (pdf.js), каждую страницу отдельно
    отправляем в /admin/api/import-menu. В базу ничего не пишется до нажатия «Добавить».
@@ -2776,7 +2950,7 @@ function myRole() { const r = (state.me.restaurants || []).find((x) => x.slug ==
 function cabTabs() {
   const role = myRole();
   if (role === 'stop') return [['stop', '⛔ Стоп-лист']];
-  const menuTabs = TABS.filter(([k]) => ['stats', 'categories', 'sections', 'menuItems', 'badges', 'promos', 'lunch', 'import'].includes(k));
+  const menuTabs = TABS.filter(([k]) => ['stats', 'categories', 'sections', 'menuItems', 'badges', 'promos', 'lunch', 'hits', 'import'].includes(k));
   if (role === 'manager') return [['stop', '⛔ Стоп-лист'], ...menuTabs];
   return [['start', '🚀 Старт'], ['team', '👥 Команда'], ['stop', '⛔ Стоп-лист'], ...TABS.filter(([k]) => k !== 'buttons')];
 }

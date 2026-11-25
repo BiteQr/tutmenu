@@ -122,6 +122,63 @@ function parseLunch(v) {
   try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch { return null; }
 }
 
+/* ---------- ХИТЫ — лента «🔥 Хиты · чаще всего заказывают» над поиском ----------
+   Хранится JSON в restaurants.hits:
+   { mode: 'off' | 'auto' | 'manual', count: 3..12, days: 7|30|90,
+     ids: [id…]      — ручной список (порядок = номера 1, 2, 3…),
+     exclude: [id…]  — что не показывать в авто-режиме (например, пиво или хлеб),
+     title_ru/kk/en, sub_ru/kk/en — свои подписи (пусто — «Хиты» / «чаще всего заказывают») } */
+const HITS_DAYS = [7, 30, 90];
+function parseHits(v) {
+  let o = v;
+  if (typeof v === 'string') { try { o = v ? JSON.parse(v) : null; } catch { o = null; } }
+  o = o && typeof o === 'object' ? o : {};
+  const ids = (a) => [...new Set((Array.isArray(a) ? a : []).map((x) => String(x).replace(/\D/g, '')).filter(Boolean))].slice(0, 60);
+  const txt = (s) => String(s || '').trim().slice(0, 60);
+  return {
+    mode: ['auto', 'manual'].includes(o.mode) ? o.mode : 'off',
+    count: Math.max(3, Math.min(12, Math.round(Number(o.count) || 8))),
+    days: HITS_DAYS.includes(Number(o.days)) ? Number(o.days) : 30,
+    ids: ids(o.ids), exclude: ids(o.exclude),
+    title_ru: txt(o.title_ru), title_kk: txt(o.title_kk), title_en: txt(o.title_en),
+    sub_ru: txt(o.sub_ru), sub_kk: txt(o.sub_kk), sub_en: txt(o.sub_en)
+  };
+}
+
+/** Что чаще всего добавляют в корзину за последние N дней. Меню открывают часто —
+ *  поэтому держим результат в памяти сервера 15 минут, а не считаем на каждый заход. */
+const HITS_CACHE = new Map();
+async function hitsRanking(env, slug, days, fresh = false) {
+  const key = slug + ':' + days;
+  const c = HITS_CACHE.get(key);
+  if (!fresh && c && Date.now() - c.at < 15 * 60e3) return c.rows;
+  const rows = (await env.DB.prepare(
+    `SELECT ref_id id, COUNT(*) n FROM events
+     WHERE restaurant_id = ?1 AND type = 'add_to_cart' AND ref_id <> '' AND created_at >= datetime('now', ?2)
+     GROUP BY ref_id ORDER BY n DESC LIMIT 80`
+  ).bind(slug, `-${days} days`).all()).results;
+  HITS_CACHE.set(key, { at: Date.now(), rows });
+  return rows;
+}
+
+/** Готовый список для гостя: только включённые блюда этого меню, не меньше двух */
+async function hitsFor(env, restaurant, menuItems) {
+  const H = parseHits(restaurant.hits);
+  if (H.mode === 'off' || !menuItems.length) return null;
+  const live = new Set(menuItems.map((it) => it.id));
+  let ids;
+  if (H.mode === 'manual') ids = H.ids.filter((id) => live.has(id));
+  else {
+    const skip = new Set(H.exclude);
+    const rows = await hitsRanking(env, restaurant.slug, H.days).catch(() => []);
+    ids = rows.map((r) => String(r.id)).filter((id) => live.has(id) && !skip.has(id));
+  }
+  ids = ids.slice(0, H.count);
+  if (ids.length < 2) return null;
+  const { mode, count, days, exclude, ids: _ids, ...texts } = H;
+  return { ids, ...texts };
+}
+
 function toSql(v) {
   if (v === true) return 1;
   if (v === false) return 0;
@@ -286,6 +343,10 @@ async function handleMenu(request, env) {
   const bill = billingState(restaurant);
   if (bill && bill.state === 'grace') settings.billing = { state: 'grace', slug, offAt: bill.offAt, offIn: bill.offIn };
   if (bill && bill.state === 'off') settings.demo = { slug, trial: true, billing: true, expiresAt: bill.due, expired: true, restaurant: restaurant.name };
+
+  // Хиты — считаем по своим блюдам до подмены примером (у примера статистики нет)
+  const hits = await hitsFor(env, restaurant, payload.menuItems).catch(() => null);
+  if (hits) settings.hits = hits;
 
   // Пробный период: плашка с остатком дней (видит только создатель), после — «меню недоступно».
   // Пока своих блюд нет, гостям показываем пример меню в дизайне заведения.
@@ -577,8 +638,9 @@ async function handleAdminApi(request, env, segments) {
       if (cab) { delete b.domain; delete b.active; delete b.editorEmails; }
       const cols = ['domain', 'active', 'name', 'tagline_ru', 'tagline_kk', 'tagline_en',
                     'whatsapp', 'theme', 'accent_color', 'logo_welcome', 'logo_header', 'bg_image', 'bg_video',
-                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style', 'service_fee']
+                    'notice_ru', 'notice_kk', 'notice_en', 'hours_from', 'hours_to', 'item_layout', 'lang_style', 'lang_color', 'lunch', 'order_mode', 'promo_style', 'service_fee', 'hits']
         .filter((c) => c in b);
+      if (cols.includes('hits')) b.hits = JSON.stringify(parseHits(b.hits));
       if (cols.includes('service_fee')) b.service_fee = Math.max(0, Math.min(50, Math.round(Number(String(b.service_fee).replace(',', '.')) || 0)));
       if (cols.includes('lunch')) {
         const v = b.lunch == null || b.lunch === '' ? null : (typeof b.lunch === 'string' ? b.lunch : JSON.stringify(b.lunch));
@@ -608,6 +670,17 @@ async function handleAdminApi(request, env, segments) {
       return json({ ok: true });
     }
     return json({ error: 'method_not_allowed' }, { status: 405 });
+  }
+
+  // Хиты: что сейчас попадает в авто-подборку (свежий подсчёт, с числом добавлений в корзину)
+  if (section === 'hits' && method === 'GET') {
+    const slug = normId(url.searchParams.get('restaurant'));
+    if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+    const auth = await authorize(env, request, slug);
+    if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+    const days = HITS_DAYS.includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
+    const rows = await hitsRanking(env, slug, days, true);
+    return json({ days, ranking: rows.map((r) => ({ id: String(r.id), n: r.n })) });
   }
 
   const def = ADMIN_TABLES[section];
@@ -1764,7 +1837,7 @@ async function tgFlags(env) {
 /* ---------- что разрешено ролям ---------- */
 // owner и senior — всё (senior не трогает владельцев); manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
 // stop — только включать/выключать блюда (кухня, бар)
-const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout']);
+const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout', 'hits']);
 
 async function handleCabinetApi(request, env, p) {
   const method = request.method;
@@ -1948,11 +2021,14 @@ async function handleCabinetApi(request, env, p) {
       if (!Object.keys(b).length || Object.keys(b).some((k) => k !== 'active')) return deny();
       body = JSON.stringify({ active: b.active });
     } else if (segments[0] === 'restaurants') {
-      // Менеджер в настройках может менять только бизнес-ланч
+      // Менеджер в настройках может менять только бизнес-ланч и хиты
       if (method !== 'PUT') return deny();
       const b = await readBody();
-      if (!('lunch' in b)) return deny();
-      body = JSON.stringify({ lunch: b.lunch });
+      if (!('lunch' in b) && !('hits' in b)) return deny();
+      const only = {};
+      if ('lunch' in b) only.lunch = b.lunch;
+      if ('hits' in b) only.hits = b.hits;
+      body = JSON.stringify(only);
     } else if (!MANAGER_SECTIONS.has(segments[0])) return deny();
   }
   const target = new URL(request.url);
