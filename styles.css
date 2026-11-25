@@ -1143,3 +1143,13 @@ html[data-mode="dark"]:root img.lz:not(.is-loaded) { background-image: linear-gr
 :root .item-detail__media[style*="--ph"] img.lz.is-loaded { animation: none; }
 @media (prefers-reduced-motion: reduce) { img.lz:not(.is-loaded), img.lz.is-loaded { animation: none; } }
 .hit__media:has(img.lz:not(.is-loaded))::after { opacity: 0; }
+/* Фото не появилось за 0,7 с — поверх блика крутится значок и «Фото загружается…» (класс is-slow ставит utils.js) */
+:root img.lz.is-slow:not(.is-loaded) {
+  background-image: var(--lz-slow, none), linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .55) 50%, transparent 80%);
+  background-size: min(150px, 92%) auto, 220% 100%;
+  background-position: center, 130% 0;
+  background-repeat: no-repeat, no-repeat;
+  animation: lzShimmerSlow 1.25s ease-in-out infinite;
+}
+@keyframes lzShimmerSlow { from { background-position: center, 130% 0; } to { background-position: center, -30% 0; } }
+@media (prefers-reduced-motion: reduce) { :root img.lz.is-slow:not(.is-loaded) { animation: none; } }

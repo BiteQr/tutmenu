@@ -15,7 +15,7 @@
       emptyCart: 'В заказе пока пусто', toMenu: 'Открыть меню',
       viewDish: 'Посмотреть блюдо', promoDish: 'Вот это блюдо', added: 'Добавлено в заказ',
       more: 'Подробнее', addWithPrice: 'Добавить', pairsWith: 'С этим берут', tipTap: 'Нажмите на блюдо — откроются фото и полное описание', tipOk: 'Понятно', chooseLang: 'Язык меню', photoNote: 'Внешний вид блюда может отличаться от фото',  arBtn: 'На столе', arPlace: 'Поставить на стол', arHint: 'Нажмите «Поставить на стол» и наведите камеру на стол — блюдо появится в натуральную величину.', arLoading: 'Загружаю…', arError: 'Не получилось загрузить. Проверьте интернет.', arNoAr: 'AR откроется на телефоне — здесь можно покрутить блюдо.', spinHint: 'Потяните, чтобы повернуть', lunchTitle: 'Бизнес-ланч', lunchToday: 'Сегодня', lunchTomorrow: 'Завтра', lunchOn: 'В {day}', lunchLive: 'Идёт до {to}', lunchSoon: 'С {from}', lunchWeek: 'Меню на неделю', lunchDaysFull: ['воскресенье','понедельник','вторник','среду','четверг','пятницу','субботу'], lunchDaysTab: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
-      chooseVariant: 'Выберите вариант', byDefault: 'По умолчанию', from: 'от', hitsTitle: 'Хиты', hitsSub: 'чаще всего заказывают',
+      chooseVariant: 'Выберите вариант', byDefault: 'По умолчанию', from: 'от', lzLoading: 'Фото загружается…', hitsTitle: 'Хиты', hitsSub: 'чаще всего заказывают',
       remove: 'Удалить', orderSent: 'Заказ отправлен', orderFailed: 'Заказ не отправлен. Проверьте интернет и нажмите ещё раз.',
       orderMsgTitle: 'Новый заказ', loadError: 'Меню не загрузилось. Проверьте интернет.', retry: 'Повторить',
       noticeAgree: 'Согласен(-на)', closedNow: 'Часы работы с {from} - {to}',
@@ -33,7 +33,7 @@
       emptyCart: 'Тапсырыс әзірге бос', toMenu: 'Мәзірді ашу',
       viewDish: 'Тағамды көру', promoDish: 'Міне, осы тағам', added: 'Тапсырысқа қосылды',
       more: 'Толығырақ', addWithPrice: 'Қосу', pairsWith: 'Бұған қоса алады', tipTap: 'Тағамды басыңыз — фотосы мен толық сипаттамасы ашылады', tipOk: 'Түсінікті', chooseLang: 'Мәзір тілі', photoNote: 'Тағамның сыртқы түрі суреттен өзгеше болуы мүмкін',  arBtn: 'Үстелде', arPlace: 'Үстелге қою', arHint: '«Үстелге қою» батырмасын басып, камераны үстелге бағыттаңыз — тағам нақты өлшемінде пайда болады.', arLoading: 'Жүктелуде…', arError: 'Жүктелмеді. Интернетті тексеріңіз.', arNoAr: 'AR телефонда ашылады — мұнда тағамды айналдыруға болады.', spinHint: 'Айналдыру үшін тартыңыз', lunchTitle: 'Бизнес-ланч', lunchToday: 'Бүгін', lunchTomorrow: 'Ертең', lunchOn: '{day}', lunchLive: '{to} дейін', lunchSoon: '{from} бастап', lunchWeek: 'Апталық мәзір', lunchDaysFull: ['жексенбі','дүйсенбі','сейсенбі','сәрсенбі','бейсенбі','жұма','сенбі'], lunchDaysTab: ['Жс','Дс','Сс','Ср','Бс','Жм','Сб'],
-      chooseVariant: 'Нұсқаны таңдаңыз', byDefault: 'Әдепкі', from: 'бастап', hitsTitle: 'Хиттер', hitsSub: 'ең көп тапсырыс беретіні',
+      chooseVariant: 'Нұсқаны таңдаңыз', byDefault: 'Әдепкі', from: 'бастап', lzLoading: 'Фото жүктелуде…', hitsTitle: 'Хиттер', hitsSub: 'ең көп тапсырыс беретіні',
       remove: 'Жою', orderSent: 'Тапсырыс жіберілді', orderFailed: 'Тапсырыс жіберілмеді. Интернетті тексеріп, қайта басыңыз.',
       orderMsgTitle: 'Жаңа тапсырыс', loadError: 'Мәзір жүктелмеді. Интернетті тексеріңіз.', retry: 'Қайталау',
       noticeAgree: 'Келісемін', closedNow: 'Жұмыс уақыты: {from} - {to}',
@@ -51,7 +51,7 @@
       emptyCart: 'Your order is empty', toMenu: 'Open menu',
       viewDish: 'View dish', promoDish: 'Here it is', added: 'Added to order',
       more: 'Details', addWithPrice: 'Add', pairsWith: 'Goes well with', tipTap: 'Tap a dish to see the photo and full description', tipOk: 'Got it', chooseLang: 'Menu language', photoNote: 'Actual dish may look different from the photo',  arBtn: 'On your table', arPlace: 'Place on table', arHint: 'Tap “Place on table” and point the camera at your table — the dish appears at real size.', arLoading: 'Loading…', arError: 'Could not load. Check your connection.', arNoAr: 'AR opens on a phone — here you can rotate the dish.', spinHint: 'Drag to rotate', lunchTitle: 'Business lunch', lunchToday: 'Today', lunchTomorrow: 'Tomorrow', lunchOn: 'On {day}', lunchLive: 'Until {to}', lunchSoon: 'From {from}', lunchWeek: 'This week', lunchDaysFull: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'], lunchDaysTab: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
-      chooseVariant: 'Choose an option', byDefault: 'Default', from: 'from', hitsTitle: 'Hits', hitsSub: 'most ordered',
+      chooseVariant: 'Choose an option', byDefault: 'Default', from: 'from', lzLoading: 'Loading photo…', hitsTitle: 'Hits', hitsSub: 'most ordered',
       remove: 'Remove', orderSent: 'Order sent', orderFailed: 'Order not sent. Check your connection and try again.',
       orderMsgTitle: 'New order', loadError: 'Menu failed to load. Check your connection.', retry: 'Retry',
       noticeAgree: 'I agree', closedNow: 'Opening hours: {from} - {to}',
@@ -97,6 +97,16 @@
 
     /** Статичные элементы с data-i18n / data-i18n-aria */
     applyStatic() {
+      // Значок «Фото загружается…» для медленных фото — картинка с подписью на языке гостя
+      try {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="62" viewBox="0 0 150 62">` +
+          `<g transform="translate(75 20)"><circle r="12" fill="none" stroke="#8a8a8f" stroke-opacity=".25" stroke-width="3"/>` +
+          `<path d="M0-12a12 12 0 0 1 12 12" fill="none" stroke="#8a8a8f" stroke-width="3" stroke-linecap="round">` +
+          `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur=".8s" repeatCount="indefinite"/></path></g>` +
+          `<text x="75" y="54" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#8a8a8f">` +
+          String(I18n.t('lzLoading')).replace(/[&<>]/g, '') + `</text></svg>`;
+        document.documentElement.style.setProperty('--lz-slow', `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+      } catch { /* не страшно — останется блик */ }
       document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = I18n.t(el.dataset.i18n); });
       document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', I18n.t(el.dataset.i18nAria)); });
       const input = document.getElementById('searchInput');

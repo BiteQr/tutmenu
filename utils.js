@@ -78,8 +78,28 @@ window.App = window.App || {};
   // Фото пришло — убираем «загружается» и мягко показываем
   document.addEventListener('load', (e) => {
     const t = e.target;
-    if (t && t.tagName === 'IMG' && t.classList.contains('lz')) t.classList.add('is-loaded');
+    if (t && t.tagName === 'IMG' && t.classList.contains('lz')) { t.classList.add('is-loaded'); t.classList.remove('is-slow'); }
   }, true);
+
+  // Фото на экране, но не появилось за 0,7 с — показываем значок и «Фото загружается…»,
+  // чтобы гость видел, что оно идёт, а не пропало. Считаем только видимые фото.
+  try {
+    const SLOW_MS = 700;
+    const io = new IntersectionObserver((entries) => entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      const t = en.target;
+      io.unobserve(t);
+      if (t.classList.contains('is-loaded') || t.complete && t.naturalWidth) return;
+      setTimeout(() => { if (!t.classList.contains('is-loaded') && !(t.complete && t.naturalWidth)) t.classList.add('is-slow'); }, SLOW_MS);
+    }), { rootMargin: '0px' });
+    const watch = (root) => {
+      if (root.nodeType !== 1) return;
+      if (root.matches('img.lz')) io.observe(root);
+      root.querySelectorAll('img.lz').forEach((i) => io.observe(i));
+    };
+    new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(watch)))
+      .observe(document.documentElement, { childList: true, subtree: true });
+  } catch { /* старый браузер — останется просто блик */ }
 
   /** Toast-уведомление */
   let toastTimer;
