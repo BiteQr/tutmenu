@@ -97,14 +97,30 @@
 
     /** Статичные элементы с data-i18n / data-i18n-aria */
     applyStatic() {
-      // Значок «Фото загружается…» для медленных фото — картинка с подписью на языке гостя
+      // «Фото загружается»: клош (крышка для блюда) с поднимающимся паром и подпись с бегущими точками.
+      // Цвета — из темы заведения (акцент и приглушённый), поэтому картинку собираем здесь, а не в CSS.
       try {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="62" viewBox="0 0 150 62">` +
-          `<g transform="translate(75 20)"><circle r="12" fill="none" stroke="#8a8a8f" stroke-opacity=".25" stroke-width="3"/>` +
-          `<path d="M0-12a12 12 0 0 1 12 12" fill="none" stroke="#8a8a8f" stroke-width="3" stroke-linecap="round">` +
-          `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur=".8s" repeatCount="indefinite"/></path></g>` +
-          `<text x="75" y="54" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#8a8a8f">` +
-          String(I18n.t('lzLoading')).replace(/[&<>]/g, '') + `</text></svg>`;
+        const cs = getComputedStyle(document.documentElement);
+        const hex = (v, d) => /^#[0-9a-f]{3,8}$/i.test(String(v).trim()) ? String(v).trim() : d;
+        const acc = hex(cs.getPropertyValue('--dark'), '#1c1c1e');
+        const mut = hex(cs.getPropertyValue('--muted'), '#8a8a8f');
+        const label = String(I18n.t('lzLoading')).replace(/[.…]+$/, '').replace(/[&<>"]/g, '');
+        const steam = (x, d) => `<path d="M${x} 30c-3-3 3-6 0-9s3-6 0-9" fill="none" stroke="${acc}" stroke-width="2.2" stroke-linecap="round" opacity="0">` +
+          `<animate attributeName="opacity" values="0;.75;0" dur="1.8s" begin="${d}s" repeatCount="indefinite"/>` +
+          `<animateTransform attributeName="transform" type="translate" values="0 6;0 -4" dur="1.8s" begin="${d}s" repeatCount="indefinite"/></path>`;
+        const dot = (d) => `<tspan fill-opacity=".2">.<animate attributeName="fill-opacity" values=".2;1;.2" dur="1.2s" begin="${d}s" repeatCount="indefinite"/></tspan>`;
+        const w = 170, tx = 85;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="96" viewBox="0 0 ${w} 96">` +
+          steam(tx - 9, 0) + steam(tx, .6) + steam(tx + 9, 1.2) +
+          `<g fill="none" stroke="${acc}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">` +
+            `<animateTransform attributeName="transform" type="translate" values="0 0;0 -1.5;0 0" dur="1.8s" repeatCount="indefinite"/>` +
+            `<path d="M${tx - 22} 56a22 21 0 0 1 44 0z" fill="${acc}" fill-opacity=".08"/>` +
+            `<path d="M${tx - 3} 33.5a3 3 0 1 1 6 0"/>` +
+            `<path d="M${tx - 29} 60h58"/>` +
+            `<path d="M${tx - 13} 47a14 13 0 0 1 8-8" stroke-opacity=".45"/>` +
+          `</g>` +
+          `<text x="${tx}" y="86" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif" font-size="12.5" font-weight="600" fill="${mut}">${label}${dot(0)}${dot(.2)}${dot(.4)}</text>` +
+          `</svg>`;
         document.documentElement.style.setProperty('--lz-slow', `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
       } catch { /* не страшно — останется блик */ }
       document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = I18n.t(el.dataset.i18n); });

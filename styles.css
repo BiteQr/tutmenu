@@ -1124,32 +1124,36 @@ html[data-design] .hits__title { font-weight: var(--display-weight); text-transf
 @media (prefers-reduced-motion: reduce) { .item.is-spot { animation: none; box-shadow: 0 0 0 2px var(--dark); } .item.is-spot::after { animation: none; } }
 
 /* =========================================================
-   ФОТО: пока грузится — мягкий бегущий блик на месте фото, пришло — плавно проявляется.
-   Класс lz ставит App.utils.img(), is-loaded — когда фото загрузилось (или не загрузилось и стоит заглушка).
+   ФОТО: пока грузится — мягкий бегущий блик в цвет заведения, через 0,7 с — клош с паром
+   и «Фото загружается…» (картинку собирает i18n.js, класс is-slow ставит utils.js).
+   Пришло — проявляется из размытия. Класс lz ставит App.utils.img(), is-loaded — когда фото загрузилось.
    ========================================================= */
 :root img.lz:not(.is-loaded) {
-  background-color: var(--surface);
-  background-image: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .55) 50%, transparent 80%);
-  background-size: 220% 100%; background-repeat: no-repeat;
-  animation: lzShimmer 1.25s ease-in-out infinite;
+  background-color: color-mix(in srgb, var(--dark) 5%, var(--surface));
+  background-image: linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, .6) 45%, rgba(255, 255, 255, .15) 55%, transparent 75%);
+  background-size: 250% 100%; background-repeat: no-repeat;
+  animation: lzShimmer 1.6s cubic-bezier(.45, .05, .35, 1) infinite;
 }
-html[data-mode="dark"]:root img.lz:not(.is-loaded) { background-image: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .08) 50%, transparent 80%); }
-:root img.lz.is-loaded { animation: lzIn .35s ease both; }
-@keyframes lzShimmer { from { background-position: 130% 0; } to { background-position: -30% 0; } }
-@keyframes lzIn { from { opacity: 0; } to { opacity: 1; } }
+html[data-mode="dark"]:root img.lz:not(.is-loaded) { background-image: linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, .09) 45%, rgba(255, 255, 255, .03) 55%, transparent 75%); }
+:root img.lz.is-slow:not(.is-loaded) {
+  background-image: var(--lz-slow, none), linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, .6) 45%, rgba(255, 255, 255, .15) 55%, transparent 75%);
+  background-size: min(170px, 88%) auto, 250% 100%;
+  background-position: center, 140% 0;
+  background-repeat: no-repeat, no-repeat;
+  animation: lzShimmerSlow 1.6s cubic-bezier(.45, .05, .35, 1) infinite, lzSlowIn .4s ease both;
+}
+html[data-mode="dark"]:root img.lz.is-slow:not(.is-loaded) { background-image: var(--lz-slow, none), linear-gradient(105deg, transparent 25%, rgba(255, 255, 255, .09) 45%, rgba(255, 255, 255, .03) 55%, transparent 75%); }
+:root img.lz.is-loaded { animation: lzIn .55s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes lzShimmer { from { background-position: 140% 0; } to { background-position: -40% 0; } }
+@keyframes lzShimmerSlow { from { background-position: center, 140% 0; } to { background-position: center, -40% 0; } }
+@keyframes lzSlowIn { from { background-size: min(150px, 78%) auto, 250% 100%; } }
+@keyframes lzIn { from { opacity: 0; filter: blur(14px) saturate(1.4); } 60% { opacity: 1; } to { opacity: 1; filter: none; } }
 /* Окно блюда: пока грузится большое фото, видна лёгкая копия из списка (она уже в кэше) */
 .item-detail__media[style*="--ph"] { background: var(--ph) center / cover no-repeat, var(--surface); }
-:root .item-detail__media[style*="--ph"] img.lz:not(.is-loaded) { background: transparent; animation: none; }
-:root .item-detail__media[style*="--ph"] img.lz.is-loaded { animation: none; }
-@media (prefers-reduced-motion: reduce) { img.lz:not(.is-loaded), img.lz.is-loaded { animation: none; } }
+:root .item-detail__media[style*="--ph"] img.lz:not(.is-loaded) { background: transparent; animation: none; opacity: 0; }
+:root .item-detail__media[style*="--ph"] img.lz.is-loaded { animation: lzSharpen .45s ease both; }
+@keyframes lzSharpen { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { :root img.lz:not(.is-loaded), :root img.lz.is-loaded, :root img.lz.is-slow:not(.is-loaded) { animation: none; } }
 .hit__media:has(img.lz:not(.is-loaded))::after { opacity: 0; }
-/* Фото не появилось за 0,7 с — поверх блика крутится значок и «Фото загружается…» (класс is-slow ставит utils.js) */
-:root img.lz.is-slow:not(.is-loaded) {
-  background-image: var(--lz-slow, none), linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .55) 50%, transparent 80%);
-  background-size: min(150px, 92%) auto, 220% 100%;
-  background-position: center, 130% 0;
-  background-repeat: no-repeat, no-repeat;
-  animation: lzShimmerSlow 1.25s ease-in-out infinite;
-}
-@keyframes lzShimmerSlow { from { background-position: center, 130% 0; } to { background-position: center, -30% 0; } }
-@media (prefers-reduced-motion: reduce) { :root img.lz.is-slow:not(.is-loaded) { animation: none; } }
+.hit__num { transition: opacity .35s ease .15s, transform .35s ease .15s; }
+.hit__media:has(img.lz:not(.is-loaded)) .hit__num { opacity: 0; transform: translateY(6px); transition: none; }

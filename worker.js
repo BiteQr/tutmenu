@@ -779,6 +779,169 @@ async function handleAdminApi(request, env, segments) {
    Тело: { image: 'data:image/jpeg;base64,…', page: 1 }. Одна страница за запрос — браузер шлёт их по очереди,
    поэтому большой PDF не упирается в лимиты одного запроса. Ничего не сохраняет: только возвращает
    найденные позиции, а в меню их добавляет админка после проверки человеком. */
+/* ---------- ПЕРЕНОС МЕНЮ ПО ССЫЛКЕ (с другого сервиса онлайн-меню) ----------
+   Новому клиенту не нужно ничего перепечатывать: вставил ссылку на старое меню → видит всё → «Перенести».
+   Сейчас умеем KamiQR (*.kamiqr.com): сайт кладёт всё меню в страницу как window.__data__ —
+   разделы, категории, блюда на 3 языках, цены (в тиынах), стоп-лист, имена файлов фото.
+   POST /admin/api/import-url   { url }  → разобранное меню (в базу ничего не пишется)
+   POST /admin/api/import-image { url }  → фото скачано, уменьшено до 1280 px + лёгкая копия, лежит у нас */
+const IMPORT_HOSTS = /(^|\.)kamiqr\.com$/i;
+const IMPORT_IMG_HOSTS = /(^|\.)(kamigroup\.fra1\.cdn\.digitaloceanspaces\.com|kamiqr\.com)$/i;
+
+/** JSON-объект, который начинается в html с позиции start (учитывает строки и экранирование) */
+function jsonAt(html, start) {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < html.length; i++) {
+    const c = html[i];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return JSON.parse(html.slice(start, i + 1));
+  }
+  throw new Error('json_unterminated');
+}
+
+const stripTags = (v) => String(v || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/[ \t]+/g, ' ').trim();
+/** {RU,KZ,EN} → {ru,kk,en} */
+const kamiTr = (o, pre) => {
+  o = o && typeof o === 'object' ? o : {};
+  return { [pre + '_ru']: stripTags(o.RU), [pre + '_kk']: stripTags(o.KZ), [pre + '_en']: stripTags(o.EN) };
+};
+
+function parseKamiQR(W) {
+  const d = W && W.data;
+  if (!d || !d.tree || !d.items) throw new Error('no_menu');
+  const assets = String(W.assetsUrl || 'https://kamigroup.fra1.cdn.digitaloceanspaces.com/kami/prod').replace(/\/+$/, '');
+  const money = (v) => Math.round((Number(v) || 0) / 100);
+  const ru = (o) => stripTags(o && (o.RU || o.KZ || o.EN));
+  const cap = (t) => t ? t[0].toUpperCase() + t.slice(1) : t;
+  const categories = [];
+  for (const sec of d.tree.sections || []) {
+    const S = (d.sections || {})[sec.sectionId] || {};
+    const cat = { ...kamiTr(S.name, 'title'), image: S.img ? `${assets}/menuSections/${S.img}` : '', hidden: !!S.isHidden, sections: [] };
+    for (const c of sec.categories || []) {
+      const C = (d.categories || {})[c.categoryId] || {};
+      const section = { ...kamiTr(C.name, 'title'), ...kamiTr(C.desc, 'subtitle'), hidden: !!C.isHidden, items: [] };
+      for (const ref of c.items || []) {
+        const it = d.items[ref.itemId];
+        if (!it) continue;
+        const pr = it.prices || {};
+        const base = money(pr.primary && pr.primary.price);
+        let variants = [];
+        // Размеры/объёмы: основная цена + «другие»
+        if (Array.isArray(pr.others) && pr.others.length) {
+          variants = [{ label: ru(pr.primary && pr.primary.label), price: base },
+            ...pr.others.map((o) => ({ label: ru(o.label), price: money(o.price) }))].filter((v) => v.price);
+        }
+        const extra = [];
+        for (const m of pr.modSelects || []) {
+          if (m.isHidden) continue;
+          const opts = (m.options || []).filter((o) => o.status !== 'hidden');
+          const paid = opts.some((o) => Number(o.priceDelta));
+          if (paid && m.isRequired && !variants.length) {
+            variants = opts.map((o) => ({ label: ru(o.label), price: base + money(o.priceDelta) }));
+          } else if (opts.length) {
+            extra.push(`${cap(ru(m.header)) || 'На выбор'}: ${opts.map((o) => ru(o.label) + (Number(o.priceDelta) ? ` (+${money(o.priceDelta)} ₸)` : '')).join(', ')}`);
+          }
+        }
+        for (const m of pr.modExtras || []) {
+          const opts = (m.options || []).filter((o) => o.status !== 'hidden');
+          if (opts.length) extra.push(`${cap(ru(m.header)) || 'Добавки'}: ${opts.map((o) => ru(o.label) + (Number(o.priceDelta) ? ` (+${money(o.priceDelta)} ₸)` : '')).join(', ')}`);
+        }
+        const sp = it.specs || {};
+        const desc = kamiTr(Object.keys(sp.shortDesc || {}).length ? sp.shortDesc : sp.fullDesc, 'description');
+        const tail = [extra.join('. '), sp.grams ? `${sp.grams} г` : ''].filter(Boolean).join(' · ');
+        if (tail) desc.description_ru = [desc.description_ru, tail].filter(Boolean).join('\n');
+        section.items.push({
+          ...kamiTr(it.name, 'title'), ...desc,
+          price: variants.length ? 0 : base, variants,
+          image: it.mainImg ? `${assets}/menuItems/${it.mainImg}` : '',
+          thumb: it.mainImg ? `${assets}/menuItemThumbnails/${String(it.mainImg).replace(/\.\w+$/, '')}_thumb.jpeg` : '',
+          off: !!it.isOff, hidden: !!it.isHidden
+        });
+      }
+      if (section.items.length) cat.sections.push(section);
+    }
+    if (cat.sections.length) categories.push(cat);
+  }
+  const o = d.orgAttrs || {};
+  const hours = String((o.schedule && (o.schedule.RU || Object.values(o.schedule)[0])) || '').match(/(\d{1,2}:\d{2})\s*[–—-]\s*(\d{1,2}:\d{2})/);
+  return {
+    source: 'KamiQR', name: stripTags(o.name || d.name || ''),
+    info: {
+      ...kamiTr(o.desc, 'tagline'),
+      whatsapp: String((o.whatsapp && o.whatsapp.number) || '').replace(/\D/g, ''),
+      hours_from: hours ? hours[1] : '', hours_to: hours ? hours[2] : '',
+      bg_image: o.backgroundImg ? `${assets}/menuOrgAttrsBackgrounds/${o.backgroundImg}` : ''
+    },
+    categories
+  };
+}
+
+async function handleImportUrl(request, env) {
+  const url = new URL(request.url);
+  const slug = normId(url.searchParams.get('restaurant'));
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  const auth = await authorize(env, request, slug);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  const body = await request.json().catch(() => ({}));
+  let u;
+  try { u = new URL(/^https?:\/\//i.test(String(body.url || '').trim()) ? String(body.url).trim() : 'https://' + String(body.url || '').trim()); }
+  catch { return json({ error: 'bad_url', message: 'Не похоже на ссылку' }, { status: 400 }); }
+  if (!IMPORT_HOSTS.test(u.hostname)) {
+    return json({ error: 'unsupported', message: 'Пока умею переносить меню с KamiQR (ссылки вида название.kamiqr.com/menu/…). Пришлите ссылку разработчику — добавим и этот сервис.' }, { status: 422 });
+  }
+  u.protocol = 'https:'; u.hash = ''; u.search = '';
+  if (!/\/menu(\/|$)/.test(u.pathname)) u.pathname = '/menu';
+  if (!/\/list\/?$/.test(u.pathname)) u.pathname = u.pathname.replace(/\/+$/, '') + '/list';
+  const res = await fetch(u.toString(), { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (tut.menu import)', 'accept-language': 'ru' } });
+  if (res.status >= 300 && res.status < 400) {
+    return json({ error: 'unavailable', message: 'Меню по этой ссылке сейчас закрыто (KamiQR перенаправляет на страницу оплаты). Попробуйте другое меню заведения, например …/menu/delivery.' }, { status: 422 });
+  }
+  if (!res.ok) return json({ error: 'fetch_failed', message: `Сайт ответил ошибкой ${res.status}` }, { status: 502 });
+  const html = await res.text();
+  const at = html.indexOf('window.__data__');
+  if (at < 0) return json({ error: 'no_menu', message: 'На странице не нашлось меню' }, { status: 422 });
+  let menu;
+  try { menu = parseKamiQR(jsonAt(html, html.indexOf('{', at))); }
+  catch (err) { return json({ error: 'parse_failed', message: 'Не получилось разобрать меню: ' + String(err.message || err).slice(0, 120) }, { status: 422 }); }
+  menu.url = u.toString().replace(/\/list$/, '');
+  return json(menu);
+}
+
+/** Скачиваем фото со старого сервиса: оригиналы бывают 4000×4000 и по несколько МБ —
+ *  сразу уменьшаем до 1280 px WebP и кладём рядом лёгкую копию 640 px для карточек. */
+async function handleImportImage(request, env) {
+  const url = new URL(request.url);
+  const slug = normId(url.searchParams.get('restaurant'));
+  if (!slug) return json({ error: 'no_restaurant' }, { status: 400 });
+  const auth = await authorize(env, request, slug);
+  if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
+  const body = await request.json().catch(() => ({}));
+  let u;
+  try { u = new URL(String(body.url || '')); } catch { return json({ error: 'bad_url' }, { status: 400 }); }
+  if (u.protocol !== 'https:' || !IMPORT_IMG_HOSTS.test(u.hostname)) return json({ error: 'forbidden_host' }, { status: 403 });
+  const r = await fetch(u.toString());
+  const type = r.headers.get('content-type') || '';
+  if (!r.ok || !/^image\//.test(type)) return json({ error: 'fetch_failed', message: `Фото не скачалось (${r.status})` }, { status: 502 });
+  const buf = await r.arrayBuffer();
+  if (buf.byteLength > 30 * 1024 * 1024) return json({ error: 'too_large' }, { status: 413 });
+  const id = crypto.randomUUID();
+  const put = (key, data, ct) => env.BUCKET.put(key, data, { httpMetadata: { contentType: ct, cacheControl: 'public, max-age=31536000, immutable' } });
+  if (!env.IMAGES) {
+    const ext = (type.split('/')[1] || 'jpg').replace(/[^a-z0-9]/g, '').replace('jpeg', 'jpg');
+    const key = `${slug}/${id}.${ext}`;
+    await put(key, buf, type);
+    return json({ ok: true, url: `/files/${key}` });
+  }
+  const shrink = async (w, q) => (await (await env.IMAGES.input(new Response(buf).body)
+    .transform({ width: w, height: w, fit: 'scale-down' }).output({ format: 'image/webp', quality: q })).response()).arrayBuffer();
+  const key = `${slug}/${id}.webp`;
+  await put(key, await shrink(1280, 82), 'image/webp');
+  try { await put(thumbKey(key), await shrink(THUMB_W, 76), 'image/webp'); } catch (err) { console.warn('thumb', key, String(err)); }
+  return json({ ok: true, url: `/files/${key}` });
+}
+
 const IMPORT_MAX_IMAGE = 6 * 1024 * 1024;
 async function handleImportMenu(request, env) {
   const url = new URL(request.url);
@@ -1924,7 +2087,7 @@ async function tgFlags(env) {
 /* ---------- что разрешено ролям ---------- */
 // owner и senior — всё (senior не трогает владельцев); manager — меню, фото, акции, бизнес-ланч, статистика (без настроек и команды);
 // stop — только включать/выключать блюда (кухня, бар)
-const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout', 'hits']);
+const MANAGER_SECTIONS = new Set(['categories', 'sections', 'menu-items', 'badges', 'promos', 'upload', 'import-menu', 'ar-cutout', 'hits', 'import-url', 'import-image']);
 
 async function handleCabinetApi(request, env, p) {
   const method = request.method;
@@ -2125,6 +2288,8 @@ async function handleCabinetApi(request, env, p) {
   if (sub === '/upload' && method === 'POST') return handleUpload(req2, env);
   if (sub === '/import-menu' && method === 'POST') return (await tooMany(request, 'cab-import', 60, 3600)) ? slowDown() : handleImportMenu(req2, env);
   if (sub === '/ar-cutout' && method === 'POST') return handleArCutout(req2, env);
+  if (sub === '/import-url' && method === 'POST') return (await tooMany(request, 'cab-import-url', 30, 3600)) ? slowDown() : handleImportUrl(req2, env);
+  if (sub === '/import-image' && method === 'POST') return handleImportImage(req2, env);
   return handleAdminApi(req2, env, segments);
 }
 
@@ -2189,6 +2354,8 @@ const handler = {
       if (p === '/admin/api/upload' && method === 'POST') return await handleUpload(request, env);
       if (p === '/admin/api/import-menu' && method === 'POST') return await handleImportMenu(request, env);
       if (p === '/admin/api/ar-cutout' && method === 'POST') return await handleArCutout(request, env);
+      if (p === '/admin/api/import-url' && method === 'POST') return await handleImportUrl(request, env);
+      if (p === '/admin/api/import-image' && method === 'POST') return await handleImportImage(request, env);
       if (p.startsWith('/ar/') && (method === 'GET' || method === 'HEAD')) return await handleArGlb(request, env, ctx, p.slice(4));
       if (p === '/admin/api/tg' || p.startsWith('/admin/api/tg/')) {
         return await handleTgApi(request, env, p.split('/')[4] || '');

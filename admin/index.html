@@ -155,6 +155,27 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .dish-stats__name i{display:block;height:5px;border-radius:3px;background:var(--dark);opacity:.75;min-width:3px;}
 .dish-stats .is-good{color:#1f8a3e;font-weight:700;}
 .dish-stats .is-bad{color:var(--danger);font-weight:700;}
+.impu-head{margin:16px 0 8px;font-size:14px;}
+.impu-cat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px;}
+.impu-cat__title{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;margin-bottom:6px;}
+.impu-cat__title img{width:40px;height:40px;border-radius:8px;object-fit:cover;}
+.impu-cat__title small{color:var(--muted);font-weight:500;font-size:12px;}
+.impu-sec{border-top:1px solid var(--line);}
+.impu-sec summary{display:flex;align-items:center;gap:10px;padding:9px 0;cursor:pointer;font-size:14px;list-style:none;}
+.impu-sec summary::-webkit-details-marker{display:none;}
+.impu-sec summary::after{content:'▾';margin-left:auto;color:var(--muted);}
+.impu-sec[open] summary::after{content:'▴';}
+.impu-sec summary span{color:var(--muted);font-size:13px;}
+.impu-sec summary input{width:18px;height:18px;flex:none;}
+.impu-sec.is-off summary b{opacity:.45;text-decoration:line-through;}
+.impu-items{display:flex;flex-direction:column;gap:6px;padding:0 0 10px 28px;}
+.impu-item{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;font-size:13px;}
+.impu-item img,.impu-item i{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--bg);display:block;}
+.impu-item b{display:block;font-weight:600;}
+.impu-item small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px;}
+.impu-item > span{text-align:right;font-weight:600;white-space:nowrap;}
+.impu-item em{color:var(--danger);font-style:normal;font-size:11px;}
+.impu-item.is-stop{opacity:.7;}
 .hit-num{flex:none;width:26px;text-align:center;font-size:20px;font-weight:800;}
 .qr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
 .qr-box{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:10px;}
@@ -2031,11 +2052,13 @@ async function pdfFileToPages(file) {
 
 function renderImportTab(container) {
   const st = state.imp || (state.imp = { pages: [], status: [], groups: [], busy: false, catId: '', newCat: '' });
+  const U = state.impUrl || (state.impUrl = { url: '', busy: false, data: null, off: {}, photos: true, info: true, progress: '' });
   const cats = state.categories || [];
   const total = st.groups.reduce((n, g) => n + g.items.filter((x) => x.on).length, 0);
   const done = st.status.filter((x) => x === 'done' || x === 'err').length;
   const lows = st.groups.reduce((n, g) => n + g.items.filter((x) => x.on && x.confidence === 'low').length, 0);
   container.innerHTML = `
+    ${impUrlHTML(U)}
     <div class="panel">
       <div class="panel-head"><h2>Импорт меню из PDF или фото</h2></div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
@@ -2095,6 +2118,7 @@ function renderImportTab(container) {
       </div>
     </div>` : ''}`;
 
+  wireImpUrl(container, U);
   const sel = document.getElementById('impCat');
   sel.onchange = () => { st.catId = sel.value; renderImportTab(container); };
   if (!st.catId) st.catId = sel.value;
@@ -2114,6 +2138,146 @@ function renderImportTab(container) {
   container.querySelectorAll('[data-gtarget]').forEach((el) => { el.onchange = () => { st.groups[el.dataset.gtarget].target = el.value; }; });
   const save = document.getElementById('impSave');
   if (save) save.onclick = () => impSave(container);
+}
+
+/* ---------- Перенос меню по ссылке с другого сервиса (KamiQR) ----------
+   Сервер читает меню по ссылке и отдаёт его целиком (в базу ничего не пишет). Здесь — предпросмотр,
+   галочки по разделам и перенос: категории → разделы → блюда (3 языка, цены, стоп-лист) и фото,
+   которые сервер скачивает и уменьшает (/import-image). */
+function impUrlHTML(U) {
+  const d = U.data;
+  const secKey = (ci, si) => ci + '.' + si;
+  let count = 0, photos = 0;
+  if (d) d.categories.forEach((c, ci) => c.sections.forEach((s, si) => {
+    if (U.off[secKey(ci, si)]) return;
+    s.items.forEach((it) => { if (!it.hidden) { count++; if (it.image) photos++; } });
+  }));
+  const fills = d ? [['tagline_ru', 'слоган'], ['whatsapp', 'WhatsApp'], ['hours_from', 'часы работы']].filter(([k]) => d.info[k] && !String(state.settings[k] || '').trim()).map(([, n]) => n) : [];
+  return `
+    <div class="panel">
+      <div class="panel-head"><h2>🔗 Перенести меню по ссылке</h2></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+        Если у заведения уже есть онлайн-меню — вставьте ссылку на него. Перенесём категории, разделы, блюда на трёх языках, цены и все фото.
+        Сейчас поддерживается <b>KamiQR</b> (ссылки вида <code>название.kamiqr.com/menu/…</code>).
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="impUrl" value="${esc(U.url)}" placeholder="asia-town.kamiqr.com/menu/delivery" style="flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;" ${U.busy ? 'disabled' : ''}>
+        <button class="btn btn-dark" id="impUrlLoad" ${U.busy ? 'disabled' : ''}>${U.busy && !d ? 'Читаю меню…' : 'Загрузить'}</button>
+      </div>
+      ${d ? `
+        <div class="impu-head">
+          <b>${esc(d.name || 'Меню')}</b> · ${esc(d.source)} · ${d.categories.reduce((n, c) => n + c.sections.length, 0)} разделов
+        </div>
+        ${d.categories.map((c, ci) => `
+          <div class="impu-cat">
+            <div class="impu-cat__title">${c.image ? `<img src="${esc(c.image)}" alt="">` : ''}<span>${esc(c.title_ru || 'Без названия')}</span><small>категория</small></div>
+            ${c.sections.map((s, si) => { const on = !U.off[secKey(ci, si)]; const vis = s.items.filter((it) => !it.hidden); return `
+              <details class="impu-sec${on ? '' : ' is-off'}">
+                <summary>
+                  <input type="checkbox" data-impu-sec="${secKey(ci, si)}" ${on ? 'checked' : ''} ${U.busy ? 'disabled' : ''}>
+                  <b>${esc(s.title_ru || 'Без названия')}</b><span>${vis.length} блюд</span>
+                </summary>
+                <div class="impu-items">${vis.map((it) => `
+                  <div class="impu-item${it.off ? ' is-stop' : ''}">
+                    ${it.thumb || it.image ? `<img src="${esc(it.thumb || it.image)}" alt="" loading="lazy">` : '<i></i>'}
+                    <div><b>${esc(it.title_ru)}</b><small>${esc(it.description_ru || '')}</small></div>
+                    <span>${it.variants.length ? it.variants.map((v) => esc(v.label) + ' ' + money(v.price)).join(' · ') : it.price ? money(it.price) : '—'}${it.off ? '<br><em>стоп-лист</em>' : ''}</span>
+                  </div>`).join('')}</div>
+              </details>`; }).join('')}
+          </div>`).join('')}
+        <label class="field-check" style="margin-top:12px;"><input type="checkbox" id="impuPhotos" ${U.photos ? 'checked' : ''} ${U.busy ? 'disabled' : ''}> Перенести фото (${photos}) — уменьшим, чтобы меню грузилось быстро</label>
+        ${fills.length ? `<label class="field-check" style="margin-top:6px;"><input type="checkbox" id="impuInfo" ${U.info ? 'checked' : ''} ${U.busy ? 'disabled' : ''}> Заодно заполнить пустые настройки: ${fills.join(', ')}</label>` : ''}
+        <p class="field-hint" style="margin-top:8px;">Блюда из стоп-листа перенесутся выключенными. Названия и описания — на всех языках, что были в старом меню. Категории с таким же названием, как у вас, не дублируются.</p>
+        <div class="imp-sum">
+          <span style="font-size:14px;">${U.progress ? esc(U.progress) : `<b>${count}</b> блюд`}</span>
+          <button class="btn btn-dark" id="impuSave" ${count && !U.busy ? '' : 'disabled'}>${U.busy ? 'Переношу…' : 'Перенести в меню'}</button>
+        </div>` : ''}
+    </div>`;
+}
+
+function wireImpUrl(container, U) {
+  const inp = document.getElementById('impUrl');
+  const load = async () => {
+    U.url = inp.value.trim();
+    if (!U.url) { inp.focus(); return; }
+    U.busy = true; U.data = null; U.off = {}; U.progress = ''; renderImportTab(container);
+    try { U.data = await api(`/import-url?restaurant=${state.slug}`, { method: 'POST', body: { url: U.url } }); }
+    catch (err) { toast(err.message); }
+    U.busy = false; renderImportTab(container);
+  };
+  document.getElementById('impUrlLoad').onclick = load;
+  inp.onkeydown = (e) => { if (e.key === 'Enter') load(); };
+  container.querySelectorAll('[data-impu-sec]').forEach((cb) => {
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => { U.off[cb.dataset.impuSec] = !cb.checked; renderImportTab(container); };
+  });
+  const ph = document.getElementById('impuPhotos'); if (ph) ph.onchange = () => { U.photos = ph.checked; renderImportTab(container); };
+  const inf = document.getElementById('impuInfo'); if (inf) inf.onchange = () => { U.info = inf.checked; };
+  const save = document.getElementById('impuSave'); if (save) save.onclick = () => impUrlSave(container, U);
+}
+
+async function impUrlSave(container, U) {
+  const d = U.data;
+  const plan = d.categories.map((c, ci) => ({ c, secs: c.sections.map((s, si) => ({ s, items: s.items.filter((it) => !it.hidden) })).filter((x, si) => !U.off[ci + '.' + si] && x.items.length) })).filter((x) => x.secs.length);
+  const total = plan.reduce((n, x) => n + x.secs.reduce((k, y) => k + y.items.length, 0), 0);
+  if (!total || !confirm(`Перенести в меню «${state.settings.name || state.slug}» ${total} блюд${U.photos ? ' вместе с фото' : ''}?`)) return;
+  const pick = (o, pre) => ({ [pre + '_ru']: o[pre + '_ru'] || '', [pre + '_kk']: o[pre + '_kk'] || '', [pre + '_en']: o[pre + '_en'] || '' });
+  const photo = async (url) => {
+    if (!U.photos || !url) return '';
+    try { return (await api(`/import-image?restaurant=${state.slug}`, { method: 'POST', body: { url } })).url || ''; }
+    catch { failed++; return ''; }
+  };
+  let done = 0, failed = 0;
+  const tick = (t) => { U.progress = t || `Переношу… ${done} из ${total}${failed ? ` · без фото: ${failed}` : ''}`; renderImportTab(container); };
+  U.busy = true; tick();
+  try {
+    // Пустые настройки заведения: слоган, WhatsApp, часы
+    if (U.info) {
+      const body = {};
+      ['tagline_ru', 'tagline_kk', 'tagline_en', 'whatsapp', 'hours_from', 'hours_to'].forEach((k) => {
+        if (d.info[k] && !String(state.settings[k] || '').trim()) body[k] = d.info[k];
+      });
+      if (Object.keys(body).length) { await api(`/restaurants?restaurant=${state.slug}`, { method: 'PUT', body }); Object.assign(state.settings, body); }
+    }
+    const norm = (t) => String(t || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+    let catSort = nextSort(state.categories || []), secSort = nextSort(state.sections || []);
+    const jobs = [];
+    for (const { c, secs } of plan) {
+      let cat = (state.categories || []).find((x) => norm(x.title_ru) === norm(c.title_ru));
+      let catId = cat && cat.id;
+      if (!catId) {
+        const r = await api(`/categories?restaurant=${state.slug}`, { method: 'POST', body: { ...pick(c, 'title'), image: await photo(c.image), active: 1, sort: catSort } });
+        catId = r.id; catSort += 10;
+      }
+      for (const { s, items } of secs) {
+        const r = await api(`/sections?restaurant=${state.slug}`, { method: 'POST', body: { ...pick(s, 'title'), ...pick(s, 'subtitle'), category_id: catId, active: 1, sort: secSort } });
+        secSort += 10;
+        items.forEach((it, i) => jobs.push({ it, secId: r.id, sort: (i + 1) * 10 }));
+      }
+    }
+    // Блюда — по 4 параллельно (фото скачиваются и уменьшаются на сервере)
+    const queue = [...jobs];
+    const worker = async () => {
+      while (queue.length) {
+        const { it, secId, sort } = queue.shift();
+        const image = await photo(it.image);
+        await api(`/menu-items?restaurant=${state.slug}`, { method: 'POST', body: {
+          section_id: secId, ...pick(it, 'title'), ...pick(it, 'description'), image,
+          price: Number(it.price) || 0, variants: it.variants && it.variants.length ? JSON.stringify(it.variants) : '',
+          active: it.off ? 0 : 1, sort
+        } });
+        done++; tick();
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    await Promise.all([reloadTable('categories', 'categories'), reloadTable('sections', 'sections'), reloadTable('menuItems', 'menu-items')]);
+    state.impUrl = null;
+    toast(`Перенесено блюд: ${done}${failed ? ` · ${failed} фото не скачалось — их можно добавить во вкладке «Блюда»` : ''}`);
+    state.tab = 'menuItems'; renderTabs(); renderTab();
+  } catch (err) {
+    U.busy = false; tick(`Остановилось на ${done} из ${total}: ${err.message}`);
+    toast('Ошибка: ' + err.message);
+  }
 }
 
 async function impStart(container, files) {
