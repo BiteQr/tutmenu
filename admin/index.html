@@ -145,6 +145,16 @@ body.is-dragging,body.is-dragging *{cursor:grabbing !important;user-select:none 
 .period-switch{display:flex;gap:6px;}
 .period-switch button{padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);background:var(--bg);}
 .period-switch button.active{background:var(--dark);color:#fff;}
+.dish-stats{display:flex;flex-direction:column;}
+.dish-stats__row{display:grid;grid-template-columns:1fr 76px 86px 60px;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px;text-align:right;}
+.dish-stats__row--3{grid-template-columns:1fr 76px 86px;}
+.dish-stats__row > span:first-child{text-align:left;min-width:0;}
+.dish-stats__head{border-top:0;font-size:12px;font-weight:600;color:var(--muted);padding-top:0;}
+.dish-stats__name{display:flex;flex-direction:column;gap:5px;}
+.dish-stats__name b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dish-stats__name i{display:block;height:5px;border-radius:3px;background:var(--dark);opacity:.75;min-width:3px;}
+.dish-stats .is-good{color:#1f8a3e;font-weight:700;}
+.dish-stats .is-bad{color:var(--danger);font-weight:700;}
 .hit-num{flex:none;width:26px;text-align:center;font-size:20px;font-weight:800;}
 .qr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
 .qr-box{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:10px;}
@@ -1550,6 +1560,51 @@ function fmtDuration(sec) {
   return m ? `${m} мин ${s} сек` : `${s} сек`;
 }
 
+/* Блюда: сколько гостей открыли карточку, сколько добавили в корзину и какая доля открывших берёт.
+   «Смотрят, но не берут» — повод поправить фото, описание или цену. */
+const SRC_NAMES = { hits: '🔥 Хиты', menu: '📋 Список меню', ai: '✨ ИИ-подбор', rec: '🤝 «С этим берут»', dish: '🍽 Карточка блюда', cart: '🛒 Корзина' };
+function dishStatsHTML(d) {
+  const rows = (d.dishes || []).map((x) => {
+    const it = state.menuItems.find((r) => String(r.id) === x.id);
+    return { ...x, name: (it && it.title_ru) || x.title || '(удалено)' };
+  });
+  const viewed = rows.filter((x) => x.v > 0);
+  const anyViews = viewed.length > 0;
+  const top = (anyViews ? [...viewed].sort((x, y) => y.v - x.v || y.a - x.a) : [...rows].sort((x, y) => y.a - x.a)).slice(0, 15);
+  const max = Math.max(1, ...top.map((x) => anyViews ? x.v : x.a));
+  const conv = (x) => x.v ? Math.min(100, Math.round((x.a / x.v) * 100)) : null;
+  const weak = viewed.filter((x) => x.v >= 5 && conv(x) < 15).slice(0, 6);
+  const src = {}; (d.sources || []).forEach((r) => { const k = r.src || ''; src[k] = src[k] || { v: 0, a: 0 }; src[k][r.type === 'view_item' ? 'v' : 'a'] += r.n; });
+  const srcRows = Object.entries(src).filter(([k]) => SRC_NAMES[k]).sort((a, b) => (b[1].v + b[1].a) - (a[1].v + a[1].a));
+  return `
+    <div class="panel">
+      <h2>Какие блюда открывают</h2>
+      <p class="field-hint" style="margin:-6px 0 12px;">Считаются разные гости: если один гость открыл блюдо 5 раз — это 1.
+        ${anyViews ? '«Берут» — какая доля открывших добавила блюдо в корзину.' : 'Открытия блюд начали считаться после обновления — цифры появятся, когда гости начнут смотреть меню. Пока показываю добавления в корзину.'}</p>
+      ${top.length ? `<div class="dish-stats">
+        <div class="dish-stats__row dish-stats__head"><span>Блюдо</span><span>👁 Открыли</span><span>🛒 В корзину</span><span>Берут</span></div>
+        ${top.map((x) => { const c = conv(x); const n = anyViews ? x.v : x.a; return `
+          <div class="dish-stats__row">
+            <span class="dish-stats__name"><b>${esc(x.name)}</b><i style="width:${Math.round(n / max * 100)}%"></i></span>
+            <span>${x.v}</span><span>${x.a}</span>
+            <span class="${c == null ? '' : c >= 40 ? 'is-good' : c < 15 && x.v >= 5 ? 'is-bad' : ''}">${c == null ? '—' : c + '%'}</span>
+          </div>`; }).join('')}
+      </div>` : '<p class="empty-hint">Пока нет данных</p>'}
+    </div>
+    ${weak.length ? `<div class="panel">
+      <h2>Смотрят, но не берут</h2>
+      <p class="field-hint" style="margin:-6px 0 12px;">Гости открывают эти блюда, но редко добавляют в корзину. Возможно, стоит поменять фото, описание или цену.</p>
+      <div class="stat-bars">${weak.map((x) => `<div class="stat-bar-row"><span class="stat-bar-label">${esc(x.name)}</span><span class="stat-bar-n" style="width:auto;">открыли ${x.v} · взяли ${x.a} (${conv(x)}%)</span></div>`).join('')}</div>
+    </div>` : ''}
+    ${srcRows.length ? `<div class="panel">
+      <h2>Откуда открывают и добавляют</h2>
+      <div class="dish-stats">
+        <div class="dish-stats__row dish-stats__head dish-stats__row--3"><span>Откуда</span><span>👁 Открыли</span><span>🛒 В корзину</span></div>
+        ${srcRows.map(([k, x]) => `<div class="dish-stats__row dish-stats__row--3"><span><b>${SRC_NAMES[k]}</b></span><span>${x.v}</span><span>${x.a}</span></div>`).join('')}
+      </div>
+    </div>` : ''}`;
+}
+
 function barListHTML(rows, emptyText) {
   if (!rows.length) return `<p class="empty-hint">${emptyText}</p>`;
   const max = Math.max(...rows.map((r) => r.n), 1);
@@ -1612,6 +1667,8 @@ async function renderStatsTab(container, silent = false) {
         <div class="funnel__step"><div class="funnel__n">${d.funnel.cart}</div><div class="funnel__l">открыли корзину</div></div>
       </div>
     </div>
+
+    ${dishStatsHTML(d)}
 
     <div class="panel">
       <h2>Чаще всего добавляют в корзину</h2>
@@ -1769,6 +1826,7 @@ function hitsState() {
     mode: ['auto', 'manual'].includes(H.mode) ? H.mode : 'off',
     count: Math.max(3, Math.min(12, Number(H.count) || 8)),
     days: [7, 30, 90].includes(Number(H.days)) ? Number(H.days) : 30,
+    source: ['views', 'cart', 'both'].includes(H.source) ? H.source : 'views',
     ids: ids(H.ids), exclude: ids(H.exclude),
     title_ru: H.title_ru || '', title_kk: H.title_kk || '', title_en: H.title_en || '',
     sub_ru: H.sub_ru || '', sub_kk: H.sub_kk || '', sub_en: H.sub_en || ''
@@ -1776,9 +1834,9 @@ function hitsState() {
 }
 const hitItem = (id) => state.menuItems.find((r) => String(r.id) === String(id));
 const hitLive = (r) => r && r.active !== false && r.active !== 0;
-async function loadHitsRanking(days) {
-  const r = await api(`/hits?restaurant=${state.slug}&days=${days}`);
-  state.hitsRanking = { days, rows: r.ranking || [], slug: state.slug };
+async function loadHitsRanking(days, source = 'views') {
+  const r = await api(`/hits?restaurant=${state.slug}&days=${days}&source=${source}`);
+  state.hitsRanking = { days, source, rows: r.ranking || [], slug: state.slug };
   return state.hitsRanking;
 }
 function hitRowHTML(r, num, extra, actions) {
@@ -1797,10 +1855,10 @@ function hitRowHTML(r, num, extra, actions) {
 function renderHitsTab(container) {
   const H = state.hitsDraft || hitsState();
   state.hitsDraft = H;
-  const rk = state.hitsRanking && state.hitsRanking.slug === state.slug && state.hitsRanking.days === H.days ? state.hitsRanking : null;
+  const rk = state.hitsRanking && state.hitsRanking.slug === state.slug && state.hitsRanking.days === H.days && state.hitsRanking.source === H.source ? state.hitsRanking : null;
   if (H.mode === 'auto' && !rk) {
-    container.innerHTML = '<p class="empty-hint">Считаю, что чаще всего заказывают…</p>';
-    loadHitsRanking(H.days).then(() => { if (state.tab === 'hits') renderHitsTab(container); })
+    container.innerHTML = '<p class="empty-hint">Считаю, что смотрят и заказывают…</p>';
+    loadHitsRanking(H.days, H.source).then(() => { if (state.tab === 'hits') renderHitsTab(container); })
       .catch((err) => { container.innerHTML = `<p class="empty-hint">Не получилось посчитать: ${esc(err.message)}</p>`; });
     return;
   }
@@ -1810,14 +1868,15 @@ function renderHitsTab(container) {
   let body = '';
   if (H.mode === 'auto') {
     const ex = new Set(H.exclude);
-    const ranked = rk.rows.map((x) => ({ r: hitItem(x.id), n: x.n })).filter((x) => x.r && hitLive(x.r));
+    const ranked = rk.rows.map((x) => ({ r: hitItem(x.id), v: x.v, a: x.a })).filter((x) => x.r && hitLive(x.r));
     const shown = ranked.filter((x) => !ex.has(String(x.r.id))).slice(0, H.count);
     const hidden = H.exclude.map(hitItem).filter(Boolean);
     body = `
       <h2 style="margin:18px 0 6px;">Сейчас в Хитах</h2>
-      <p class="field-hint" style="margin-bottom:10px;">Порядок — по тому, сколько раз блюдо добавили в корзину за ${H.days} дн. Обновляется само.
+      <p class="field-hint" style="margin-bottom:10px;">${{ views: 'Порядок — по тому, сколько гостей открыли блюдо', cart: 'Порядок — по тому, сколько гостей добавили блюдо в корзину', both: 'Порядок — по открытиям и добавлениям в корзину (корзина весит вдвое больше)' }[H.source]} за ${H.days} дн. Обновляется само.
+        ${H.source === 'views' ? 'Пока открытий мало, свободные места занимают блюда, которые чаще кладут в корзину.' : ''}
         Не хотите что-то видеть в Хитах (например, хлеб или пиво)? Нажмите «Скрыть» — на его место встанет следующее.</p>
-      <div class="rows">${shown.length ? shown.map((x, i) => hitRowHTML(x.r, i + 1, `${x.n} раз в корзину`,
+      <div class="rows">${shown.length ? shown.map((x, i) => hitRowHTML(x.r, i + 1, `👁 ${x.v} открыли · 🛒 ${x.a} в корзину`,
         `<button type="button" class="btn btn-outline btn-sm" data-hit-hide="${x.r.id}">Скрыть</button>`)).join('')
         : '<p class="empty-hint">Пока мало данных — гости ещё ничего не добавляли в корзину за этот период. Попробуйте период побольше или выберите «Вручную».</p>'}</div>
       ${shown.length === 1 ? '<p class="field-hint">Лента появится на сайте, когда в ней будет хотя бы 2 блюда.</p>' : ''}
@@ -1835,7 +1894,7 @@ function renderHitsTab(container) {
         : '<p class="empty-hint">Пока пусто — найдите блюда ниже и добавьте.</p>'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 8px;">
         <input type="text" id="hitFind" placeholder="🔍 Найти блюдо, чтобы добавить…" style="flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px;">
-        <button type="button" class="btn btn-outline btn-sm" id="hitFromAuto" style="height:auto;">Взять популярные по заказам</button>
+        <button type="button" class="btn btn-outline btn-sm" id="hitFromAuto" style="height:auto;">Взять популярные</button>
       </div>
       <div class="rows" id="hitFound"></div>`;
   } else {
@@ -1849,13 +1908,14 @@ function renderHitsTab(container) {
         Лента карточек с крупными номерами 1, 2, 3… над поиском: фото, название, цена и кнопка «+».
         Гость листает её вбок, нажатие на карточку открывает блюдо.
       </p>
-      <div class="field"><label>Как подбирать</label>${seg('hmode', [['off', 'Выключено'], ['auto', 'Автоматически — по заказам'], ['manual', 'Вручную']], H.mode)}</div>
+      <div class="field"><label>Как подбирать</label>${seg('hmode', [['off', 'Выключено'], ['auto', 'Автоматически'], ['manual', 'Вручную']], H.mode)}</div>
       ${H.mode !== 'off' ? `
         <div class="field-row">
           <div class="field"><label>Сколько карточек</label>
             <select id="hCount">${[3,4,5,6,7,8,9,10,11,12].map((n) => `<option value="${n}" ${n === H.count ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-          ${H.mode === 'auto' ? `<div class="field"><label>Считать заказы за</label>${seg('hdays', [[7, '7 дней'], [30, '30 дней'], [90, '90 дней']], H.days)}</div>` : '<div></div>'}
-        </div>` : ''}
+          ${H.mode === 'auto' ? `<div class="field"><label>Считать за</label>${seg('hdays', [[7, '7 дней'], [30, '30 дней'], [90, '90 дней']], H.days)}</div>` : '<div></div>'}
+        </div>
+        ${H.mode === 'auto' ? `<div class="field"><label>Что считать</label>${seg('hsrc', [['views', '👁 Что чаще открывают'], ['cart', '🛒 Что чаще кладут в корзину'], ['both', 'И то, и другое']], H.source)}</div>` : ''}` : ''}
       ${body}
       ${H.mode !== 'off' ? `
         <details style="margin-top:18px;">
@@ -1874,6 +1934,7 @@ function renderHitsTab(container) {
   const redraw = () => renderHitsTab(container);
   const readTexts = () => container.querySelectorAll('[data-htext]').forEach((i) => { H[i.dataset.htext] = i.value.trim(); });
   container.querySelectorAll('[data-hmode]').forEach((b) => { b.onclick = () => { readTexts(); H.mode = b.dataset.hmode; redraw(); }; });
+  container.querySelectorAll('[data-hsrc]').forEach((b) => { b.onclick = () => { readTexts(); H.source = b.dataset.hsrc; redraw(); }; });
   container.querySelectorAll('[data-hdays]').forEach((b) => { b.onclick = () => { readTexts(); H.days = Number(b.dataset.hdays); redraw(); }; });
   const cnt = document.getElementById('hCount');
   if (cnt) cnt.onchange = () => { readTexts(); H.count = Number(cnt.value); redraw(); };
@@ -1902,7 +1963,7 @@ function renderHitsTab(container) {
       readTexts();
       e.target.disabled = true;
       try {
-        const r = await loadHitsRanking(H.days);
+        const r = await loadHitsRanking(H.days, H.source);
         const ex = new Set(H.exclude);
         const top = r.rows.map((x) => String(x.id)).filter((id) => hitLive(hitItem(id)) && !ex.has(id) && !H.ids.includes(id));
         if (!top.length) { toast('Пока нет данных о заказах'); e.target.disabled = false; return; }

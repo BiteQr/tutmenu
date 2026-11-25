@@ -859,15 +859,27 @@
   /* ---------------------------------------------------------
      ДОБАВЛЕНИЕ В КОРЗИНУ (общий обработчик, используется и корзиной)
      --------------------------------------------------------- */
-  function handleAdd(id, sourceBtn) {
+  /** Откуда гость открыл или добавил блюдо — для статистики: hits | menu | ai | rec | dish | promo | cart */
+  function srcOf(el) {
+    if (!el || !el.closest) return '';
+    if (el.closest('#hits')) return 'hits';
+    if (el.closest('#aiPick')) return 'ai';
+    if (el.closest('.rec-card, [data-rec-add], [data-open-rec]')) return 'rec';
+    if (el.closest('#sections')) return 'menu';
+    return '';
+  }
+  let variantSrc = '';   // откуда открыли выбор варианта — чтобы и добавление записалось с тем же источником
+
+  function handleAdd(id, sourceBtn, src) {
     const item = Cart.getItem(id);
     if (!item) return;
-    if (item.variants.length > 1) { openVariantSheet(item); return; }
+    src = src || srcOf(sourceBtn) || 'cart';
+    if (item.variants.length > 1) { variantSrc = src; openVariantSheet(item); return; }
     Cart.add(id, item.variants.length === 1 ? 0 : -1);
     bump(sourceBtn);
     flyToCart(sourceBtn);
     toast(I18n.t('added'));
-    App.track('add_to_cart', { id: item.id, title: I18n.f(item, 'title') });
+    App.track('add_to_cart', { id: item.id, title: I18n.f(item, 'title'), src });
   }
 
   function openVariantSheet(item) {
@@ -926,13 +938,13 @@
         overlay.close(itemDetailModal);
         toast(I18n.t('added'));
         bump($(`.add-btn[data-add="${CSS.escape(pick.dataset.detailPick)}"]`, els.sections));
-        App.track('add_to_cart', { id: pick.dataset.detailPick });
+        App.track('add_to_cart', { id: pick.dataset.detailPick, src: 'dish' });
         return;
       }
       const addBtn = t.closest('[data-detail-add]');
       if (addBtn) {
         overlay.close(itemDetailModal);
-        handleAdd(addBtn.dataset.detailAdd, $(`.add-btn[data-add="${CSS.escape(addBtn.dataset.detailAdd)}"]`, els.sections));
+        handleAdd(addBtn.dataset.detailAdd, $(`.add-btn[data-add="${CSS.escape(addBtn.dataset.detailAdd)}"]`, els.sections), 'dish');
         return;
       }
       // «С этим берут»: «+» — сразу в заказ, тап по карточке — открыть то блюдо
@@ -941,14 +953,14 @@
       const recAdd = t.closest('[data-rec-add]');
       if (recAdd) {
         const rec = Cart.getItem(recAdd.dataset.recAdd);
-        if (rec && rec.variants.length) { overlay.close(itemDetailModal); handleAdd(rec.id, null); return; }
+        if (rec && rec.variants.length) { overlay.close(itemDetailModal); handleAdd(rec.id, null, 'rec'); return; }
         handleAdd(recAdd.dataset.recAdd, recAdd);
         return;
       }
       const recOpen = t.closest('[data-open-rec]');
       if (recOpen) {
         const rec = Cart.getItem(recOpen.dataset.openRec);
-        if (rec) openItemDetail(rec);
+        if (rec) openItemDetail(rec, null, 'rec');
       }
     });
     return itemDetailModal;
@@ -1082,8 +1094,9 @@
     stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
   }
 
-  function openItemDetail(it, origin) {
+  function openItemDetail(it, origin, src) {
     const modal = getItemDetailModal();
+    App.track('view_item', { id: it.id, src: src || srcOf(origin) || 'menu' });
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
     const hasVariants = it.variants.length > 0;
@@ -1350,7 +1363,7 @@
         overlay.close(ov);
         toast(I18n.t('added'));
         bump($(`.add-btn[data-add="${CSS.escape(pick.dataset.pick)}"]`, els.sections));
-        App.track('add_to_cart', { id: pick.dataset.pick });
+        App.track('add_to_cart', { id: pick.dataset.pick, src: variantSrc || 'menu' });
       }
     });
   });

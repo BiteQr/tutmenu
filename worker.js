@@ -125,6 +125,7 @@ function parseLunch(v) {
 /* ---------- ХИТЫ — лента «🔥 Хиты · чаще всего заказывают» над поиском ----------
    Хранится JSON в restaurants.hits:
    { mode: 'off' | 'auto' | 'manual', count: 3..12, days: 7|30|90,
+     source: 'views' | 'cart' | 'both' — что считать в авто-режиме: открытия блюда, добавления в корзину или всё вместе,
      ids: [id…]      — ручной список (порядок = номера 1, 2, 3…),
      exclude: [id…]  — что не показывать в авто-режиме (например, пиво или хлеб),
      title_ru/kk/en, sub_ru/kk/en — свои подписи (пусто — «Хиты» / «чаще всего заказывают») } */
@@ -139,13 +140,15 @@ function parseHits(v) {
     mode: ['auto', 'manual'].includes(o.mode) ? o.mode : 'off',
     count: Math.max(3, Math.min(12, Math.round(Number(o.count) || 8))),
     days: HITS_DAYS.includes(Number(o.days)) ? Number(o.days) : 30,
+    source: ['views', 'cart', 'both'].includes(o.source) ? o.source : 'views',
     ids: ids(o.ids), exclude: ids(o.exclude),
     title_ru: txt(o.title_ru), title_kk: txt(o.title_kk), title_en: txt(o.title_en),
     sub_ru: txt(o.sub_ru), sub_kk: txt(o.sub_kk), sub_en: txt(o.sub_en)
   };
 }
 
-/** Что чаще всего добавляют в корзину за последние N дней. Меню открывают часто —
+/** Сколько разных гостей открыли блюдо (v) и добавили его в корзину (a) за последние N дней.
+ *  Один гость, открывший блюдо пять раз, считается один раз. Меню открывают часто —
  *  поэтому держим результат в памяти сервера 15 минут, а не считаем на каждый заход. */
 const HITS_CACHE = new Map();
 async function hitsRanking(env, slug, days, fresh = false) {
@@ -153,12 +156,23 @@ async function hitsRanking(env, slug, days, fresh = false) {
   const c = HITS_CACHE.get(key);
   if (!fresh && c && Date.now() - c.at < 15 * 60e3) return c.rows;
   const rows = (await env.DB.prepare(
-    `SELECT ref_id id, COUNT(*) n FROM events
-     WHERE restaurant_id = ?1 AND type = 'add_to_cart' AND ref_id <> '' AND created_at >= datetime('now', ?2)
-     GROUP BY ref_id ORDER BY n DESC LIMIT 80`
-  ).bind(slug, `-${days} days`).all()).results;
+    `SELECT ref_id id, SUM(type = 'view_item') v, SUM(type = 'add_to_cart') a FROM (
+       SELECT DISTINCT session_id, ref_id, type FROM events
+       WHERE restaurant_id = ?1 AND type IN ('view_item', 'add_to_cart') AND ref_id <> '' AND created_at >= datetime('now', ?2)
+     ) GROUP BY ref_id ORDER BY v + a DESC LIMIT 150`
+  ).bind(slug, `-${days} days`).all()).results.map((r) => ({ id: String(r.id), v: Number(r.v) || 0, a: Number(r.a) || 0 }));
   HITS_CACHE.set(key, { at: Date.now(), rows });
   return rows;
+}
+/** Порядок для Хитов. «По просмотрам»: сначала по открытиям; пока открытий мало
+ *  (функция только появилась), свободные места добираются тем, что чаще кладут в корзину. */
+function hitsOrder(rows, source) {
+  const by = (f) => rows.filter((r) => f(r) > 0).sort((x, y) => f(y) - f(x) || (y.v + y.a) - (x.v + x.a));
+  if (source === 'cart') return by((r) => r.a);
+  if (source === 'both') return by((r) => r.v + 2 * r.a);
+  const viewed = by((r) => r.v);
+  const seen = new Set(viewed.map((r) => r.id));
+  return [...viewed, ...by((r) => r.a).filter((r) => !seen.has(r.id))];
 }
 
 /** Готовый список для гостя: только включённые блюда этого меню, не меньше двух */
@@ -171,11 +185,11 @@ async function hitsFor(env, restaurant, menuItems) {
   else {
     const skip = new Set(H.exclude);
     const rows = await hitsRanking(env, restaurant.slug, H.days).catch(() => []);
-    ids = rows.map((r) => String(r.id)).filter((id) => live.has(id) && !skip.has(id));
+    ids = hitsOrder(rows, H.source).map((r) => r.id).filter((id) => live.has(id) && !skip.has(id));
   }
   ids = ids.slice(0, H.count);
   if (ids.length < 2) return null;
-  const { mode, count, days, exclude, ids: _ids, ...texts } = H;
+  const { mode, count, days, source, exclude, ids: _ids, ...texts } = H;
   return { ids, ...texts };
 }
 
@@ -509,7 +523,7 @@ ${menuText}`;
 /* ---------- POST /api/track — публично, своя аналитика без Яндекс.Метрики ----------
    Тело: { restaurantId, sessionId, type, path?, refId?, refTitle?, value? }
    type: hit | add_to_cart | view_promo | view_category | order_placed | session_end */
-const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch', 'view_ar', 'show_waiter']);
+const EVENT_TYPES = new Set(['hit', 'add_to_cart', 'view_promo', 'view_category', 'order_placed', 'session_end', 'ai_search', 'view_lunch', 'view_ar', 'show_waiter', 'view_item']);
 
 async function handleTrack(request, env) {
   let body;
@@ -562,6 +576,16 @@ async function handleAdminApi(request, env, segments) {
       env.DB.prepare(`SELECT AVG(value) sec FROM events WHERE restaurant_id=? AND type='session_end' AND value > 0 AND created_at >= ${since}`).bind(slug).first()
     ]);
 
+    // Блюда: сколько разных гостей открыли карточку и сколько добавили в корзину; откуда пришли
+    const [dishes, sources] = await Promise.all([
+      env.DB.prepare(`SELECT ref_id id, MAX(ref_title) title, SUM(type = 'view_item') v, SUM(type = 'add_to_cart') a FROM (
+          SELECT DISTINCT session_id, ref_id, ref_title, type FROM events
+          WHERE restaurant_id = ?1 AND type IN ('view_item', 'add_to_cart') AND ref_id <> '' AND created_at >= ${since}
+        ) GROUP BY ref_id ORDER BY v DESC, a DESC LIMIT 300`).bind(slug).all(),
+      env.DB.prepare(`SELECT path src, type, COUNT(*) n FROM events
+          WHERE restaurant_id = ?1 AND type IN ('view_item', 'add_to_cart') AND created_at >= ${since} GROUP BY path, type`).bind(slug).all()
+    ]);
+
     const hitMap = Object.fromEntries(hits.results.map((r) => [r.path, r.n]));
     return json({
       days,
@@ -570,6 +594,8 @@ async function handleAdminApi(request, env, segments) {
       funnel: { welcome: hitMap.welcome || 0, menu: hitMap.menu || 0, cart: hitMap.cart || 0 },
       topAddedToCart: addToCart.results,
       topCategories: categories.results,
+      dishes: dishes.results.map((r) => ({ id: String(r.id), title: r.title || '', v: Number(r.v) || 0, a: Number(r.a) || 0 })),
+      sources: sources.results,
       orders: { count: orders.n || 0, revenue: orders.revenue || 0 },
       avgSeconds: duration.sec ? Math.round(duration.sec) : null
     });
@@ -679,8 +705,9 @@ async function handleAdminApi(request, env, segments) {
     const auth = await authorize(env, request, slug);
     if (!auth.ok) return json({ error: auth.error }, { status: auth.status });
     const days = HITS_DAYS.includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
+    const source = ['views', 'cart', 'both'].includes(url.searchParams.get('source')) ? url.searchParams.get('source') : 'views';
     const rows = await hitsRanking(env, slug, days, true);
-    return json({ days, ranking: rows.map((r) => ({ id: String(r.id), n: r.n })) });
+    return json({ days, source, ranking: hitsOrder(rows, source) });
   }
 
   const def = ADMIN_TABLES[section];

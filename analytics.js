@@ -85,7 +85,10 @@ window.App.track = window.App.track || function () {};
     App.track = (goal, params = {}) => {
       try {
         const extra = { type: goal };
-        if (goal === 'add_to_cart') { extra.refId = params.id; extra.refTitle = params.title || lookupTitle('item', params.id); }
+        if (goal === 'add_to_cart' || goal === 'view_item') {
+          extra.refId = params.id; extra.refTitle = params.title || lookupTitle('item', params.id);
+          if (params.src) extra.path = String(params.src).slice(0, 16);   // откуда: hits / menu / ai / rec / dish / cart
+        }
         else if (goal === 'view_promo') { extra.refId = params.id; extra.refTitle = lookupTitle('promo', params.id); }
         else if (goal === 'view_category') { extra.refId = params.id; extra.refTitle = lookupTitle('category', params.id); }
         else if (goal === 'order_placed') { extra.value = params.total; }
