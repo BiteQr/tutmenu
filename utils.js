@@ -52,17 +52,33 @@ window.App = window.App || {};
     '<path d="M24 30v14M28 30v14M26 44v26M76 30c-4 4-4 14 0 18v22" stroke="#c7c7cc" stroke-width="3" fill="none" stroke-linecap="round"/></svg>'
   );
 
-  /** <img> с lazy-load и фолбэком */
-  const img = (src, cls, alt = '', eager = false) =>
-    `<img class="${cls}" src="${esc(safeUrl(src) || PLACEHOLDER)}" alt="${esc(alt)}" data-fb ` +
-    `${eager ? '' : 'loading="lazy"'} decoding="async">`;
+  /** <img> с lazy-load, «загружается…» и фолбэком.
+   *  thumb — лёгкая копия (640 px WebP) для карточек. Если её ещё нет в хранилище —
+   *  просим сервер сделать (/files/_t/…), не вышло — берём оригинал, и только потом заглушка. */
+  const img = (src, cls, alt = '', eager = false, thumb = '') => {
+    const full = safeUrl(src);
+    const t = thumb && safeUrl(thumb);
+    const i = t ? t.indexOf('/_t/') : -1;
+    const gen = i > 0 && !t.startsWith('/files/') ? '/files' + t.slice(i) : '';
+    return `<img class="${cls} lz" src="${esc(t || full || PLACEHOLDER)}" alt="${esc(alt)}" data-fb` +
+      (t && full ? ` data-full="${esc(full)}"` : '') + (gen ? ` data-gen="${esc(gen)}"` : '') +
+      ` ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async">`;
+  };
 
   document.addEventListener('error', (e) => {
     const t = e.target;
-    if (t && t.tagName === 'IMG' && t.hasAttribute('data-fb') && !t.dataset.failed) {
-      t.dataset.failed = '1';
-      t.src = PLACEHOLDER;
-    }
+    if (!t || t.tagName !== 'IMG' || !t.hasAttribute('data-fb') || t.dataset.failed) return;
+    const st = t.dataset.st || '';
+    if (!st && t.dataset.gen) { t.dataset.st = 'gen'; t.src = t.dataset.gen; return; }
+    if (st !== 'full' && t.dataset.full) { t.dataset.st = 'full'; t.src = t.dataset.full; return; }
+    t.dataset.failed = '1';
+    t.classList.add('is-loaded');
+    t.src = PLACEHOLDER;
+  }, true);
+  // Фото пришло — убираем «загружается» и мягко показываем
+  document.addEventListener('load', (e) => {
+    const t = e.target;
+    if (t && t.tagName === 'IMG' && t.classList.contains('lz')) t.classList.add('is-loaded');
   }, true);
 
   /** Toast-уведомление */

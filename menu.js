@@ -205,8 +205,8 @@
   /** Фото блюда/категории — если фото не загружено, показываем свою заглушку
    *  (иконка на фоне из палитры темы), а не пустое место. Ничего не грузится
    *  извне — не может сломаться или не отрисоваться. */
-  function photoHTML(src, cls, alt, eager) {
-    if (src) return img(src, cls, alt, eager);
+  function photoHTML(src, cls, alt, eager, thumb) {
+    if (src) return img(src, cls, alt, eager, thumb);
     return `<div class="${cls} img-ph" aria-hidden="true">🍽</div>`;
   }
 
@@ -223,7 +223,7 @@
     ).join('')}</div>`;
   }
 
-  function itemHTML(it, secTitle = '') {
+  function itemHTML(it, secTitle = '', eager = false) {
     const title = I18n.f(it, 'title');
     const desc = I18n.f(it, 'description');
     const hasVariants = it.variants.length > 0;
@@ -232,7 +232,7 @@
 
     return `
       <article class="item" id="item-${esc(it.id)}" data-search="${esc(searchStr)}">
-        ${photoHTML(it.image, 'item__img', title)}
+        ${photoHTML(it.image, 'item__img', title, eager, it.thumb)}
         <div class="item__body">
           ${badgesHTML(it.badges)}
           <h3 class="item__title">${esc(title)}</h3>
@@ -280,7 +280,7 @@
         return `
           <article class="hit" data-hit="${esc(it.id)}">
             <div class="hit__media">
-              ${photoHTML(it.image, 'hit__img', t, i < 3)}
+              ${photoHTML(it.image, 'hit__img', t, i < 3, it.thumb)}
               <span class="hit__num" aria-hidden="true">${i + 1}</span>
             </div>
             <div class="hit__body">
@@ -300,7 +300,7 @@
     els.cats.hidden = tree.filter((g) => g.cat).length < 2;
     els.cats.innerHTML = tree.filter((g) => g.cat).map(({ cat }) =>
       `<button type="button" class="cat" data-cat="${esc(cat.id)}">
-         ${photoHTML(cat.image, 'cat__img', I18n.f(cat, 'title'), true)}
+         ${photoHTML(cat.image, 'cat__img', I18n.f(cat, 'title'), true, cat.thumb)}
          <span class="cat__title">${esc(I18n.f(cat, 'title'))}</span>
        </button>`).join('');
 
@@ -314,13 +314,14 @@
     const photoNote = hasPhotos
       ? `<p class="menu-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('photoNote'))}</span></p>` : '';
 
+    let shown = 0;   // первые блюда на экране грузим сразу, остальные — по мере прокрутки
     els.sections.innerHTML = photoNote + ordered.map(({ s, catId }) => {
         const sub = I18n.f(s, 'subtitle');
         return `
           <section class="section" id="sec-${esc(s.id)}" data-sec="${esc(s.id)}" data-cat="${esc(catId)}">
             <h2 class="section__title">${esc(I18n.f(s, 'title'))}</h2>
             ${sub ? `<p class="section__sub">${esc(sub)}</p>` : ''}
-            <div class="items">${itemsBySec.get(s.id).map((it) => itemHTML(it, I18n.f(s, 'title'))).join('')}</div>
+            <div class="items">${itemsBySec.get(s.id).map((it) => itemHTML(it, I18n.f(s, 'title'), shown++ < 4)).join('')}</div>
           </section>`;
       }).join('');
 
@@ -810,7 +811,7 @@
       const price = it.variants.length ? it.variants[0].price : it.price;
       return `
         <div class="ai-card" data-ai-open="${esc(it.id)}">
-          ${photoHTML(it.image, 'ai-card__img', title)}
+          ${photoHTML(it.image, 'ai-card__img', title, false, it.thumb)}
           <div class="ai-card__body">
             <div class="ai-card__title">${esc(title)}</div>
             ${reason ? `<div class="ai-card__reason">${esc(reason)}</div>` : ''}
@@ -1000,7 +1001,7 @@
         <div class="detail-recs__row">
           ${recs.map((r) => `
             <div class="rec-card" data-open-rec="${esc(r.id)}">
-              ${photoHTML(r.image, 'rec-card__img', I18n.f(r, 'title'))}
+              ${photoHTML(r.image, 'rec-card__img', I18n.f(r, 'title'), false, r.thumb)}
               <div class="rec-card__title">${esc(I18n.f(r, 'title'))}</div>
               <div class="rec-card__foot${recQty(r.id) ? ' is-added' : ''}" data-rec-foot="${esc(r.id)}">
                 <span class="rec-card__price">${recQty(r.id) ? '✓ ' + esc(I18n.t('recAdded')) : r.variants.length ? `${esc(I18n.t('from'))} ${money(Math.min(...r.variants.map((v) => v.price)))}` : money(r.price)}</span>
@@ -1103,7 +1104,7 @@
     markTipSeen(); // гость сам нашёл, что блюдо открывается — подсказка больше не нужна
 
     $('.overlay__content', modal).innerHTML = `
-      <div class="item-detail__media">${photoHTML(it.image, 'item-detail__img', title, true)}${viewBtnsHTML(it)}</div>
+      <div class="item-detail__media"${it.thumb ? ` style="--ph:url('${esc(safeUrl(it.thumb))}')"` : ''}>${photoHTML(it.image, 'item-detail__img', title, true)}${viewBtnsHTML(it)}</div>
       ${it.image ? `<p class="dish-photo-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span>${esc(I18n.t('photoNote'))}</span></p>` : ''}
       <div class="promo-full__body${it.image ? ' promo-full__body--after-note' : ''}">
         ${badgesHTML(it.badges)}

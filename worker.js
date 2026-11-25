@@ -326,7 +326,7 @@ async function handleMenu(request, env) {
       };
     }),
     categories: categories.results.map((r) => ({
-      id: String(r.id), image: lu(r.image),
+      id: String(r.id), image: lu(r.image), thumb: thumbUrl(lu(r.image)),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en
     })),
     sections: sections.results.map((r) => ({
@@ -335,7 +335,7 @@ async function handleMenu(request, env) {
       subtitle_ru: r.subtitle_ru, subtitle_kk: r.subtitle_kk, subtitle_en: r.subtitle_en
     })),
     menuItems: items.results.map((r) => ({
-      id: String(r.id), sectionId: r.section_id ? String(r.section_id) : '', image: lu(r.image),
+      id: String(r.id), sectionId: r.section_id ? String(r.section_id) : '', image: lu(r.image), thumb: thumbUrl(lu(r.image)),
       title_ru: r.title_ru, title_kk: r.title_kk, title_en: r.title_en,
       description_ru: r.description_ru, description_kk: r.description_kk, description_en: r.description_en,
       price: r.price || 0,
@@ -998,11 +998,59 @@ async function handleUpload(request, env) {
 
   const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const key = `${slug}/${crypto.randomUUID()}.${ext}`;
-  await env.BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+  await env.BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' } });
+  if (isImage) { try { await makeThumb(env, key); } catch (err) { console.warn('thumb', key, String(err)); } }
 
   // Ссылка без домена: фото открывается с того же адреса, что и меню (tipagraf.kz и т.п.),
   // без лишнего соединения с отдельным *.workers.dev — это заметно быстрее на телефоне.
   return json({ ok: true, url: `/files/${key}` });
+}
+
+/* ---------- ЛЁГКИЕ КОПИИ ФОТО для списка меню ----------
+   Оригиналы — 1280 px JPEG по 300–500 КБ: для карточки шириной в треть экрана это в разы больше нужного.
+   Рядом с оригиналом в R2 кладём копию 640 px WebP: _t/640/<ключ оригинала>.webp.
+   Делается при загрузке фото, раз в час для старых фото и сразу, если гость попросил копию, которой ещё нет. */
+const THUMB_W = 640;
+const THUMB_RE = /\.(jpe?g|png|webp|heic|heif|avif)$/i;
+const thumbKey = (key, w = THUMB_W) => `_t/${w}/${key}.webp`;
+/** /files/<ключ> → /files/_t/640/<ключ>.webp (только наши фото в R2) */
+function thumbUrl(u) {
+  const m = typeof u === 'string' && u.match(/^\/files\/(.+)$/);
+  return m && THUMB_RE.test(m[1]) && !m[1].startsWith('_t/') ? `/files/${thumbKey(m[1])}` : '';
+}
+async function makeThumb(env, key, w = THUMB_W) {
+  if (!env.IMAGES || !THUMB_RE.test(key) || key.startsWith('_t/')) return null;
+  const obj = await env.BUCKET.get(key);
+  if (!obj) return null;
+  const res = await env.IMAGES.input(obj.body)
+    .transform({ width: w, fit: 'scale-down' })
+    .output({ format: 'image/webp', quality: 76 });
+  const buf = await res.response().arrayBuffer();
+  if (!buf.byteLength) return null;
+  await env.BUCKET.put(thumbKey(key, w), buf, { httpMetadata: { contentType: 'image/webp', cacheControl: 'public, max-age=31536000, immutable' } });
+  return buf;
+}
+/** Раз в час: доделываем копии для фото, у которых их ещё нет (понемногу, чтобы не упереться в лимиты) */
+async function thumbsBackfill(env, limit = 30) {
+  if (!env.IMAGES) return;
+  const rows = (await env.DB.prepare(
+    `SELECT image u FROM menu_items WHERE image LIKE '%/files/%' UNION SELECT image FROM categories WHERE image LIKE '%/files/%'`
+  ).all()).results;
+  const keys = [...new Set(rows.map((r) => (String(r.u).match(/\/files\/(.+)$/) || [])[1]).filter((k) => k && THUMB_RE.test(k) && !k.startsWith('_t/')))];
+  const have = new Set();
+  let cursor;
+  do {
+    const l = await env.BUCKET.list({ prefix: `_t/${THUMB_W}/`, cursor });
+    l.objects.forEach((o) => have.add(o.key));
+    cursor = l.truncated ? l.cursor : undefined;
+  } while (cursor);
+  let done = 0;
+  for (const k of keys) {
+    if (done >= limit) break;
+    if (have.has(thumbKey(k))) continue;
+    try { await makeThumb(env, k); } catch (err) { console.warn('thumb', k, String(err)); }
+    done++;
+  }
 }
 
 /* ---------- GET /files/<slug>/<файл> — публично ---------- */
@@ -1013,6 +1061,15 @@ async function handleUpload(request, env) {
 async function handleFiles(request, env, ctx, segments) {
   const key = segments.join('/');
   if (!key) return new Response('Not found', { status: 404 });
+
+  // Лёгкой копии ещё нет — делаем прямо сейчас, сохраняем и отдаём (следующие гости получат её из хранилища)
+  const tm = key.match(/^_t\/(\d+)\/(.+)\.webp$/);
+  if (tm && Number(tm[1]) === THUMB_W && !(await env.BUCKET.head(key))) {
+    let buf = null;
+    try { buf = await makeThumb(env, tm[2]); } catch (err) { console.warn('thumb', key, String(err)); }
+    if (!buf) return new Response('Not found', { status: 404 });
+    return new Response(buf, { headers: { 'content-type': 'image/webp', 'cache-control': 'public, max-age=31536000, immutable' } });
+  }
 
   // Диагностика: /files/...?info=1 — размер, тип и какой кодек внутри (для разбора «видео не играет»).
   // Файлы и так публичные, тут только их техническое описание.
@@ -1164,7 +1221,10 @@ async function serveIndexWithSeo(request, env, url) {
     '@context': 'https://schema.org', '@type': 'Restaurant', name, url: canonical, description: desc,
     ...(image ? { image } : {}), hasMenu: canonical, acceptsReservations: true
   };
-  const head = `
+  // Фото идут с отдельного адреса хранилища — соединяемся с ним заранее, пока грузится меню
+  const cdn = await filesOrigin(env).catch(() => '');
+  const head = `${cdn ? `
+    <link rel="preconnect" href="${escHtml(cdn)}">` : ''}
     <meta name="description" content="${escHtml(desc)}">
     <link rel="canonical" href="${escHtml(canonical)}">
     <meta property="og:type" content="website">
@@ -2085,6 +2145,7 @@ async function serveRestaurantPage(request, env, url, rest) {
 const handler = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(cleanupDemos(env));
+    ctx.waitUntil(thumbsBackfill(env).catch((err) => console.warn('thumbs', String(err))));
     if (new Date().getUTCHours() === 4) { ctx.waitUntil(usageReport(env)); ctx.waitUntil(billingReminders(env)); }   // 9:17 по Уральску
   },
   /* Обёртка: базовые заголовки безопасности на все ответы */

@@ -43,7 +43,7 @@
     const variant = l.variant ? (l.variant.label || I18n.t('byDefault')) : I18n.t('byDefault');
     return `
       <div class="citem">
-        ${img(l.item.image, 'citem__img', title)}
+        ${img(l.item.image, 'citem__img', title, false, l.item.thumb)}
         <div class="citem__body">
           <div class="citem__top">
             <h3 class="citem__title">${esc(title)}</h3>
@@ -68,7 +68,7 @@
     const q = qtyOf(it.id);
     return `
       <div class="rec${q ? ' is-added' : ''}" data-rec="${esc(it.id)}" role="button" tabindex="0">
-        ${img(it.image, 'rec__img', title)}
+        ${img(it.image, 'rec__img', title, false, it.thumb)}
         <span class="rec__title">${esc(title)}</span>
         ${q ? `<span class="rec__added">${esc(I18n.t('recAdded'))}</span>
           <span class="rec__step">
